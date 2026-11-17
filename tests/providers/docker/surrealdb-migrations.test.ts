@@ -18,7 +18,12 @@ import {
   surrealUrl,
 } from "@tests/fixtures/drivers/surrealdb";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { describe, expect, it } from "vitest";
+import type { Surreal } from "surrealdb";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /** The read that waits for builds in the background (`awaitIndexBuilds`). */
 const BUILDS_READ = '.status != "ready"';
@@ -45,6 +50,24 @@ const push = async (client: Client) => {
 
 const preview = (client: Client) =>
   createMigrationClient(client).push({ dryRun: true });
+
+/**
+ * `rewrite` over each statement of a request the driver sends as one batch:
+ * a push of new tables sends each operation so (`executeBatch`).
+ */
+function rewriteBatches(driver: object, rewrite: (sql: string) => string) {
+  const executeBatch = (driver as any).executeBatch.bind(driver);
+  (driver as any).executeBatch = (
+    client: never,
+    queries: readonly { sql: string }[],
+    ...rest: unknown[]
+  ) =>
+    executeBatch(
+      client,
+      queries.map((query) => ({ ...query, sql: rewrite(query.sql) })),
+      ...rest
+    );
+}
 
 const statements = (plan: { statements: readonly { sql: string }[] }) =>
   plan.statements.map(({ sql }) => sql);
@@ -988,6 +1011,10 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
 
   it("build in the background, and push returns once each is ready", async () => {
     const driver = createSurrealRecordingDriver();
+    rewriteBatches(driver, (sql) => {
+      driver.statements.push(sql);
+      return sql;
+    });
     const db = clientOf(schema(), driver);
     await using(db, async () => {
       await (driver as unknown as { fresh(): Promise<void> }).fresh();
@@ -1018,6 +1045,51 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
         db.item.create({ data: { id: "b", email: "same", rank: 2 } })
       ).rejects.toThrow();
       expect((await preview(db)).outcome).toBe("noop");
+    });
+  });
+
+  it("are waited for while one more is ready every few minutes, each read renewing the lock's lease", async () => {
+    const driver = createSurrealRecordingDriver();
+    // Each read of the builds comes four minutes after the one before, and
+    // finds one fewer building: past the five minutes a build may stand still.
+    const now = Date.now;
+    let skew = 0;
+    let reads = 0;
+    const renewed: boolean[] = [];
+    vi.spyOn(Date, "now").mockImplementation(() => now.call(Date) + skew);
+    const execute = (driver as any).execute.bind(driver);
+    (driver as any).execute = async (
+      client: never,
+      statement: string,
+      params: unknown[]
+    ) => {
+      const answer = await execute(client, statement, params);
+      if (!statement.includes(BUILDS_READ)) return answer;
+      skew += 240_000;
+      reads += 1;
+      renewed.push(
+        statement.startsWith(
+          "UPDATE viborm_migration_lock:command SET at = time::now() RETURN NONE;"
+        )
+      );
+      const building = Math.max(0, 3 - reads);
+      return building === 0
+        ? answer
+        : {
+            rows: Array.from({ length: building }, (_, at) => ({
+              table: "item",
+              name: `item_${at}`,
+              status: "started",
+            })),
+            rowCount: building,
+          };
+    };
+    const db = clientOf(schema(), driver);
+    await using(db, async () => {
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      expect((await push(db)).outcome).toBe("applied");
+      expect(reads).toBe(3);
+      expect(renewed).toEqual([true, true, true]);
     });
   });
 
@@ -1142,21 +1214,13 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
 
   it("a build that fails refuses the push by name, its statements committed", async () => {
     const driver = createSurrealRecordingDriver();
-    // Two rows holding one email, written in the push's own transaction just
-    // ahead of the unique index over it.
-    const execute = (driver as any).execute.bind(driver);
-    (driver as any).execute = (
-      client: never,
-      statement: string,
-      params: unknown[]
-    ) =>
-      execute(
-        client,
-        statement.includes("UNIQUE CONCURRENTLY")
-          ? `CREATE item:a SET email = "same", rank = 1; CREATE item:b SET email = "same", rank = 2; ${statement}`
-          : statement,
-        params
-      );
+    // Two rows holding one email, written in the transaction that creates
+    // their table, just ahead of the unique index over it.
+    rewriteBatches(driver, (statement) =>
+      statement.includes("UNIQUE CONCURRENTLY")
+        ? `CREATE item:a SET email = "same", rank = 1; CREATE item:b SET email = "same", rank = 2; ${statement}`
+        : statement
+    );
     const db = clientOf(schema(), driver);
     await using(db, async () => {
       await (driver as unknown as { fresh(): Promise<void> }).fresh();
@@ -1176,6 +1240,215 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
         { email: "same" },
       ]);
       expect(await raw(db, "SELECT * FROM viborm_migration_lock")).toEqual([]);
+    });
+  });
+});
+
+const EVENT = /^DEFINE EVENT \S+ ON \S+ WHEN .* THEN \{(.*)\}/;
+const INDEX_ON = /^DEFINE INDEX \S+ ON (\S+)/;
+
+/** The events of one request whose body reads a table an index of that request was defined on before them. */
+function eventsAfterIndexes(request: readonly string[]): string[] {
+  const indexed: string[] = [];
+  return request.filter((sql) => {
+    const table = INDEX_ON.exec(sql)?.[1];
+    if (table) indexed.push(table);
+    const body = EVENT.exec(sql)?.[1] ?? "";
+    return indexed.some((name) =>
+      new RegExp(`\\b(?:FROM|DELETE|UPDATE) ${name}\\b`).test(body)
+    );
+  });
+}
+
+/** What SurrealDB says of a transaction another writer met at its commit. */
+const CONFLICT = "Transaction write conflict. This transaction can be retried";
+
+describe.skipIf(!surrealUrl)("a push the server refuses at a commit", () => {
+  it("creates a new schema one operation per request, and sends again the one refused at its commit", async () => {
+    const driver = createSurrealTestDriver();
+    // Each request, as its statements; the first is refused at its commit,
+    // as SurrealDB Cloud refuses a long transaction that defines things.
+    const requests: string[] = [];
+    const executeBatch = (driver as any).executeBatch.bind(driver);
+    (driver as any).executeBatch = (
+      client: never,
+      queries: readonly { sql: string }[],
+      ...rest: unknown[]
+    ) => {
+      requests.push(queries.map(({ sql }) => sql).join("\n"));
+      return requests.length === 1
+        ? Promise.reject(new TransactionError(CONFLICT))
+        : executeBatch(client, queries, ...rest);
+    };
+    // What ran inside a transaction held across requests.
+    const held: string[] = [];
+    const execute = (driver as any).execute.bind(driver);
+    (driver as any).execute = (
+      client: object,
+      statement: string,
+      params: unknown[]
+    ) => {
+      if (client.constructor.name === "ReplayedTransaction")
+        held.push(statement);
+      return execute(client, statement, params);
+    };
+    const db = clientOf(everything(), driver);
+    await using(db, async () => {
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      const plan = await preview(db);
+      const applied = await createMigrationClient(db).push({
+        consent: plan.consent,
+      });
+      expect(applied.outcome).toBe("applied");
+      expect(held).toEqual([]);
+      expect(requests).toHaveLength(plan.operations.length + 1);
+      expect(requests[1]).toBe(requests[0]);
+      expect(requests.slice(1).join("\n")).toBe(statements(plan).join("\n"));
+      expect((await preview(db)).outcome).toBe("noop");
+    });
+  });
+
+  it("completes a new schema a failure stopped, one operation per request, a reference waiting for its table included", async () => {
+    // `holder` comes first: its reference waits for `target` in an operation
+    // of its own, whose table a push stopped between the two has created.
+    const holder = s.model({
+      id: s.string().id(),
+      targetId: s.string().nullable(),
+      target: s
+        .toOne(() => target)
+        .fields("targetId")
+        .references("id"),
+    });
+    const target = s.model({
+      id: s.string().id(),
+      holders: s.toMany(() => holder),
+    });
+    const driver = createSurrealTestDriver();
+    const requests: string[] = [];
+    let stops = 1;
+    const executeBatch = (driver as any).executeBatch.bind(driver);
+    (driver as any).executeBatch = (
+      client: never,
+      queries: readonly { sql: string }[],
+      ...rest: unknown[]
+    ) => {
+      const request = queries.map(({ sql }) => sql).join("\n");
+      requests.push(request);
+      if (request.startsWith("DEFINE TABLE target") && stops-- > 0)
+        return Promise.reject(new Error("the connection was lost"));
+      return executeBatch(client, queries, ...rest);
+    };
+    const held: string[] = [];
+    const execute = (driver as any).execute.bind(driver);
+    (driver as any).execute = (
+      client: object,
+      statement: string,
+      params: unknown[]
+    ) => {
+      if (client.constructor.name === "ReplayedTransaction")
+        held.push(statement);
+      return execute(client, statement, params);
+    };
+    const db = clientOf({ holder, target }, driver);
+    await using(db, async () => {
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      const first = await preview(db);
+      expect(first.operations.map(({ id }) => id)).toEqual([
+        "createTable:0",
+        "createTable:1",
+        "addForeignKey:2",
+      ]);
+      await expect(
+        createMigrationClient(db).push({ consent: first.consent })
+      ).rejects.toThrow();
+      expect(stops).toBe(0);
+      const next = await preview(db);
+      expect(next.operations.map(({ id }) => id)).toEqual([
+        "createTable:0",
+        "addForeignKey:1",
+      ]);
+      requests.length = 0;
+      held.length = 0;
+      const applied = await createMigrationClient(db).push({
+        consent: next.consent,
+      });
+      expect(applied.outcome).toBe("applied");
+      expect(held).toEqual([]);
+      expect(requests).toHaveLength(next.operations.length);
+      expect((await preview(db)).outcome).toBe("noop");
+    });
+  });
+
+  it("defines a new table's events ahead of the indexes their bodies read", async () => {
+    // SurrealDB Cloud refuses at every commit a transaction that defines an
+    // event reading a table after an index on that table.
+    const driver = createSurrealTestDriver();
+    const requests: string[][] = [];
+    const executeBatch = (driver as any).executeBatch.bind(driver);
+    (driver as any).executeBatch = (
+      client: never,
+      queries: readonly { sql: string }[],
+      ...rest: unknown[]
+    ) => {
+      requests.push(queries.map(({ sql }) => sql));
+      return executeBatch(client, queries, ...rest);
+    };
+    const db = clientOf(everything(), driver);
+    await using(db, async () => {
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      expect((await push(db)).outcome).toBe("applied");
+      const events = requests.flat().filter((sql) => EVENT.test(sql));
+      expect(events.length).toBeGreaterThan(0);
+      expect(requests.flatMap(eventsAfterIndexes)).toEqual([]);
+    });
+  });
+
+  it("commits a change to a table that is there, in one transaction, run again after its commit was refused", async () => {
+    const db = clientOf({
+      item: s.model({ id: s.string().id(), name: s.string() }),
+    });
+    await using(db, async () => {
+      await syncLiveSchema(db);
+      await db.item.create({ data: { id: "a", name: "first" } });
+      const next = nextVersion(
+        {
+          item: s.model({
+            id: s.string().id(),
+            name: s.string(),
+            note: s.string().nullable(),
+          }),
+          tag: s.model({ id: s.string().id(), label: s.string() }),
+        },
+        db
+      );
+      // The commit of the first transaction that defines something is refused.
+      const surreal = (db.$driver as any).client as Surreal;
+      const begin = surreal.beginTransaction.bind(surreal);
+      let refused = 0;
+      surreal.beginTransaction = async () => {
+        const transaction = await begin();
+        let defines = false;
+        const query = transaction.query.bind(transaction);
+        transaction.query = ((text: string, ...rest: never[]) => {
+          defines ||= text.includes("DEFINE ");
+          return query(text, ...rest);
+        }) as never;
+        const commit = transaction.commit.bind(transaction);
+        transaction.commit = async () => {
+          if (!defines || refused > 0) return commit();
+          refused += 1;
+          await transaction.cancel();
+          throw new Error(CONFLICT);
+        };
+        return transaction;
+      };
+      const applied = await push(next);
+      expect(applied.outcome).toBe("applied");
+      expect(refused).toBe(1);
+      expect((await preview(next)).outcome).toBe("noop");
+      expect(await next.item.findMany()).toEqual([
+        { id: "a", name: "first", note: null },
+      ]);
     });
   });
 });

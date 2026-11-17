@@ -78,6 +78,7 @@ One statement on every database.
 | Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
 |---|---|---|---|---|---|
 | `findUnique` calls in the same tick share one statement (`findUniqueBatching: true`) | ✅ | ✅ | ✅ | ✅ | ✅ (split at 100 binds) |
+| No `ORDER BY`: a unique key names at most one row | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 Opt-in since 1.4.1 (the shared read runs in the first call's async context).
 Calls are batched outside transactions when they target the same model, unique
@@ -85,6 +86,10 @@ key and projection, and their `where` is the key alone (string, int or bigint
 members). The batch is split at the driver's bind budget. 50 lookups in one
 tick: 50 statements become 1 (SQLite 1.29 → 0.63 ms, PGlite 7.75 → 0.60 ms).
 Implementation: `src/query-engine/find-unique-batch.ts`.
+
+A `findUnique` states no order since 1.15.0: PostgreSQL planned the sort of
+its one row all the same, 15 % of the statement's server time (35 against
+41 µs) and 9 % of the call (40 against 44 µs), local PostgreSQL 18.
 
 ## findFirst and findMany
 
@@ -118,9 +123,11 @@ subquery, nested to any depth, `_count` and polymorphic relations included.
 |---|---|---|---|---|---|
 | One statement for the whole relation tree | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Many-to-many read from the junction joined to the target | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Lean JSON spelling | Redundant column aliases dropped | Redundant column aliases dropped | Redundant column aliases dropped | `json_group_array(json_object(…))`, no extra `json()`/`COALESCE` | Same as SQLite |
+| Lean JSON spelling | Redundant column aliases dropped | Redundant column aliases dropped | Redundant column aliases dropped | `json_group_array(json_array(…))`, no extra `json()`/`COALESCE` | Same as SQLite |
+| Related rows carried as arrays of values, no key per column | ✅ `json_build_array` | ✅ `json_build_array` | ✅ `JSON_ARRAY` | ✅ `json_array` | ✅ `json_array` |
 | Repeated relation bodies stated once in a `WITH` | ✅ `NOT MATERIALIZED` leaves | ✅ `NOT MATERIALIZED` leaves | ❌ | ❌ | ✅ `MATERIALIZED` non-leaf members |
 | Recursive projections | `LATERAL` derived table | `LATERAL` derived table | `LATERAL` derived table | Correlated CTE per reader | Correlated CTE per reader |
+| To-one relation joined `LEFT JOIN LATERAL` | ✅ (not under `relationsPerStatement`) | ✅ | ❌ | ❌ | ❌ |
 | Recursive edges ordered by key read from the walk, no table rejoined | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Recursive nodes read by key (opt-in: [`fewRows`](#opt-ins-what-only-your-data-knows)) | ✅ | ✅ | ❌ (ignored) | ❌ (ignored) | ❌ (ignored) |
 
@@ -130,6 +137,32 @@ subquery, nested to any depth, `_count` and polymorphic relations included.
   for every listed row: 1,040 rows of a 5,000-row tree with their ancestors
   went from 255 to 133 ms (1.10.0). A sibling order on a non-key field, a
   relation or a count still joins the table.
+- **Lateral to-one relations.** On PostgreSQL a to-one relation in a read is
+  a `LEFT JOIN LATERAL` rather than a subquery in the select list, so the
+  planner can cache the related row per key (`Memoize`) where many rows share
+  it: ten posts with their author and the author's posts, 178 → 145 µs on the
+  server, 14 % of the call. A read bounded by `take` or `skip` is paged first
+  and joined after, then ordered again: a join between a sort and its bound
+  would make a top-N sort a whole one (300,000 posts ordered by an unindexed
+  title, 20 with their author: 54 ms as subqueries, 604 ms joined after the
+  sort, 28 ms paged first). Not in a locking read, a `distinct` read, a read
+  ordered through a relation and bounded, a bounded related page, a
+  polymorphic relation or a recursive projection, nor under a relation budget
+  (`relationsPerStatement`, Neki), where each join would be one relation more.
+- **Related rows are arrays, not objects.** A related row, and a `_count`,
+  an aggregate or a `$through` row, is the JSON array of its values, read back
+  by position: no key is written per column, bound as a parameter or parsed
+  again for every row. On a local PostgreSQL 18, three reads of two relation
+  levels with a filter at each take 4 % to 7 % less end to end than with
+  `json_build_object` (513 → 475 µs, 425 → 406 µs, 731 → 683 µs), and 500
+  users with their posts and each post's author take 17 % less for an answer
+  48 % smaller. MySQL 8.4 takes 5 % to 6 % less and SQLite 10 % to 15 % less on
+  the same three reads. SurrealDB answers native records and Snowflake keeps
+  keyed objects.
+- **No whole-row reads.** `row_to_json(alias.*)` would also drop the keys
+  from the statement, but PlanetScale Postgres (Neki) refuses a whole-row
+  read, and the engine does not know it talks to Neki before its first
+  statement. An array of values needs no whole-row read and is smaller still.
 - **Alias trimming** makes plain PostgreSQL and MySQL reads about 9–11% shorter.
   The SQLite JSON spelling took a 9.4 MB include from 181 to 109 ms.
 - **Shared relation bodies.** A statement that repeats the same relation body

@@ -228,6 +228,42 @@ describe("K5: declared projection keys and read-gated fields", () => {
     expect((written as ValidationError).issues[0]!.path).toContain("$own");
   });
 
+  test("a name spelled as an integer reports its own predicate: the document is carried as an array, in the shape's key order", async () => {
+    // An object lists an integer-like key first, whatever order it was
+    // written in. The row carries the names by position, so each must stand
+    // where the decoded shape lists it, never where it was declared.
+    const numbered = apply({
+      document: { select: { $own: facts({ mine, 7: archived, 10: mine }) } },
+    })();
+    const rows = (await numbered.document!.findMany!({
+      who: OWNER,
+      select: {
+        id: true,
+        $own: true,
+        children: { select: { id: true, $own: ["mine", "7"] } },
+      },
+    })) as Row[];
+    // The two predicates differ on some row, so a swap would show.
+    expect(
+      rows.some((row) => (row.$own as Row).mine !== (row.$own as Row)[7])
+    ).toBe(true);
+    for (const row of rows) {
+      const document = seed.document.find((d) => d.id === row.id)!;
+      expect(row.$own).toEqual({
+        7: document.archivedAt !== null,
+        10: document.ownerId === OWNER,
+        mine: document.ownerId === OWNER,
+      });
+      for (const child of row.children as Row[]) {
+        const stored = seed.document.find((d) => d.id === child.id)!;
+        expect(child.$own).toEqual({
+          7: stored.archivedAt !== null,
+          mine: stored.ownerId === OWNER,
+        });
+      }
+    }
+  });
+
   test("a value the call supplies is read per call: two callers, one statement each, two answers", async () => {
     for (const who of [OWNER, "user-06"]) {
       statements.length = 0;

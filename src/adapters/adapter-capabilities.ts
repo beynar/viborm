@@ -101,6 +101,34 @@ export interface DatabaseAdapterCapabilities {
    */
   readsNodesByKey?: boolean;
   /**
+   * Whether the dialect names an unaliased `"t"."c"` result column `c`
+   * (PostgreSQL, MySQL, Snowflake): `identifiers.aliased` then leaves out an
+   * alias that only repeats the column's own name, and the engine does not
+   * ask it about a column it projects as stored, under its stored name.
+   * SQLite promises no name for an unaliased column. Absent: false.
+   */
+  namesQualifiedColumns?: boolean;
+  /**
+   * Whether a to-one relation a read projects is joined `LEFT JOIN LATERAL`
+   * rather than read by a scalar subquery: PostgreSQL then caches the related
+   * row per key (`Memoize`) where many rows share one, which a subquery in
+   * the select list never is — 18 % of a post → author → posts read. Not
+   * under {@link relationsPerStatement}: each join is one relation more.
+   * Absent: false.
+   */
+  joinsToOneLaterally?: boolean;
+  /**
+   * Whether a document the statement builds INSIDE another value — a relation
+   * row, a count or aggregate carrier, a link row, evidence — is carried as
+   * a JSON array of its members' values, in the prepared shape's order, and
+   * read by position: no member name is written per document, sent as a
+   * parameter or parsed back. On PostgreSQL that is 45 % fewer bytes for a
+   * read with relations and 5 to 30 µs less server time per call than
+   * `json_build_object`. The engine that lowers the document and the decoder
+   * that reads it ask this one fact. Absent: false, a keyed object.
+   */
+  carriesDocumentsAsArrays?: boolean;
+  /**
    * The most terms one compound `SELECT` may chain, where the transport
    * bounds it below anything the engine writes: Cloudflare D1, 5. The engine
    * nests a longer union in derived tables of at most that many. Absent:

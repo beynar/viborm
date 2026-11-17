@@ -86,14 +86,32 @@ change, a `reset`, an index over rows the same migration backfills, and a partia
 need committed rows first: those programs run statement by statement, and a failure part-way leaves
 a state the next `push` plans from.
 
+- **A `push` that only creates tables** (a first push, or new tables and the references to them)
+  commits one table at a time: each table with its fields and indexes, and each reference, is one
+  request, `BEGIN; …; COMMIT;`. SurrealDB Cloud refuses at its commit a transaction that defines
+  things more often the longer it stays open, so one transaction for a whole schema failed there.
+  A request refused at its commit applied nothing and is sent again, up to 16 times; any other
+  failure leaves the tables before it created, and the next `push` creates the rest, one request
+  per operation again.
+- **A table's events come before its indexes.** SurrealDB Cloud refuses at every commit a
+  transaction that defines an event reading a table after an index on that table, however often it
+  is sent: a foreign key held by events defines them ahead of the indexes of the table they read.
+- **A transaction refused at its commit** (`Transaction conflict`, "can be retried") runs again, its
+  reads compared with what they answered the first time, up to 16 times, before it fails with
+  `V5001`. Between two attempts it waits at random below a ceiling that doubles from 20 ms to 1 s:
+  about 5 s in all.
+
 - **Renaming a table or a field, and changing a key,** copy the rows, since SurrealDB has no rename
   and a record's id never changes. The copy is not atomic.
 - **An index built in the background** is waited for before the command returns, the lock still
   held: once the program commits, VibORM reads `INFO FOR INDEX` of every index of the managed tables
-  until none is building, pausing from 50 ms to 2 s between reads, for at most 5 minutes. Until its
-  build is `ready` a unique index lets a duplicate in, after which the build fails and its table
-  refuses every write. A build that failed, or one still going after 5 minutes, fails the command
-  with `V11023` (`MIGRATION_INVALID_INDEX`), naming the index, its table and the server's reason;
+  until none is building, pausing from 50 ms to 2 s between reads, as long as one more becomes
+  ready every 5 minutes; each read renews the lock's lease. SurrealDB Cloud builds them one after
+  another, about 5 s each even in an empty table: a first push of 139 indexes waits ten to
+  twelve minutes. Until its build is `ready` a unique index lets a duplicate in, after which the build
+  fails and its table refuses every write. A build that failed, or 5 minutes with none more ready,
+  fails the command with `V11023` (`MIGRATION_INVALID_INDEX`), naming the index, its table and the
+  server's reason;
   the migration's statements stay committed. Remove the duplicate values and run `REBUILD INDEX`, or
   `REMOVE INDEX`. Until then every later command that reads the schema (`push`, `apply`, `verify`,
   `down`, `reset`) refuses with the same `V11023` before any effect, as PostgreSQL refuses an
@@ -104,8 +122,9 @@ a state the next `push` plans from.
   there fails it the same way.
 - **`reset`** replays the whole history. A history holding a column rename conflicts with itself
   there (`V5001`); `push` and `apply` are not affected.
-- **Concurrent commands** take a lock record, `viborm_migration_lock:command`, with a 15-minute lease:
-  a command that died releases it when the lease ends.
+- **Concurrent commands** take a lock record, `viborm_migration_lock:command`, with a 15-minute lease,
+  renewed while a command waits for its index builds: a command that died releases it when the
+  lease ends.
 
 ## Limitations
 

@@ -144,17 +144,18 @@ const READS: [string, object, string][] = [
 ];
 
 // The relations each read references with every walk in place: the six past
-// 256 are those a bound of 256 escalates.
+// 256 are those a bound of 256 escalates. Without a bound, a projected to-one
+// relation is one lateral join more (a bound keeps it a subquery).
 const PINNED_IN_PLACE = {
   "accessGrant $access": 278,
   "page $access": 95,
-  "page $access, group $access": 111,
+  "page $access, group $access": 112,
   "document $access": 180,
   "document roots $access at three depths": 393,
   "document roots $access at three depths, with grants": 634,
-  "document every relation + $access": 610,
-  "page $access at three depths through group and grants": 502,
-  "accessGrant every relation + $access": 462,
+  "document every relation + $access": 613,
+  "page $access at three depths through group and grants": 505,
+  "accessGrant every relation + $access": 470,
 };
 
 describe("PGlite: every $access read within Neki's 256 relations", () => {

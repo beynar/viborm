@@ -51,6 +51,7 @@ import { createTransactionCleanupError } from "../shared/transactions";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "../types";
 import { SurrealQueries } from "./queries";
 import {
+  backOff,
   COMMITS,
   FORBIDDEN_ROW,
   isConflict,
@@ -425,9 +426,14 @@ export class SurrealDriver
    * uses ({@link COMMITS}). This driver itself, never one bound to a
    * transaction, implements this, so a conflict inside a transaction stays
    * that transaction's.
+   *
+   * Statements a migration commits together, sent as one batch, are one
+   * transaction too: this driver wraps a batch outside a transaction in
+   * `BEGIN` and `COMMIT` ({@link executeBatch}), so a refusal leaves nothing
+   * of it applied, and it runs again the same way.
    */
   async rerunRefusedCommit(
-    statement: string,
+    statement: string | readonly BatchQuery[],
     send: () => Promise<unknown>
   ): Promise<unknown> {
     for (let attempt = 1; ; attempt++) {
@@ -437,14 +443,12 @@ export class SurrealDriver
         if (
           attempt === COMMITS ||
           !isConflict(error) ||
-          !standsAlone(this.client, statement)
+          (typeof statement === "string" &&
+            !standsAlone(this.client, statement))
         )
           throw error;
       }
-      // Two losers running again together would only meet again.
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.random() * 10 * attempt)
-      );
+      await backOff(attempt);
     }
   }
 

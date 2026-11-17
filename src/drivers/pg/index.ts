@@ -22,6 +22,7 @@ import {
 } from "@client/client";
 import type { Schema } from "@client/types";
 import { ClientInitializationError, TransactionError } from "@errors";
+import type { Sql } from "@sql";
 import {
   Client,
   type ClientConfig,
@@ -31,6 +32,7 @@ import {
   types as pgTypes,
 } from "pg";
 import {
+  type AnyDriver,
   Driver,
   type MigrationSessionAttestation,
   type QueryExecutionContext,
@@ -40,6 +42,12 @@ import {
   normalizeDriverError,
 } from "../error-mapping";
 import { getExecutionTransactionPhases } from "../execution-context";
+import { assertNormalizedQueryResult } from "../normalized-result";
+import {
+  assertPositionalRows,
+  type ProjectionExecutionResult,
+  registerPositionalResultDriver,
+} from "../positional-result";
 import {
   acquireWithMaxWait,
   type DriverTransactionOptions,
@@ -58,6 +66,12 @@ import {
   refuseUnknownDriverConfigKeys,
   systemRootAsVerifyFull,
 } from "../shared/driver-options";
+import {
+  isStaleStatement,
+  type NamedStatements,
+  type NamedStatementsOption,
+  namedStatements,
+} from "../shared/named-statements";
 import { installPostgresAdapter } from "../shared/postgres-adapter";
 import { boundByServer, learnRelationLimit } from "../shared/relation-bound";
 import type { QueryResult } from "../types";
@@ -267,6 +281,14 @@ export interface PgDriverOptions {
    * need it.
    */
   migrationSessionAttestation?: MigrationSessionAttestation;
+  /**
+   * Send each statement VibORM repeats as a named, server-side prepared
+   * statement: each connection parses and plans it once, then only binds it.
+   * A statement is named the second time it is sent, and a connection holds
+   * at most `max` of them (100 with `true`). Off by default: behind PgBouncer
+   * in transaction mode, set `max_prepared_statements` first.
+   */
+  namedStatements?: NamedStatementsOption;
 }
 
 export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C;
@@ -281,6 +303,7 @@ const PG_CONFIG_KEYS: Record<keyof PgDriverOptions, true> = {
   sharedRelationBodies: true,
   relationsPerStatement: true,
   migrationSessionAttestation: true,
+  namedStatements: true,
 };
 
 // ============================================================
@@ -288,6 +311,9 @@ const PG_CONFIG_KEYS: Record<keyof PgDriverOptions, true> = {
 // ============================================================
 
 export class PgDriver extends Driver<PgPool, PgPoolClient> {
+  static readonly #executeEntry = PgDriver.prototype._execute;
+  static readonly #execute = PgDriver.prototype.execute;
+  static readonly #typedStatement = PgDriver.prototype.executeTypedStatement;
   declare readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
@@ -324,6 +350,10 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
    */
   private serverVersion: string | undefined;
   private readonly readsServer: boolean;
+  /** The statements sent named, when `namedStatements` asks for them. */
+  private readonly named: NamedStatements | undefined;
+  /** The adapter and its parsers as installed, which positional rows require. */
+  readonly #installed: readonly unknown[];
 
   constructor(options: PgDriverOptions = {}) {
     super("postgresql", "pg");
@@ -338,12 +368,19 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
       )
     );
     this.connectionOptions = connectionRecord(connection, options.databaseUrl);
+    this.named = namedStatements("pg", options.namedStatements);
 
     if (this.suppliedPool) {
       this.client = this.suppliedPool;
     }
 
     installPostgresAdapter(this, namespace, options);
+    this.#installed = PgDriver.#surface(this);
+    registerPositionalResultDriver(
+      this,
+      (query, context) => this.#executePositional(query, context),
+      PgDriver.isPositionalCandidate
+    );
     this.readsServer =
       this.suppliedPool === undefined &&
       connection.Client === undefined &&
@@ -607,23 +644,14 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     fallbackOperation: "execute" | "executeRaw"
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? fallbackOperation;
-    const observed = this.readBackgroundPoolFailure(client);
-    const result = await client
-      .query({ text: sql, values: params, types: utcSafeTypes })
-      .catch((error: unknown) => {
-        learnRelationLimit(this.adapter, error);
-        return this.throwPoolQueryFailure(
-          client,
-          observed,
-          error,
-          sql,
-          params,
-          context
-        );
-      });
-    // `Pool.query` includes an acquisition. Its success proves transport
-    // recovery, but only for evidence that predates this exact operation.
-    this.clearBackgroundPoolFailure(client, observed);
+    const result = await this.send(
+      client,
+      sql,
+      params,
+      context,
+      fallbackOperation,
+      false
+    );
     return {
       rows: result.rows,
       rowCount: normalizePostgresRowCount(
@@ -633,6 +661,171 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
         { provider: "pg", operation }
       ),
     };
+  }
+
+  /**
+   * A collection read as positional rows: node-postgres's `rowMode: "array"`
+   * hands each row over as the array it parsed, and the columns once, instead
+   * of building an object keyed by every column name for every row.
+   */
+  #executePositional(
+    query: Sql,
+    context: QueryExecutionContext
+  ): Promise<ProjectionExecutionResult> {
+    return this.executeTypedStatement(
+      query,
+      context,
+      async (
+        client,
+        sql,
+        params,
+        executionContext
+      ): Promise<ProjectionExecutionResult> => {
+        const resultContext = {
+          provider: this.driverName,
+          operation: executionContext.operation ?? "execute",
+        };
+        // Transforms and observers ran after admission and may have replaced
+        // an execution surface: decide again at dispatch.
+        if (!PgDriver.isPositionalCandidate(this)) {
+          const result = await this.execute<unknown>(
+            client,
+            sql,
+            params,
+            executionContext
+          );
+          assertNormalizedQueryResult(result, resultContext);
+          return { kind: "borrowed", result };
+        }
+        const result = await this.send(
+          client,
+          sql,
+          params,
+          executionContext,
+          "execute",
+          true
+        );
+        const rows: unknown[] = result.rows;
+        // A supplied pool of node-postgres's shape that ignores `rowMode`
+        // answers object rows: they are read as such.
+        if (rows.length > 0 && !Array.isArray(rows[0])) {
+          const borrowed = { rows, rowCount: rows.length };
+          assertNormalizedQueryResult(borrowed, resultContext);
+          return { kind: "borrowed", result: borrowed };
+        }
+        const columns = result.fields.map((field) => field.name);
+        assertPositionalRows(rows, columns, resultContext);
+        return { kind: "positional", rows, columns };
+      }
+    );
+  }
+
+  /**
+   * Positional rows skip the keyed result surface, so they are used only
+   * while it is the shipped one: this driver's own execution entry, provider
+   * execute and typed statement lifecycle, and the adapter's own parsers.
+   * Anything a caller replaced keeps keyed rows.
+   */
+  private static isPositionalCandidate(driver: AnyDriver): boolean {
+    if (!(driver instanceof PgDriver)) return false;
+    const surface = PgDriver.#surface(driver);
+    return (
+      Object.getPrototypeOf(driver) === PgDriver.prototype &&
+      driver._execute === PgDriver.#executeEntry &&
+      driver.execute === PgDriver.#execute &&
+      driver.executeTypedStatement === PgDriver.#typedStatement &&
+      driver.result === undefined &&
+      driver.#installed.every((part, index) => part === surface[index])
+    );
+  }
+
+  /** The adapter and the parsers positional rows are decoded by. */
+  static #surface(driver: PgDriver): readonly unknown[] {
+    const { adapter } = driver;
+    const { result } = adapter;
+    return [
+      adapter,
+      result,
+      result.parseField,
+      result.parseRelation,
+      result.parseResult,
+    ];
+  }
+
+  /** One statement to node-postgres, named when the registry names it. */
+  // Not `#send`: a transaction's driver is this one through `Object.create`,
+  // and a delegate cannot reach a `#` member.
+  private async send(
+    client: PgPool | PgPoolClient,
+    sql: string,
+    params: unknown[] | undefined,
+    context: QueryExecutionContext | undefined,
+    fallbackOperation: "execute" | "executeRaw",
+    array: boolean
+  ) {
+    const observed = this.readBackgroundPoolFailure(client);
+    // Only a generated statement with values: naming moves node-postgres to
+    // the extended protocol, which a statement without values (several
+    // commands in one text, as raw SQL may be) does not use today. A tagged
+    // raw statement runs as a typed one and is the caller's text all the
+    // same: it takes no name a generated statement could have.
+    const name =
+      fallbackOperation === "execute" &&
+      params?.length &&
+      context?.model !== "$raw"
+        ? this.named?.name(sql)
+        : undefined;
+    const query = array
+      ? { text: sql, values: params, types: utcSafeTypes, rowMode: "array" }
+      : { text: sql, values: params, types: utcSafeTypes };
+    // The statement is sent before the wait: what `query` throws at once is
+    // thrown as it is. Awaited here rather than through `.catch` handlers: a
+    // failure handler and a recovery handler made per statement, and the
+    // promise they answered through, were 0.4 kB of every statement.
+    const sent = client.query(name === undefined ? query : { ...query, name });
+    let result: Awaited<typeof sent>;
+    try {
+      result = await sent;
+    } catch (error) {
+      if (name === undefined || !isStaleStatement(error))
+        this.failSend(client, observed, error, sql, params, context);
+      this.named?.retire(sql);
+      // Alone on the pool, the statement failed before it did anything: it
+      // is sent once more, unnamed, and answers as it would have without
+      // names. In a transaction, the failure aborted it and stays the answer.
+      if ("release" in client)
+        this.failSend(client, observed, error, sql, params, context);
+      const again = client.query(query);
+      try {
+        result = await again;
+      } catch (failure) {
+        this.failSend(client, observed, failure, sql, params, context);
+      }
+    }
+    // `Pool.query` includes an acquisition. Its success proves transport
+    // recovery, but only for evidence that predates this exact operation.
+    this.clearBackgroundPoolFailure(client, observed);
+    return result;
+  }
+
+  /** A statement's failure as `send` throws it, the relation limit it states learnt. */
+  private failSend(
+    client: PgPool | PgPoolClient,
+    observed: BackgroundPoolFailure | undefined,
+    error: unknown,
+    sql: string,
+    params: unknown[] | undefined,
+    context: QueryExecutionContext | undefined
+  ): never {
+    learnRelationLimit(this.adapter, error);
+    return this.throwPoolQueryFailure(
+      client,
+      observed,
+      error,
+      sql,
+      params,
+      context
+    );
   }
 
   /**
@@ -797,6 +990,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     postgis,
     sharedRelationBodies: config.sharedRelationBodies,
     relationsPerStatement: config.relationsPerStatement,
+    namedStatements: config.namedStatements,
   });
 
   return createClientFromDriverConfig<S, C, PgDriver>(config, driver);

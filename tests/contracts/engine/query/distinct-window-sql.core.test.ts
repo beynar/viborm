@@ -76,8 +76,8 @@ describe("distinct is emulated with one window", () => {
       },
     });
     expect(statement.toStatement("?")).toBe(
-      'SELECT "q0"."id" AS "id", (SELECT json_group_array(json_object(?, "q2"."id")) FROM (SELECT "id" FROM (SELECT "q1"."id" AS "id", "q1"."views" AS "_ord0", "q1"."id" AS "_ord1", ROW_NUMBER() OVER (PARTITION BY "q1"."published" ORDER BY "q1"."views" DESC, "q1"."id" ASC) AS "_rn" FROM "post" AS "q1" WHERE "q0"."id" = "q1"."authorId") AS "_distinct_subquery" WHERE "_rn" = 1 ORDER BY "_ord0" DESC, "_ord1" ASC LIMIT ?) AS "q2") AS "posts" FROM "author" AS "q0" ORDER BY "q0"."id" ASC'
+      'SELECT "q0"."id" AS "id", (SELECT json_group_array(json_array("q2"."id")) FROM (SELECT "id" FROM (SELECT "q1"."id" AS "id", "q1"."views" AS "_ord0", "q1"."id" AS "_ord1", ROW_NUMBER() OVER (PARTITION BY "q1"."published" ORDER BY "q1"."views" DESC, "q1"."id" ASC) AS "_rn" FROM "post" AS "q1" WHERE "q0"."id" = "q1"."authorId") AS "_distinct_subquery" WHERE "_rn" = 1 ORDER BY "_ord0" DESC, "_ord1" ASC LIMIT ?) AS "q2") AS "posts" FROM "author" AS "q0" ORDER BY "q0"."id" ASC'
     );
-    expect(statement.values).toEqual(["id", 1]);
+    expect(statement.values).toEqual([1]);
   });
 });

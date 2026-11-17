@@ -7,6 +7,29 @@ Versioning.
 
 ### Added
 
+- **`namedStatements`, an opt-in on `viborm/pg` and `viborm/postgres`.** The
+  statements VibORM repeats are sent as named, server-side prepared statements:
+  each connection parses and plans one once, then only binds it. Measured on a
+  local PostgreSQL 18 against the same release without the option, two passes:
+  a `findUnique` takes 21 % to 22 % less time on pg and 42 % to 44 % less on
+  postgres.js, 50 `findUnique` at once 24 % to 27 % and 25 % to 37 % less, a
+  `create` or an `update` 10 % to 14 % and 14 % to 22 % less; a read of 1,000
+  rows gains 0 % to 13 %. On postgres.js a statement also stops paying a second
+  round trip to describe its parameters: a transaction of eight inserts takes
+  10 round trips instead of 18. A statement with values is named the second
+  time it is sent, under a name derived from its text, and a connection holds
+  at most `max` of them (`namedStatements: { max }`, 100 with `true`): each
+  holds 11 kB to 42 kB of server memory. Raw SQL is never named. On pg, a name
+  the server lost (`DEALLOCATE`, `DISCARD ALL`), a plan whose result type
+  changed and a parameter type a migration replaced are sent again once
+  unnamed outside a transaction. On postgres.js, which retries the first two
+  itself, a statement whose parameter type a migration replaced is sent again
+  once unprepared and is not prepared again by that client;
+  `options: { prepare: true }` still needs a reconnect after such a migration.
+  Off by default, and without it every
+  statement is sent exactly as before. Behind PgBouncer in transaction mode,
+  set `max_prepared_statements` to at least `max` first. Bun SQL prepares every
+  statement with values by default, and the docs now say so.
 - **`groupBy` by a time step.** A `date` or `dateTime` column groups by
   `day`, `week`, `month`, `quarter` or `year`: `by: ["statut", { date:
   "month" }]`, in the one statement. The column comes back as the period's
@@ -15,6 +38,169 @@ Versioning.
   absent) decides where an instant's periods begin; the session's zone never
   does. PostgreSQL on every driver; the other databases refuse it before any
   statement. `timeZone` does not change `where`. See the `groupBy` page.
+
+### Changed
+
+- **Included rows are no longer sorted when you ask for no order
+  (behaviour change).** A relation read in an `include` or a `select`, at any
+  depth, with no `orderBy`, `take`, `skip`, `cursor` or `distinct` of its own
+  now comes back in the order the database gives, like a SQL query without
+  `ORDER BY`; it was sorted by the related model's key. The rows are the same.
+  The sort was about 10 % of a nested read's server time on PostgreSQL 18
+  (20 users with their posts 0.45 → 0.41 ms, 100 users with their posts and
+  comments 10.5 → 9.4 ms, the same SQL replayed with and without it). Give
+  an `orderBy` where the order matters. A page (`take`, `skip`, `cursor`), a
+  `distinct`, and an `ordering` or `defaults` extension's order still read in
+  a stable order, as does a root `findMany`. On every database.
+- **`viborm/pg` reads a `findMany` as positional rows.** node-postgres hands
+  each row over as the array it parsed (`rowMode: "array"`) instead of an
+  object keyed by every column name, and VibORM decodes it by position, as it
+  already did on D1 and better-sqlite3. The answers are the same. Measured on
+  a local PostgreSQL 18, three alternated runs: the client's CPU per call is
+  18 % to 20 % lower for 1,000 rows and 10 % to 13 % lower for 20 rows with
+  their relation; the memory allocated is the same, and the latency of a small
+  read does not change measurably. A driver whose execution or parsers a
+  caller replaced, and a supplied pool that ignores `rowMode`, keep keyed rows.
+- **PostgreSQL reads join their to-one relations laterally, and a
+  `findUnique` states no order.** A to-one relation is a `LEFT JOIN LATERAL`
+  instead of a subquery in the select list, so PostgreSQL can cache the
+  related row per key where many rows share it. A read bounded by `take` or
+  `skip` is paged first and joined after, which also makes it faster when it
+  is sorted on an unindexed column (300,000 posts, 20 by title with their
+  author: 54 → 28 ms). A bounded related page, a read ordered through a
+  relation and bounded, a locking or `distinct` read, and a statement under
+  `relationsPerStatement` keep subqueries. A `findUnique` no longer states an
+  `ORDER BY` for its one row, on every database. The answers are the same,
+  key order included. Measured on a local PostgreSQL 18 through pg: ten posts
+  with their author and the author's posts 14 % faster (best of eight
+  alternated runs), a `findUnique` 9 % (isolated A/B).
+- **A read spends 26 % to 50 % less CPU in VibORM.** The work VibORM itself
+  does per call, outside the database and the driver, was profiled against
+  Drizzle 1.0's relational API and cut where it bought nothing. The SQL a read
+  sends and its answers are the same. Measured through a pool that replays
+  recorded PostgreSQL results, so only VibORM's own work counts, CPU per call
+  against 1.14.1: a `findUnique` 7.1 → 3.5 µs, 20 rows filtered and ordered
+  8.1 → 5.6 µs, 20 users with their posts 23.7 → 17.5 µs, a user with two
+  filtered posts 14.8 → 8.9 µs, ten posts with their author and the author's
+  posts 25.3 → 17.9 µs. What changed:
+  - a statement that repeats no relation body is no longer read again to find
+    the bodies it shares (every PostgreSQL driver and D1 share them);
+  - a `findUnique` no longer prepares the paging and the order it then left
+    out, and a read's SELECT is one fragment, not one per clause;
+  - the client's model proxy no longer wraps another proxy, a read's rows are
+    decoded by the engine object that prepared it, and an operation allocates
+    no frozen record of its own;
+  - a quoted identifier is computed once, a plain column is projected without
+    its text being read back, and the columns a paged read lists are noted as
+    its SQL is built;
+  - a decoded document reads a member directly when its name is none of
+    `Object.prototype`'s (a document of another prototype is still read by own
+    keys).
+- **A read with relations spends another 8 % to 14 % less CPU in VibORM.**
+  Each relation level of a read cost VibORM about as much as the level before
+  it; two parts of that cost are cut. The SQL a read sends and its answers are
+  the same. Measured as above, CPU per call against the entry before this one:
+  2 users with their posts 9.5 → 8.7 µs, 20 users with their posts 17.3 →
+  14.9 µs, a user with two filtered posts 9.0 → 8.3 µs, ten posts with their
+  author and the author's posts 17.9 → 15.8 µs; a read without relations is
+  unchanged. What changed:
+  - a relation read at its default selection (`posts: true`, or a node that
+    only adds an `include`) is prepared once per model and no longer at every
+    call, and admitting a relation node no longer runs the options it leaves
+    out;
+  - a nested document is decoded by walking its own keys while they come in
+    the selection's order, as PostgreSQL and SQLite answer them; MySQL, which
+    sorts a document's keys, is read as before.
+- **A read filtered through a relation spends about 14 % less CPU in
+  VibORM.** On a database whose statements share their relation bodies (every
+  PostgreSQL driver, D1), a relation filter (`posts: { some: … }`) built the
+  shared form of its body, and a key to compare it with the others, even where
+  the statement holds no other: nearly every read. They are now built when a
+  second body of the same table appears. The SQL a read sends and its answers
+  are the same. Measured as above, 20 users filtered by a related post:
+  9.9 → 8.5 µs of CPU per call.
+- **Related rows travel as arrays, not objects, on PostgreSQL, MySQL and
+  SQLite (the SQL of a read with relations changes).** A related row inside a
+  read, and a `_count`, an aggregate or a `$through` row, was a JSON object:
+  one key per column, each key sent as a parameter and written again in every
+  row of the answer. It is now the JSON array of its values
+  (`json_build_array`, `JSON_ARRAY`, `json_array`), read back by position. The
+  answers are the same, and a read without relations sends the same SQL.
+  Measured end to end on a local PostgreSQL 18 through pg, median of 500
+  alternated batches:
+  - three reads of two relation levels with a filter at each take 513 → 475
+    µs, 425 → 406 µs and 731 → 683 µs (4 % to 7 % less), where Drizzle 1.0's
+    relational API takes 477, 394 and 671 µs on the same rows;
+  - 500 users with their posts and each post's author take 7.8 → 6.4 ms (17 %
+    less) and the answer is 48 % smaller (320 → 166 kB); 1,000 posts with
+    their author take 7 % less;
+  - a `findUnique` with its posts takes 5 % less, and nothing measured takes
+    more.
+  The same three reads take 5 % to 6 % less on MySQL 8.4 and 10 % to 15 %
+  less on SQLite. What you may have to change: code that reads the SQL text
+  of a read with relations (a statement transform, a pinned statement in a
+  test) sees the new spelling, and a driver double that hands back related
+  rows must hand each as an array of its values, in the selection's order: a
+  keyed one is refused as a malformed row (`QUERY_RESULT_INVALID`). SurrealDB
+  and Snowflake are unchanged.
+
+### Fixed
+
+- **The CLI ends once its command is done.** `viborm push`, `migrate`,
+  `check` and `pull` exit after printing their outcome and closing the
+  config's client, whatever a driver left open: against SurrealDB Cloud, which
+  never answers a WebSocket's closing handshake, `push` printed `Push applied.`
+  (or `No schema changes.`) and then never returned, holding up any script or
+  CI step that ran it.
+
+## 1.14.2 — 2026-11-16
+
+A push of a whole schema to SurrealDB Cloud completes, and a push that stopped part-way resumes.
+
+### Fixed
+
+- **SurrealDB: a push of a whole schema to SurrealDB Cloud completes.** In
+  1.14.1 it still stopped at the first table holding a foreign key on a
+  column other than the target's id (`oauthClientResource` in a 54-table
+  schema), refused with `V5001` at each of its 16 commits, and every push
+  after it stopped at the same table. Cloud refuses, at every commit, a
+  transaction that defines an event reading a table after an index on that
+  table, however often it is sent: such a foreign key is held by events,
+  defined after the indexes of the table they read. A table's events now come
+  before its indexes.
+- **SurrealDB: a push that resumes a stopped one commits one operation per
+  request again.** A reference that waits for a table created after its own
+  is an operation of its own; where a push stopped between the two, the next
+  one held its whole program in one transaction, which Cloud refused.
+- **SurrealDB: a push waits for its index builds as long as they progress.**
+  Cloud builds a new table's indexes one after another, about five seconds
+  each even in an empty table (139 indexes: ten to twelve minutes), and the
+  push failed with `V11023` five minutes after its program committed. It now
+  fails only after five minutes with none more ready, and renews the lock's
+  lease while it waits.
+- **SurrealDB: between two attempts of a commit refused by another writer,
+  the wait doubles,** from at most 20 ms to at most 1 s: about 5 s in all over
+  16 attempts, where it was about 0.6 s.
+
+## 1.14.1 — 2026-11-16
+
+A push of a whole schema to SurrealDB Cloud no longer fails.
+
+### Fixed
+
+- **SurrealDB: a push that creates a whole schema no longer fails with
+  `V5001` on SurrealDB Cloud.** It sent each statement in its own round trip
+  inside one transaction (a schema of 54 tables: 937 statements, about three
+  minutes on Cloud), which Cloud refused at its commit the more often the
+  longer it ran. The rerun after that refusal could then never succeed: the
+  push's own proof read the number the server gives each table, which the
+  rerun's tables get anew. A push that only creates tables, and references
+  between them, now sends each operation (a table with its fields and
+  indexes, a reference) as one request, `BEGIN; …; COMMIT;`, sent again when
+  refused at its commit, and proves the result once the last one committed. A
+  failure leaves the tables before it created, and the next push creates the
+  rest. Any other push keeps its one transaction, and its rerun after a
+  refused commit now succeeds.
 
 ## 1.14.0 — 2026-11-15
 

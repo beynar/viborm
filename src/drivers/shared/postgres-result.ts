@@ -71,6 +71,18 @@ function malformedPostgresResult(
   );
 }
 
+/** The command a tag names, upper case; a tag naming none is malformed. */
+function commandTokenOf(
+  command: string,
+  context: NormalizedResultContext
+): string {
+  const [commandToken] = command.trim().split(COMMAND_SEPARATOR_REGEX, 1);
+  if (!(commandToken && COMMAND_TOKEN_REGEX.test(commandToken))) {
+    throw malformedPostgresResult(context, "the command tag is invalid");
+  }
+  return commandToken.toUpperCase();
+}
+
 /**
  * PostgreSQL command tags carry a numeric count only for a defined set of
  * commands. Other known tags legitimately expose null, while missing metadata
@@ -85,14 +97,15 @@ export function normalizePostgresRowCount(
   if (!Array.isArray(rows)) {
     throw malformedPostgresResult(context, "the rows payload is not an array");
   }
-  if (typeof command !== "string" || command.trim() === "") {
+  if (typeof command !== "string") {
     throw malformedPostgresResult(context, "the command tag is invalid");
   }
-  const [commandToken] = command.trim().split(COMMAND_SEPARATOR_REGEX, 1);
-  if (!(commandToken && COMMAND_TOKEN_REGEX.test(commandToken))) {
-    throw malformedPostgresResult(context, "the command tag is invalid");
-  }
-  const normalizedCommand = commandToken.toUpperCase();
+  // A tag that is exactly a known command (`SELECT`, the one nearly every
+  // statement answers) is its own token: read without trimming or splitting.
+  const normalizedCommand =
+    COUNTED_COMMANDS.has(command) || NULLABLE_COUNT_COMMANDS.has(command)
+      ? command
+      : commandTokenOf(command, context);
   const isCountedCommand = COUNTED_COMMANDS.has(normalizedCommand);
   const isNullableCountCommand = NULLABLE_COUNT_COMMANDS.has(normalizedCommand);
   if (!(isCountedCommand || isNullableCountCommand)) {

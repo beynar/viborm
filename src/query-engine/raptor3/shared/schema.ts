@@ -20,7 +20,12 @@ import type { VibSchema } from "@validation/types";
 import { isRecord } from "@validation/value-guards";
 import { InsertValue, Stored } from "./insert-value";
 import { parseValidated } from "./parse-boundary";
-import type { Leaf, PreparedProjection } from "./query";
+import type {
+  Leaf,
+  PreparedProjection,
+  PreparedProjectionField,
+  Shape,
+} from "./query";
 import {
   buildMembershipView,
   buildPhysicalFieldView,
@@ -159,26 +164,42 @@ export function memo<K, V>(
 /**
  * What this engine resolves once per (adapter, model) and never again.
  *
- * Both members are a pure function of the schema and the dialect, which is why
+ * Every member is a pure function of the schema and the dialect, which is why
  * they may be shared at all (rule 1): a scalar leaf is the field's declared
  * type, nullability and the adapter's own `dateTime` representation; the
- * DEFAULT projection is `scalarFieldNames` minus the model's own `omit`, and an
- * operation-level `omit` never reaches the projection owner — admission
- * desugars it into `select`, which takes the per-operation path. Nothing
- * admitted and nothing a provider answered is stored (rule 5).
+ * DEFAULT projection is `scalarFieldNames` minus the model's own `omit` (an
+ * operation-level `omit` reaches the projection owner desugared into a
+ * `select`, which shares it only where it names exactly those scalars); a
+ * relation read at its target's default projection is its edge, an empty
+ * window and that projection. Nothing admitted and nothing a provider
+ * answered is stored (rule 5): the sharing is keyed by schema objects alone.
  *
- * The two member types are the query owner's, imported for their names only:
+ * The member types are the query owner's, imported for their names only:
  * `import type` adds no runtime edge, so `shared/query.ts` keeps its one
  * runtime import of this file and this file keeps none of it.
  */
 export type QueryViews = {
   readonly leaves: WeakMap<AnyModel, Map<string, Leaf>>;
   readonly defaultProjections: WeakMap<AnyModel, PreparedProjection>;
+  /**
+   * A relation of a model read at its target's default projection (`rel:
+   * true`, or a node naming every projectable scalar and nothing else) on a
+   * read under no row domain: its edge, an empty window and the target's
+   * default projection, all facts of the schema and the dialect.
+   */
+  readonly defaultRelations: WeakMap<AnyModel, Map<string, DefaultRelation>>;
+};
+
+/** A relation member at its default projection, and its decoded shape. */
+export type DefaultRelation = {
+  readonly field: PreparedProjectionField;
+  readonly shape: Shape;
 };
 
 const createQueryViews = (): QueryViews => ({
   leaves: new WeakMap(),
   defaultProjections: new WeakMap(),
+  defaultRelations: new WeakMap(),
 });
 
 const NO_KEY: readonly string[] = [];

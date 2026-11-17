@@ -14,6 +14,10 @@
  * `docs/architecture/query-performance-plan.md` under Phase 9. Should a future
  * postgres.js open the pipeline gate, `pipelining stays closed ...` fails and
  * sends the reader back to that section.
+ *
+ * The door Phase 9 found behind `prepare` is now an opt-in, `namedStatements`
+ * (1.15.0): without it the driver's batch keeps its 2N+2 round trips, with it a
+ * warmed batch costs N+2.
  */
 
 import net from "node:net";
@@ -107,6 +111,7 @@ describeIf("postgres.js transport pipelining (Phase 9)", () => {
   let proxy: RoundTripProxy;
   let sql: ReturnType<typeof postgres>;
   let driver: PostgresDriver;
+  let named: PostgresDriver;
 
   /** The statements every arm runs: ref-free, order-sensitive, parameterized. */
   const rows = Array.from({ length: N }, (_, i) => i);
@@ -139,6 +144,7 @@ describeIf("postgres.js transport pipelining (Phase 9)", () => {
     };
     sql = postgres(proxied);
     driver = new PostgresDriver({ options: proxied });
+    named = new PostgresDriver({ options: proxied, namedStatements: true });
 
     await sql.unsafe(`DROP TABLE IF EXISTS "${TABLE}"`);
     await sql.unsafe(
@@ -147,6 +153,7 @@ describeIf("postgres.js transport pipelining (Phase 9)", () => {
     // Open both connections before any measurement so that the startup
     // handshake never lands inside a counting window.
     await driver._executeRaw("SELECT 1");
+    await named._executeRaw("SELECT 1");
   });
 
   afterAll(async () => {
@@ -154,6 +161,7 @@ describeIf("postgres.js transport pipelining (Phase 9)", () => {
       // the table is scratch; a teardown failure must not mask a test failure
     });
     await driver.disconnect();
+    await named.disconnect();
     await sql.end();
     await proxy.close();
   });
@@ -179,6 +187,19 @@ describeIf("postgres.js transport pipelining (Phase 9)", () => {
     expect(stored.map((r) => r.v)).toEqual(rows);
   });
 
+  test("with namedStatements, a warmed batch costs one round trip per statement", async () => {
+    const batch = rows.map((v) => ({ sql: INSERT, params: [v] }));
+    // The first batch names the statement (its second sighting) and prepares it.
+    await named._executeBatch(batch);
+    const roundTrips = await measure(() => named._executeBatch(batch));
+
+    // The describe round trip is gone once the statement is prepared on the
+    // connection; the batch still awaits each statement, so it does not pipeline.
+    expect(roundTrips).toBe(N + 2);
+    const stored = await sql.unsafe(`SELECT "v" FROM "${TABLE}" ORDER BY "id"`);
+    expect(stored.map((r) => r.v)).toEqual(rows);
+  });
+
   // ===========================================================================
   // THE PHASE 9 MECHANISM, MEASURED
   // ===========================================================================
@@ -196,8 +217,9 @@ describeIf("postgres.js transport pipelining (Phase 9)", () => {
     // This is Phase 9's proposal, verbatim, and it buys exactly nothing.
     // postgres.js gates pipelining on `!q.describeFirst` (connection.js), and
     // `describeFirst` is true for every parameterized query that is not already
-    // a cached prepared statement. `sql.unsafe()` hard-sets `prepare: false`,
-    // so viborm's statements are never cached and the gate never opens.
+    // a cached prepared statement. `sql.unsafe()` defaults to `prepare: false`,
+    // and so does viborm without `namedStatements`: its statements are never
+    // cached and the gate never opens.
     expect(withoutAwaits).toBe(sequential);
     expect(withoutAwaits).toBe(2 * N + 2);
   });
@@ -214,10 +236,10 @@ describeIf("postgres.js transport pipelining (Phase 9)", () => {
     );
 
     // The win Phase 9 was after is real, but it is behind `prepare`, not behind
-    // the await pattern. Recorded as a quantified follow-up in the plan doc;
-    // adopting it is a deployment decision (transaction-mode poolers reject
-    // named prepared statements, and postgres.js never evicts its cache), so it
-    // is not taken here.
+    // the await pattern. Adopting it is a deployment decision (a
+    // transaction-mode pooler must be configured for named statements, and
+    // postgres.js never evicts its cache), so it is the opt-in
+    // `namedStatements`, which bounds the statements it prepares.
     expect(pipelined).toBeLessThan(2 * N + 2);
     expect(pipelined).toBeLessThanOrEqual(N);
     // An upper bound alone would also be satisfied by an instrument that had

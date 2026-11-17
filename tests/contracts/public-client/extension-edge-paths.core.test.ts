@@ -552,7 +552,8 @@ describe("computed fields", () => {
 
   test("two relations whose rows compute a field each read the column it needs", async () => {
     const driver = new ScriptedDriver("postgresql", () => [
-      { id: "n", parent: { tenant: "p" }, children: [{ tenant: "c" }] },
+      // A related row is carried as the array of the columns it reads.
+      { id: "n", parent: ["p"], children: [["c"]] },
     ]);
     const db = createClient({ schema: { node }, driver }).$extends(
       extension(
@@ -582,8 +583,8 @@ describe("computed fields", () => {
     ]);
     expect(driver.sent).toEqual([
       {
-        sql: 'SELECT "q0"."id", (SELECT json_build_object($1::text, "q2"."tenant") FROM (SELECT "q1"."tenant" FROM "public"."node" AS "q1" WHERE "q0"."parentId" = "q1"."id" ORDER BY "q1"."id" ASC LIMIT $2) AS "q2") AS "parent", (SELECT COALESCE(json_agg(json_build_object($3::text, "q4"."tenant")), \'[]\'::json) FROM (SELECT "q3"."tenant" FROM "public"."node" AS "q3" WHERE "q0"."id" = "q3"."parentId" ORDER BY "q3"."id" ASC) AS "q4") AS "children" FROM "public"."node" AS "q0" ORDER BY "q0"."id" ASC',
-        params: ["tenant", 1, "tenant"],
+        sql: 'SELECT "q0"."id", "q3"."r" AS "parent", (SELECT COALESCE(json_agg(json_build_array("q5"."tenant")), \'[]\'::json) FROM (SELECT "q4"."tenant" FROM "public"."node" AS "q4" WHERE "q0"."id" = "q4"."parentId") AS "q5") AS "children" FROM "public"."node" AS "q0" LEFT JOIN LATERAL (SELECT json_build_array("q2"."tenant") AS "r" FROM (SELECT "q1"."tenant" FROM "public"."node" AS "q1" WHERE "q0"."parentId" = "q1"."id" LIMIT $1) AS "q2") AS "q3" ON TRUE ORDER BY "q0"."id" ASC',
+        params: [1],
       },
     ]);
   });

@@ -102,19 +102,44 @@ function postgresLikePattern(kind: TextMatch, value: Sql): Sql {
     return sql`${head + escapeLikeLiteral(literal) + tail}`;
   return sql`(${sql.raw(head && "'%' || ")}REPLACE(REPLACE(REPLACE(CAST(${value} AS TEXT), CHR(92), CHR(92) || CHR(92)), '%', CHR(92) || '%'), '_', CHR(92) || '_')${sql.raw(tail && " || '%'")})`;
 }
+function postgresJsonArray(items: Sql[]): Sql {
+  if (items.length === 0) return sql.raw`'[]'::json`;
+  const chunks: Sql[] = [];
+  const buildArray =
+    items.length > 100 ? "jsonb_build_array" : "json_build_array";
+  // PostgreSQL limits a function call to 100 arguments, and one fragment
+  // per call is what {@link postgresJsonObject} measured.
+  for (let start = 0; start < items.length; start += 100) {
+    const end = Math.min(items.length, start + 100);
+    const strings = [`${buildArray}(`];
+    for (let at = start + 1; at < end; at++) strings.push(", ");
+    strings.push(")");
+    chunks.push(new Sql(strings, items.slice(start, end)));
+  }
+  return chunks.length === 1
+    ? chunks[0]!
+    : sql`(${sql.join(chunks, " || ")})::json`;
+}
 function postgresJsonObject(pairs: [string, Sql][]): Sql {
   if (pairs.length === 0) return sql.raw`'{}'::json`;
   const chunks: Sql[] = [];
-  const buildObject = sql.raw(
-    pairs.length > 50 ? "jsonb_build_object" : "json_build_object"
-  );
+  const buildObject =
+    pairs.length > 50 ? "jsonb_build_object" : "json_build_object";
   // PostgreSQL limits a function call to 100 arguments. Chunking preserves
   // the surrounding aggregate scope, unlike moving values into a subquery.
   for (let start = 0; start < pairs.length; start += 50) {
-    const args = pairs
-      .slice(start, start + 50)
-      .flatMap(([key, value]) => [sql`${key}::text`, value]);
-    chunks.push(sql`${buildObject}(${sql.join(args, ", ")})`);
+    // One fragment per call, each key its parameter: a fragment per key,
+    // the list of them and the function's name were as many more to make
+    // and to walk for every object of every nested read.
+    const strings: string[] = [];
+    const values: unknown[] = [];
+    for (let at = start; at < pairs.length && at < start + 50; at++) {
+      const [key, value] = pairs[at]!;
+      strings.push(at === start ? `${buildObject}(` : ", ", "::text, ");
+      values.push(key, value);
+    }
+    strings.push(")");
+    chunks.push(new Sql(strings, values));
   }
   return chunks.length === 1
     ? chunks[0]!
@@ -236,7 +261,11 @@ export class PostgresAdapter implements DatabaseAdapter {
     installAdapterNamespace(this, namespace, "postgresql");
     // Reads the installed value, so it cannot be a field initializer: those run
     // before the constructor body.
-    this.identifiers = createIdentifiers(quoteIdent, this.namespace, true);
+    this.identifiers = createIdentifiers(
+      quoteIdent,
+      this.namespace,
+      this.capabilities.namesQualifiedColumns
+    );
     installGeoPointSql(this, postgis ? this.#createGeoPointSql() : undefined);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
@@ -494,10 +523,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     object: postgresJsonObject,
 
-    array: (items: Sql[]): Sql => {
-      if (items.length === 0) return sql.raw`'[]'::json`;
-      return sql`json_build_array(${sql.join(items, ", ")})`;
-    },
+    array: postgresJsonArray,
 
     emptyArray: (): Sql => sql.raw`'[]'::json`,
 
@@ -641,11 +667,11 @@ export class PostgresAdapter implements DatabaseAdapter {
       }
 
       // PostgreSQL supports DISTINCT ON (columns)
-      const selectClause = parts.distinct
-        ? sql`SELECT DISTINCT ON (${parts.distinct}) ${parts.columns}`
-        : sql`SELECT ${parts.columns}`;
-
-      return assembleSelectQuery(selectClause, parts, { forUpdate: "append" });
+      return assembleSelectQuery(
+        parts,
+        { forUpdate: "append" },
+        parts.distinct
+      );
     },
   };
 
@@ -689,6 +715,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   setOperations = createSetOperations();
 
   capabilities: DatabaseAdapter["capabilities"] = {
+    namesQualifiedColumns: true,
     supportsReturning: true,
     supportsCteWithMutations: true,
     supportsFullOuterJoin: true,
@@ -701,6 +728,8 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsRowLocks: true,
     joinsJunctionFilters: "unbounded",
     readsNodesByKey: true,
+    joinsToOneLaterally: true,
+    carriesDocumentsAsArrays: true,
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;

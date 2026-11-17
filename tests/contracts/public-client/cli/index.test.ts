@@ -28,9 +28,19 @@ describe("CLI entrypoint", () => {
         stderr.push(String(chunk));
         return true;
       });
+    // The entry point ends the process once the command settled, keeping
+    // the exit code it set: the exit is observed as the sentinel it throws.
+    const exits: unknown[] = [];
+    const exit = vi.spyOn(process, "exit").mockImplementation((code) => {
+      exits.push(code);
+      throw new ProcessExitError(Number(code ?? 0));
+    });
     try {
       process.exitCode = undefined;
-      await import("@src/cli/index");
+      await expect(import("@src/cli/index")).rejects.toBeInstanceOf(
+        ProcessExitError
+      );
+      expect(exits).toEqual([undefined]);
       expect(stderr.join("")).toBe(
         failure instanceof Error
           ? "entry failure\n"
@@ -42,6 +52,7 @@ describe("CLI entrypoint", () => {
     } finally {
       parse.mockRestore();
       write.mockRestore();
+      exit.mockRestore();
       process.exitCode = previousCode;
       vi.resetModules();
     }
@@ -56,9 +67,12 @@ describe("CLI entrypoint", () => {
         stdout.push(String(chunk));
         return true;
       });
-    let exitedCode: number | undefined;
+    // Commander exits with 0 once it printed the help; the entry point's own
+    // exit, once the command settled, takes no code. Each is observed as the
+    // sentinel it throws.
+    const exits: unknown[] = [];
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
-      exitedCode = Number(code ?? 0);
+      exits.push(code);
       throw new ProcessExitError(Number(code ?? 0));
     });
 
@@ -73,8 +87,8 @@ describe("CLI entrypoint", () => {
       process.argv = originalArgv;
     }
 
-    expect(thrown).toBeUndefined();
-    expect(exitedCode).toBe(0);
+    expect(thrown).toBeInstanceOf(ProcessExitError);
+    expect(exits).toEqual([0, undefined]);
     process.exitCode = undefined;
     const output = stdout.join("");
     expect(output).toContain(

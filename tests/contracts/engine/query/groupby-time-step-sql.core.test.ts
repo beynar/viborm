@@ -90,18 +90,18 @@ describe("PostgreSQL: one period column per step, its zone bound once", () => {
     expect(statement).toBe(
       [
         `SELECT "q0"."statut", to_char(CAST("q0"."0viborm_period:0" AS TIMESTAMP), 'YYYY-MM-DD BC') AS "date", to_char(CAST("q0"."0viborm_period:1" AS TIMESTAMP), 'YYYY-MM-DD BC') AS "jour", to_char(CAST("q0"."0viborm_period:2" AS TIMESTAMP), 'YYYY-MM-DD BC') AS "wall",`,
-        ` COUNT(*) AS "_count", json_build_object($1::text, SUM("q0"."montant")) AS "_sum"`,
+        ` COUNT(*) AS "_count", json_build_array(SUM("q0"."montant")) AS "_sum"`,
         ` FROM (SELECT "q1"."id", "q1"."statut", "q1"."montant", "q1"."date", "q1"."wall", "q1"."jour",`,
-        ` CAST(date_trunc('month', ("q1"."date" AT TIME ZONE $2)) AS DATE) AS "0viborm_period:0",`,
+        ` CAST(date_trunc('month', ("q1"."date" AT TIME ZONE $1)) AS DATE) AS "0viborm_period:0",`,
         ` CAST(date_trunc('week', CAST("q1"."jour" AS TIMESTAMP)) AS DATE) AS "0viborm_period:1",`,
         ` CAST(date_trunc('year', "q1"."wall") AS DATE) AS "0viborm_period:2"`,
         ` FROM "public"."facture" AS "q1") AS "q0"`,
         ` GROUP BY "q0"."statut", "q0"."0viborm_period:0", "q0"."0viborm_period:1", "q0"."0viborm_period:2"`,
         ` ORDER BY "q0"."0viborm_period:0" DESC, SUM("q0"."montant") ASC, "q0"."statut" ASC, "q0"."0viborm_period:1" ASC, "q0"."0viborm_period:2" ASC`,
-        " LIMIT $3",
+        " LIMIT $2",
       ].join("")
     );
-    expect(values).toEqual(["montant", "America/Montreal", 5]);
+    expect(values).toEqual(["America/Montreal", 5]);
   });
 
   test("without timeZone an instant is read in UTC, never in the session's zone", () => {

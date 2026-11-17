@@ -32,6 +32,7 @@ const client = createClient({
 | `postgis` | `boolean` | Enable PostGIS support |
 | `sharedRelationBodies` | `boolean` | State each relation-filter body a statement repeats once, in a `WITH` (default `true`; `false` keeps the bodies inline) |
 | `relationsPerStatement` | `number` | The most relations (`FROM` items) one statement may reference (PlanetScale Neki: `256`); a statement over it is rewritten to fit. See [Neki](/docs/extensions/permissions#providers) |
+| `namedStatements` | `boolean \| { max: number }` | Prepare the statements VibORM repeats, at most `max` per connection (100 with `true`); off by default. See [Prepared statements](#prepared-statements) |
 
 `createClient` refuses any other key with a `ClientInitializationError` that
 names it.
@@ -101,9 +102,9 @@ VibORM checks supplied temporal parser configuration before using the client.
 `vibormTypes` keeps PostgreSQL dates and timestamps as text so typed queries
 decode them consistently, including years before 100 and timezone offsets.
 `$disconnect()` leaves this supplied client open; its owner calls `sql.end()`.
-Its statements stay unprepared unless you pass `options: { prepare: true }`
-beside it and the client keeps postgres.js's default `prepare: true`; see
-[Prepared statements](#prepared-statements).
+Its statements stay unprepared unless you pass `namedStatements` (or
+`options: { prepare: true }`) beside it and the client keeps postgres.js's
+default `prepare: true`; see [Prepared statements](#prepared-statements).
 
 ### With pgvector
 
@@ -187,15 +188,39 @@ The unnamed statement leaves nothing on the server, so transaction-mode poolers
 accept it. [`viborm/pg`](/docs/drivers/postgresql/pg) (node-postgres) sends the
 same unnamed statement in one round trip.
 
-Where the endpoint keeps prepared statements, opt in with
-`options: { prepare: true }`, also beside a supplied `client` that keeps
-postgres.js's default `prepare: true` (postgres.js prepares only when both
-agree). Each statement is then parsed once per connection and costs one round
-trip after that. Opting in means:
+Where the endpoint keeps prepared statements, opt in with `namedStatements`,
+also beside a supplied `client` that keeps postgres.js's default
+`prepare: true` (postgres.js prepares only when both agree):
+
+```typescript
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  schema,
+  namedStatements: true, // or { max: 50 }
+});
+```
+
+A statement VibORM writes, with values, is prepared the second time it is sent,
+and a connection holds at most `max` of them (100 with `true`). Each is then
+parsed once per connection and costs one round trip after that: a transaction
+of eight inserts takes 10 round trips instead of 18. On a local PostgreSQL 18,
+where a round trip costs little, a `findUnique` already takes about 40 % less
+time, and a `create` or an `update` about 20 % less. Raw SQL is not prepared.
+postgres.js itself sends again, once, a statement whose name the server lost.
+`options: { prepare: true }` still prepares every statement, raw ones included,
+with no bound. Opting in, either way, means:
 
 - After a migration that replaces an enum type (removing or reordering values,
-  or using a value the same migration adds), restart or reconnect every running
-  client: until then its statements bound to the old type fail with `V2001`.
+  or using a value the same migration adds), a statement with a value of that
+  type no longer finds the old type. With `namedStatements`, it is sent again
+  once unprepared (in a transaction, the failure is the transaction's answer)
+  and never prepared again by that client. With `options: { prepare: true }`,
+  restart or reconnect every running client: until then those statements fail
+  with `V2001`.
 - The server keeps one prepared statement per distinct query shape (each
-  `in`-list length, each `createMany` row count) per connection until the
-  connection reaches its `max_lifetime`.
+  `createMany` row count, for example) per connection until the connection
+  reaches its `max_lifetime`: at most `max` with `namedStatements`, all of them
+  with `options: { prepare: true }`. Each costs 11 kB to 42 kB of server
+  memory, measured on PostgreSQL 18.
+- Behind PgBouncer in transaction mode, set `max_prepared_statements` (its
+  default is 200 since 1.24) to at least `max`.

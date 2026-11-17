@@ -12,15 +12,26 @@
 export type IdentifierQuoter = (name: string) => string;
 
 /** Build an identifier quoter that doubles embedded quote characters to prevent SQL injection. */
-export const createIdentifierQuoter =
-  (quoteChar: '"' | "`"): IdentifierQuoter =>
-  (name: string): string => {
-    const escaped =
-      name.indexOf(quoteChar) === -1
+export const createIdentifierQuoter = (
+  quoteChar: '"' | "`"
+): IdentifierQuoter => {
+  // The names a statement quotes are its schema's and its own aliases, the
+  // same few on every call: each is quoted once. Bounded, so names a caller
+  // invents cannot grow it without end.
+  const quoted = new Map<string, string>();
+  return (name: string): string => {
+    const known = quoted.get(name);
+    if (known !== undefined) return known;
+    const text =
+      quoteChar +
+      (name.indexOf(quoteChar) === -1
         ? name
-        : name.replaceAll(quoteChar, quoteChar + quoteChar);
-    return quoteChar + escaped + quoteChar;
+        : name.replaceAll(quoteChar, quoteChar + quoteChar)) +
+      quoteChar;
+    if (quoted.size < 4096) quoted.set(name, text);
+    return text;
   };
+};
 
 /**
  * The one qualification rule. A present namespace contributes a quoted prefix;
