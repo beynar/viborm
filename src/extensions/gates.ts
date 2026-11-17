@@ -11,6 +11,7 @@ import {
   type ProjectionShape,
   providerDocument,
   providerJson,
+  providerMembers,
   type Queries,
   type Reader,
   type ResultRefusal,
@@ -58,7 +59,8 @@ export function gatedDocument(
   shape: Extract<ProjectionShape, { kind: "object" }>,
   fields: readonly string[],
   readers: readonly Reader[],
-  columns?: readonly string[]
+  columns?: readonly string[],
+  members = false
 ): Reader {
   // Its gates read as `q` reads a boolean.
   const readGate = q.compileReader(BOOLEAN_LEAF, false, carried);
@@ -72,6 +74,12 @@ export function gatedDocument(
     ...gates.map((gate) => columns.lastIndexOf(gate)),
   ];
   const cell = (source: unknown, index: number, key: string): unknown => {
+    // A document carried as an array holds its members then its gates, each
+    // read as its OWN cell: a hole takes nothing from a prototype.
+    if (members)
+      return Object.hasOwn(source as unknown[], index)
+        ? (source as unknown[])[index]
+        : undefined;
     // Without columns a source row is a record, with them an array of cells.
     if (positions === undefined) return own(source as Input, key);
     // A column the statement does not carry is at -1, where no row has a cell.
@@ -82,7 +90,9 @@ export function gatedDocument(
     // A positional row is an array: its driver asserted it. Only the count
     // carrier is never null, and it carries no gate.
     if (!positions) {
-      source = providerDocument(providerJson(value));
+      source = members
+        ? providerMembers(value, fields.length + gates.length)
+        : providerDocument(providerJson(value));
       if (source === null) return null;
       if (source === undefined)
         throw new InvalidScalarResult(

@@ -521,7 +521,9 @@ describe("tenancy, soft delete and an optional control: SQL unchanged (W-K1e)", 
   // The golden was recorded before K1/K2 (layers, parameters, admission):
   // a chain whose predicates read only columns, and values that are the
   // call's, lowers to the text and values it did when values were
-  // substituted into a copy of the predicate.
+  // substituted into a copy of the predicate. Five calls re-recorded on
+  // 2026-11-17, when a document carried inside a row became the `json_array`
+  // of its members: the parameters that bound its keys are gone, nothing else.
   const author = s.model({
     id: s.int().id(),
     tenantId: s.string(),

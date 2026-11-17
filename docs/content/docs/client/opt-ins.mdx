@@ -63,7 +63,7 @@ the rest of the statement are identical.
 Without `fewRows`, the reached ids are **joined** to `folder`:
 
 ```sql
-SELECT COALESCE(json_agg(json_build_object(…, "q6"."name")), '[]'::json)
+SELECT COALESCE(json_agg(json_build_array("q6"."name")), '[]'::json)
 FROM (SELECT DISTINCT ON ("q3"."__q1_child_0") "q3"."__q1_child_0" AS "__q1_id_0"
       FROM "__q1_recursive" AS "q3") AS "q5"
 INNER JOIN "public"."folder" AS "q6" ON "q6"."id" = "q5"."__q1_id_0"
@@ -73,7 +73,7 @@ With `fewRows`, each reached id is **read by its key**:
 
 ```sql
 SELECT COALESCE(json_agg((
-         SELECT json_build_object(…, "q6"."name")
+         SELECT json_build_array("q6"."name")
          FROM "public"."folder" AS "q6"
          WHERE "q6"."id" = "q5"."__q1_id_0"
        )), '[]'::json)

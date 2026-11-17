@@ -128,8 +128,8 @@ export const projectionOf = (domain: PreparedDomain) => {
       const visible = taken
         ? undefined
         : layerHolds(q, model, layer, read, alias);
-      const held = a.json.objectFromColumns(
-        field.names.map(([name, input]) => [
+      const held = q.carriedDocument(
+        field.names.map(([name, input]): [string, Sql] => [
           name,
           q.truth(
             input === read
@@ -142,8 +142,11 @@ export const projectionOf = (domain: PreparedDomain) => {
         ? held
         : a.expressions.caseWhen(
             [{ when: visible, then: held }],
-            a.json.objectFromColumns(
-              field.names.map(([name]) => [name, a.literals.false()])
+            q.carriedDocument(
+              field.names.map(([name]): [string, Sql] => [
+                name,
+                a.literals.false(),
+              ])
             )
           );
     },
@@ -265,8 +268,15 @@ export const projectionOf = (domain: PreparedDomain) => {
           if (entry === undefined) continue;
           const { as, facts } = entry;
           const read = entry.shown ?? entry.read ?? ALL;
+          // The names in an object's own-key order — an integer-like name
+          // first — which is the order the shape made of them lists them in,
+          // and so the order a document carried as an array holds them in.
           if (as !== undefined)
-            keys.set(as, { layer, read, names: [...facts!] });
+            keys.set(as, {
+              layer,
+              read,
+              names: Object.entries(Object.fromEntries(facts!)),
+            });
           for (const [field, input] of entry.reads ?? [])
             gates.set(field, [
               ...(gates.get(field) ?? []),

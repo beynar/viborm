@@ -925,24 +925,24 @@ async function scriptedFailure(
   }
 }
 
-const ABSENT_TITLE =
-  'The "findMany" result is incompatible with the string scalar domain: the value is absent.';
 const NOT_A_ROW =
   'The "findMany" result is incompatible with the row scalar domain: a requested document is not a provider row.';
 
-describe("the document and own-key rules at the later placements", () => {
-  it("reads a variant arm by own key and refuses one that is no document", async () => {
+describe("the document rule at the later placements", () => {
+  it("reads a variant arm's members by position and refuses one that is no document", async () => {
+    // An arm's row is carried as an array of its members: a keyed one, or
+    // one holding fewer members, is no document, whatever a prototype holds.
     const arm = Object.create({ title: "inherited" });
     arm.id = "o";
     const args = { select: { id: true, subject: true } };
-    const inherited = await scriptedFailure(
+    const keyed = await scriptedFailure(
       [{ id: 1, subject: { full: null, other: arm } }],
       "pin",
       args
     );
-    assert.ok(inherited instanceof QueryError);
-    assert.equal(inherited.message, ABSENT_TITLE);
-    for (const malformed of [5, '"text"', [1]])
+    assert.ok(keyed instanceof QueryError);
+    assert.equal(keyed.message, NOT_A_ROW);
+    for (const malformed of [5, '"text"', [1], { id: "o", title: "t" }])
       assert.equal(
         member(
           await scriptedFailure(
@@ -982,7 +982,9 @@ describe("the document and own-key rules at the later placements", () => {
       );
   });
 
-  it("reads a recursive node row by own key", async () => {
+  it("reads a recursive node row's members by position", async () => {
+    // A node's row is carried as an array of its members: a keyed one is no
+    // document, and no member is read from its prototype.
     const row = Object.create({ id: "inherited" });
     const failure = await scriptedFailure(
       [
@@ -1006,7 +1008,7 @@ describe("the document and own-key rules at the later placements", () => {
       }
     );
     assert.ok(failure instanceof QueryError);
-    assert.equal(failure.message, ABSENT_TITLE);
+    assert.equal(failure.message, NOT_A_ROW);
   });
 
   it("refuses a bounded edge no level of the walk can consume", async () => {
@@ -1014,7 +1016,7 @@ describe("the document and own-key rules at the later placements", () => {
     // 2 and at no other. The same hop recorded at depth 1 is a distinct fact
     // (not a duplicate) that every other check admits, and only the
     // consumption count can refuse it.
-    const node = (id: string) => ({ __rq_key: [id], __rq_row: { id } });
+    const node = (id: string) => ({ __rq_key: [id], __rq_row: [id] });
     const edge = (parent: string, child: string, depth: number) => ({
       __rq_parent: [parent],
       __rq_child: [child],

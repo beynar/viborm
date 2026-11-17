@@ -518,7 +518,7 @@ describe("projecting an identifier column", () => {
     // The page column is transported once; the carrier reads it unchanged.
     expect(statement).toContain(`lower(hex("q0"."id")) AS "id"`);
     expect(statement).toContain(`lower(hex("q1"."id")) AS "id"`);
-    expect(statement).toContain(`json_object($1, "q2"."id")`);
+    expect(statement).toContain(`json_array("q2"."id")`);
   });
 });
 

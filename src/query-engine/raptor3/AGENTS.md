@@ -1814,9 +1814,48 @@ primitive codecs are shared functions, while descriptor-dependent codecs stay
 batch-local. `compileScalar` owns raw NULL/absence and the provider crossing.
 Only the root physical row arm can read positional native cells; actual native
 column aliases locate cells once, including explicit absence for a missing
-alias. Every nested carried document keeps the own-key object reader. Both
-representations allocate fresh public rows and a fresh outer result array.
-That object reader has ONE body. It first walks a plain document's own keys
+alias. Both representations allocate fresh public rows and a fresh outer
+result array.
+**A document CARRIED inside another value is an array of its members where the
+adapter says so** (`capabilities.carriesDocumentsAsArrays`: PostgreSQL, MySQL,
+SQLite; Arnaud, 2026-11-17). A relation row, a `_count` or aggregate carrier,
+a link row (`$through`), an evidence document, a variant arm's row and a
+recursive node's row are then lowered by `SqlQueries.carriedDocument` as the
+JSON array of their members' VALUES — the shape's fields in their own-key
+order, then its gates — and read by position by the object arm of
+`compileReader` (`providerMembers`): no member name is written per document,
+bound as a parameter or parsed back. One fact, asked by the lowering and by
+the decoder; a placement has one reader, never the two forms side by side.
+The array holds EXACTLY the shape's members: an object, a scalar, or an array
+of another length is the malformed row (`a requested document is not a
+provider row`). **That refuses a wrong COUNT only, never a wrong ORDER**: two
+members of one type lowered in another order than the shape lists them decode
+in silence, each as the other. What rules that out is the lowering itself:
+every one lists its members from the list the shape was made of, in the
+shape's own-key order — a row walks `Object.keys(shape.fields)` then
+`shape.gates` (`#pageObject`, the recursive node document), a `_count`, an
+aggregate carrier and a link row map the one list their shape was built from
+(schema identifiers, which own-key order never moves), and an evidence
+document's names, which are the caller's and may be integer-like, are held in
+own-key order (`extensions/projection.ts`). Never build a carried document
+from a list of your own. A cell
+is read as a plain object's member is: directly from an array whose prototype
+is `Array.prototype` — only a polluted prototype could answer a hole — and by
+its OWN index from an array of any other prototype (the gated reader always
+by own index). Whoever
+adds a carried object shape builds its document with `carriedDocument`, its
+members read off the shape as above. What stays keyed on every
+adapter: the root row (the driver's), a variant SLOT and its integrity entry,
+and the recursive carrier and its node and edge entries, each read by
+`providerDocument` + `own`. Measured on PostgreSQL 18, end to end, three
+two-level filtered reads: 45 % fewer bytes received, 13 → 5 parameters, 5 to
+30 µs less server time than `json_build_object`, 3 to 11 µs less
+`JSON.parse`, and a wall time 0 % to 3 % above Drizzle 1.0's relational API
+where it was 8 % to 9 % above; MySQL 8.4 takes 5 % to 6 % less and SQLite
+10 % to 15 % less, and no read measured takes more
+(`viborm-evidence/…/vs-drizzle-2026-11-16/why/`). SurrealDB answers native
+records and Snowflake is unmeasured: both keep the keyed document below.
+The keyed object reader has ONE body. It first walks a plain document's own keys
 (`for…in`) for as long as each is the next member and no name
 `Object.prototype` holds — what `json_build_object` and `json_object` answer —
 so each member is loaded by the document's own layout, not by a keyed load
@@ -1892,8 +1931,9 @@ arm that already owns the sentence refuses it before any arm is decoded
 other integrity fact: its membership count is a sibling scalar subquery ahead of
 the row window's `WHERE` and `LIMIT` — which is the only place it can be
 answered, since a target filter or the `LIMIT 1` hides the second member — and a
-count above one emits a JSON ARRAY where the leaf owes one row object, the shape
-the decoder already refuses by name. Existence and membership are execution
+count above one emits the container a row document is NOT carried as (a JSON
+ARRAY where the leaf owes a row object, an empty OBJECT where it owes an array
+of members), the shape the decoder already refuses by name. Existence and membership are execution
 semantics (rule 4), so neither is a payload question, and an ordinary pair
 table's bytes are unchanged.
 

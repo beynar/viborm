@@ -413,7 +413,8 @@ describe("a computed field", () => {
           id: "b",
           price: "1.50",
           authorId: "a",
-          author: { id: "a", name: "n" },
+          // A related row is carried as the array of its members.
+          author: ["a", "n"],
         },
       ],
     ]);
