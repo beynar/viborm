@@ -70,6 +70,8 @@ const AGGREGATED = {
     },
   },
 } as const;
+/** A fresh payload: a call's `orderBy` is a mutable array. */
+const aggregated = () => ({ ...AGGREGATED, orderBy: [...AGGREGATED.orderBy] });
 
 describe("_aggregate reads the rows the caller reads", () => {
   test("a soft-deleted row is neither aggregated nor ordered by", async () => {
@@ -77,7 +79,7 @@ describe("_aggregate reads the rows the caller reads", () => {
       softDelete({ models: { order: { deletedAt: "deletedAt" } } })
     );
     await db.order.delete({ where: { id: "o2" } });
-    expect(await db.shop.findMany(AGGREGATED)).toEqual([
+    expect(await db.shop.findMany(aggregated())).toEqual([
       {
         id: "s2",
         _aggregate: {
@@ -111,7 +113,7 @@ describe("_aggregate reads the rows the caller reads", () => {
       })
     );
     // The reader sees the published orders, and no cost on any of them.
-    expect(await db.$as({ admin: false }).shop.findMany(AGGREGATED)).toEqual([
+    expect(await db.$as({ admin: false }).shop.findMany(aggregated())).toEqual([
       {
         id: "s2",
         _aggregate: {
@@ -132,7 +134,7 @@ describe("_aggregate reads the rows the caller reads", () => {
       },
     ]);
     // The admin sees every order and every cost.
-    expect(await db.$as({ admin: true }).shop.findMany(AGGREGATED)).toEqual([
+    expect(await db.$as({ admin: true }).shop.findMany(aggregated())).toEqual([
       {
         id: "s1",
         _aggregate: {
