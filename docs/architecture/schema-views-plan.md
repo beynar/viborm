@@ -71,7 +71,9 @@ await db.publishedPost.count({ where: { authorId } });
 ```
 
 - `s.view(source, query)`: `source` is a thunk to a model or to another view
-  (schema rule 3); `query` is what `findMany` takes on that source.
+  (schema rule 3); `query` is what `findMany` takes on that source, typed and
+  refused like a client call. The view is a `Model` whose state is derived on
+  first read; a modifier chained on it (`.map()`) reads the source at once.
 - The view's columns are: each selected scalar of the source, stored as the
   table stores it under the same column name; and one JSON column per
   non-scalar selection (`include`d or selected relation, `_count`,
@@ -261,9 +263,9 @@ Answered in 2.6.
 One principle: an extension acts per call on a client; a view is compiled once
 from the schema. So only schema facts go into the body.
 
-- Schema `.omit()`: honoured. An omitted field is not projected by default,
-  at the root and in every document. A view that selects it explicitly has
-  the column, and the view keeps it omitted by default.
+- Schema `.omit()`: a hard exclusion already (`projectableScalarNames`): the
+  field is in no `select`, no default projection and no result, at the root and
+  in every document. A view cannot name it, so it cannot leak through one.
 - Soft delete, permissions, client `omit`, `defaults`: not in the body. They
   apply when the view is READ, to the view as its own model. Soft delete: the
   body shows deleted rows unless the query filters them
@@ -295,7 +297,10 @@ from the schema. So only schema facts go into the body.
   per schema key (one conditional per key, none per operation), measured with
   `pnpm test:types` and the packed type budgets before each push.
 - The declaration keeps `s.view` to what the client needs to read (source,
-  query, derived shape). The compile, the literal renderer's caller, identity
+  query, derived shape). Measured: a view's query is typed against its
+  source's `findMany` arguments for about 4,000 instantiations, provided the
+  signature never instantiates those arguments for `Model<any>` (TS2589 and
+  +10 M otherwise: see `ViewQuery`). The compile, the literal renderer's caller, identity
   and DDL live in migrations. `pnpm package:build && pnpm size` before each
   push; the pg application and the D1 Worker are the two numbers that count.
 
