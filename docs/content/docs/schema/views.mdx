@@ -239,6 +239,13 @@ facts.
   read, to the view as its own model. A view the policy does not list is
   closed, like a model, and the source model's policy does not carry over.
 
+### MySQL string values
+
+A string value of a view's query is written with MySQL's backslash escapes. A
+server running with `NO_BACKSLASH_ESCAPES` reads a backslash or a line break
+in such a value differently: run migrations without that mode, as for every
+other VibORM migration on MySQL.
+
 ## Databases
 
 | Database | Views |
