@@ -100,24 +100,22 @@ export type StateDocumentKeys<State> = 0 extends 1 & State
     ? DeclaredDocumentKeys<Source, Query>
     : never;
 
-type DeclaredDocumentKeys<Source extends AnyModel, Query> = Query extends {
-  select: infer Selection extends object;
-}
-  ? CountedKeys<
-      Source,
-      Exclude<AskedKeys<Selection>, ProjectableScalarKeys<Source>> & string,
-      Selection
-    >
-  :
-      | Exclude<
-          ViewDocumentKeys<Source>,
-          Query extends { omit: infer Omitted extends object }
-            ? AskedKeys<Omitted>
-            : never
-        >
-      | (Query extends { include: infer Included extends object }
-          ? CountedKeys<Source, AskedKeys<Included> & string, Included>
-          : never);
+type DeclaredDocumentKeys<Source extends AnyModel, Query> = Exclude<
+  Query extends { select: infer Selection extends object }
+    ? CountedKeys<
+        Source,
+        Exclude<AskedKeys<Selection>, ProjectableScalarKeys<Source>> & string,
+        Selection
+      >
+    :
+        | ViewDocumentKeys<Source>
+        | (Query extends { include: infer Included extends object }
+            ? CountedKeys<Source, AskedKeys<Included> & string, Included>
+            : never),
+  Query extends { omit: infer Omitted extends object }
+    ? AskedKeys<Omitted>
+    : never
+>;
 
 /**
  * A projection's non-scalar keys, `_count` only where it is a column: a read

@@ -437,3 +437,39 @@ type _operationResult = Expect<
 type _databaseRow = Expect<
   Equal<InferDatabase<typeof schema>["publishedPost"]["Row"], Row>
 >;
+
+// =============================================================================
+// OMIT BESIDE SELECT: WHAT OMIT NAMES IS NO COLUMN OF THE VIEW
+// =============================================================================
+
+const trimmed = s.view(() => post, {
+  select: { id: true, title: true, author: { select: { name: true } } },
+  omit: { id: true },
+});
+const trimmedOver = s.view(() => trimmed, {
+  select: { title: true, author: true },
+  omit: { author: true },
+});
+type _trimmedRow = Expect<
+  Equal<
+    OperationResult<"findMany", typeof trimmed, Record<never, never>>,
+    { title: string; author: { name: string } }[]
+  >
+>;
+type _trimmedOverRow = Expect<
+  Equal<
+    OperationResult<"findMany", typeof trimmedOver, Record<never, never>>,
+    { title: string }[]
+  >
+>;
+/** The omitted key was the view's only key: it has no unique read. */
+const trimmedClient = createClient({
+  schema: { author, post, trimmed },
+  driver: new PGliteDriver(),
+});
+type _trimmedKeyless = Expect<
+  Equal<
+    "findUnique" extends keyof typeof trimmedClient.trimmed ? true : false,
+    false
+  >
+>;

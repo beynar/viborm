@@ -8,6 +8,7 @@
  */
 
 import { s } from "@schema";
+import { JsonNull } from "@schema/json-null";
 import type { AnyModel, Model } from "@schema/model";
 import { diff } from "@src/migrations/differ";
 import type { MigrationDriver } from "@src/migrations/drivers/base";
@@ -271,6 +272,81 @@ describe("a view's identity", () => {
     ).views![0]!;
     expect(moved.hash).not.toBe(feed().hash);
     expect(moved.sql).not.toBe(feed().sql);
+  });
+});
+
+describe("a view's identity reads its query without loss", () => {
+  const noted = (query: object, migrationDriver = sqlite3MigrationDriver) =>
+    serialized(
+      ({ post }) => ({ feed: view(() => post, query).map("feed") }),
+      migrationDriver,
+      { post: { meta: s.json().nullable(), likes: s.int(), stars: s.int() } }
+    );
+  const hashOf = (query: object) => noted(query).views![0]!.hash;
+  const metaIs = (operand: unknown) => ({
+    where: { meta: { equals: operand } },
+    select: { id: true },
+  });
+  /** How many bodies and how many identities the queries have: as many as there are queries. */
+  const kinds = (queries: object[]) => ({
+    bodies: new Set(queries.map((query) => noted(query).views![0]!.sql)).size,
+    hashes: new Set(queries.map(hashOf)).size,
+  });
+  const each = (count: number) => ({ bodies: count, hashes: count });
+
+  it("a value JSON has no spelling for is never the object that would spell it", () => {
+    const at = new Date("2026-01-01T00:00:00.000Z");
+    expect(
+      kinds([
+        metaIs(JsonNull),
+        metaIs({ $jsonNull: "JsonNull" }),
+        metaIs({ $raw: { $jsonNull: "JsonNull" } }),
+        metaIs({ $date: String(at.getTime()) }),
+        metaIs({ $bigint: "5" }),
+        metaIs({ $field: "likes" }),
+      ])
+    ).toEqual(each(6));
+    expect(hashOf({ where: { at }, select: { id: true } })).not.toBe(
+      hashOf({
+        where: { at: new Date("2026-01-02T00:00:00.000Z") },
+        select: { id: true },
+      })
+    );
+  });
+
+  it("a JSON operand is read whole, a member named `~` included", () => {
+    expect(
+      kinds([metaIs({ "~": 1 }), metaIs({ "~": 2 }), metaIs({ "~": { a: 1 } })])
+    ).toEqual(each(3));
+  });
+
+  it("a callback is the column it answers", () => {
+    type Ask = { fields: Record<string, unknown> };
+    const likesOver = (operand: unknown) => ({
+      where: { likes: { gt: operand } },
+      select: { id: true },
+    });
+    expect(
+      kinds([
+        likesOver((ask: Ask) => ask.fields.likes),
+        likesOver((ask: Ask) => ask.fields.stars),
+        likesOver(6),
+      ])
+    ).toEqual(each(3));
+  });
+
+  it("a query changed in a value alone plans the view's replacement", async () => {
+    const pairs: [object, object][] = [
+      [metaIs(JsonNull), metaIs({ $jsonNull: "JsonNull" })],
+      [metaIs({ "~": 1 }), metaIs({ "~": 2 })],
+    ];
+    for (const [before, after] of pairs) {
+      const { operations } = await diff(noted(before), noted(after));
+      expect(operations.map(({ type }) => type)).toEqual([
+        "dropView",
+        "createView",
+      ]);
+    }
   });
 });
 

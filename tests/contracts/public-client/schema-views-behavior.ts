@@ -178,7 +178,70 @@ const notedQuery = {
 } as const;
 const noted = s.view(() => post, notedQuery).map("vw_noted_posts");
 
-const tables = { author, post, comment };
+/**
+ * `omit` beside `select`, as a read takes them: what `omit` names is no
+ * column of the view, a scalar or a JSON column of a source view alike.
+ */
+const trimmedQuery = {
+  select: { id: true, title: true, kind: true },
+  omit: { kind: true },
+} as const;
+const trimmed = s.view(() => post, trimmedQuery).map("vw_trimmed_posts");
+const trimmedOverQuery = {
+  select: { id: true, title: true, author: true, comments: true },
+  omit: { title: true, comments: true },
+} as const;
+const trimmedOver = s
+  .view(() => publishedPost, trimmedOverQuery)
+  .map("vw_trimmed_over");
+
+/**
+ * Foreign keys that inherit an identifier format from the key they
+ * reference: a ULID stored as bytes, a UUID as the database's own type. A
+ * view's column is its source's, so it is read and filtered the same way.
+ */
+const reader = s
+  .model({
+    id: s.string().ulid().id(),
+    uid: s.string().uuid().unique(),
+    bookmarks: s.toMany(() => bookmark),
+    bookmarksByUid: s.toMany(() => bookmark).name("byUid"),
+  })
+  .map("vw_readers");
+const bookmark = s
+  .model({
+    id: s.int().id(),
+    readerId: s.string(),
+    readerUid: s.string(),
+    reader: s
+      .toOne(() => reader)
+      .fields("readerId")
+      .references("id"),
+    readerByUid: s
+      .toOne(() => reader)
+      .name("byUid")
+      .fields("readerUid")
+      .references("uid"),
+  })
+  .map("vw_bookmarks");
+const bookmarkRefQuery = {
+  select: { id: true, readerId: true, readerUid: true },
+} as const;
+const bookmarkRef = s
+  .view(() => bookmark, bookmarkRefQuery)
+  .map("vw_bookmark_refs");
+const bookmarkRefOver = s
+  .view(() => bookmarkRef, { select: { id: true, readerId: true } })
+  .map("vw_bookmark_refs_over");
+
+const TABLE_NAMES = [
+  "vw_authors",
+  "vw_posts",
+  "vw_comments",
+  "vw_readers",
+  "vw_bookmarks",
+];
+const tables = { author, post, comment, reader, bookmark };
 const views = {
   publishedPost,
   authorDigest,
@@ -187,6 +250,10 @@ const views = {
   kinds,
   latest,
   noted,
+  trimmed,
+  trimmedOver,
+  bookmarkRef,
+  bookmarkRefOver,
 };
 const schema = { ...tables, ...views };
 
@@ -199,6 +266,10 @@ const CREATED = [
   "kinds",
   "latest",
   "noted",
+  "trimmed",
+  "trimmedOver",
+  "bookmarkRef",
+  "bookmarkRefOver",
 ] as const;
 
 const NAMES: Record<(typeof CREATED)[number], string> = {
@@ -209,6 +280,10 @@ const NAMES: Record<(typeof CREATED)[number], string> = {
   kinds: "vw_post_kinds",
   latest: "vw_latest_posts",
   noted: "vw_noted_posts",
+  trimmed: "vw_trimmed_posts",
+  trimmedOver: "vw_trimmed_over",
+  bookmarkRef: "vw_bookmark_refs",
+  bookmarkRefOver: "vw_bookmark_refs_over",
 };
 
 const hex = (bytes: Uint8Array) =>
@@ -264,12 +339,7 @@ export function runSchemaViewsBehavior({
     const client = createClient({ schema, driver });
     const quote = (identifier: string) =>
       dialect === "mysql" ? `\`${identifier}\`` : `"${identifier}"`;
-    const SCOPE = [
-      "vw_authors",
-      "vw_posts",
-      "vw_comments",
-      ...Object.values(NAMES),
-    ];
+    const SCOPE = [...TABLE_NAMES, ...Object.values(NAMES)];
     const dropViews = async () => {
       for (const view of [...CREATED].reverse())
         await driver._executeRaw(`DROP VIEW IF EXISTS ${quote(NAMES[view])}`);
@@ -278,9 +348,9 @@ export function runSchemaViewsBehavior({
     beforeAll(async () => {
       await dropViews();
       // Only this corpus's tables: a shared database holds other suites'.
-      await syncLiveSchema(setup, {
-        tables: ["vw_authors", "vw_posts", "vw_comments"],
-      });
+      await syncLiveSchema(setup, { tables: TABLE_NAMES });
+      await setup.bookmark.deleteMany({});
+      await setup.reader.deleteMany({});
       await setup.comment.deleteMany({});
       await setup.post.deleteMany({});
       await setup.author.deleteMany({});
@@ -431,6 +501,15 @@ export function runSchemaViewsBehavior({
       ] as const;
       for (const [id, body, likes, postId] of comments)
         await setup.comment.create({ data: { id, body, likes, postId } });
+      for (const [id, uid] of [
+        [1, "7c9e6679-7425-40de-944b-e07fc1f90ae7"],
+        [2, "9b2c1f0a-3d4e-4f5a-8b6c-7d8e9f0a1b2c"],
+      ] as const) {
+        const made = await setup.reader.create({ data: { uid } });
+        await setup.bookmark.create({
+          data: { id, readerId: made.id, readerUid: uid },
+        });
+      }
       // The views are created by the migrations, from their declarations.
       await syncLiveSchema(client, { tables: SCOPE });
     });
@@ -470,6 +549,44 @@ export function runSchemaViewsBehavior({
       // "back\\slash" is a seeded title: the view leaves it out.
       expect(rows.map(({ title }) => title)).not.toContain("back\\slash");
       expect(rows.length).toBeGreaterThan(0);
+    });
+
+    test("omit beside select: what omit names is no column of the view", async () => {
+      const rows = await client.trimmed.findMany();
+      expect(plain(rows)).toEqual(
+        plain(await client.post.findMany(trimmedQuery))
+      );
+      expect(Object.keys(rows[0]!)).toEqual(["id", "title"]);
+      const over = await client.trimmedOver.findMany();
+      expect(plain(over)).toEqual(
+        plain(await client.publishedPost.findMany(trimmedOverQuery))
+      );
+      expect(Object.keys(over[0]!)).toEqual(["id", "author"]);
+    });
+
+    test("a foreign key keeps its inherited identifier format in a view, read and filtered", async () => {
+      const marks = await client.bookmark.findMany(bookmarkRefQuery);
+      expect(marks).toHaveLength(2);
+      const rows = await client.bookmarkRef.findMany();
+      expect(plain(rows)).toEqual(plain(marks));
+      const [first] = marks;
+      // The public values, as a caller writes them.
+      expect(
+        await client.bookmarkRef.findMany({
+          where: { readerId: first!.readerId },
+        })
+      ).toEqual([first]);
+      expect(
+        await client.bookmarkRef.findMany({
+          where: { readerUid: { in: [first!.readerUid] } },
+        })
+      ).toEqual([first]);
+      // Through a view between: the same column still.
+      expect(
+        await client.bookmarkRefOver.findMany({
+          where: { readerId: first!.readerId },
+        })
+      ).toEqual([{ id: first!.id, readerId: first!.readerId }]);
     });
 
     test("a second push plans nothing: a view's identity is read back from the database", async () => {

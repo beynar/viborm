@@ -21,8 +21,10 @@
 import { inlineLiterals } from "../adapters/inline-literals";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { viewBody } from "../query-engine/raptor3/view-body";
+import { fieldRefPayload, isFieldRef } from "../schema/field-ref";
 import { jsonNullKindOf } from "../schema/json-null";
 import { type AnyModel, Model } from "../schema/model";
+import { emptyRecord, put } from "../schema/record";
 import type { AnyRelation } from "../schema/relation";
 import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
 import { viewIsItsRead } from "../schema/validation/rules/view";
@@ -65,23 +67,67 @@ const schemas = new WeakMap<ResolvedRelationIndex, SchemaFacts>();
 const hex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
+/** What an operand callback is answered for a field it asks for, while a view's identity is read. */
+class AskedField {
+  readonly field: string;
+  constructor(field: string) {
+    this.field = field;
+  }
+}
+
+/** The context an operand callback is called with here: each field answers its own name. */
+const ASKED = {
+  fields: new Proxy({}, { get: (_, field) => new AskedField(String(field)) }),
+};
+
+const tagged = (tag: string, payload: unknown): Record<string, unknown> => {
+  const record = emptyRecord<unknown>();
+  put(record, tag, payload);
+  return record;
+};
+
 /**
- * A declared query's values as identity data: what JSON has no spelling for
- * is tagged, so two different values never hash as one.
+ * A declared query as identity data, without loss: two queries that differ
+ * never read as one. What JSON has no spelling for is tagged, a record that
+ * would read as a tag (one key, beginning with `$`, as in a schema document)
+ * is wrapped in `$raw`, and a column named in place of a
+ * value, by a field reference or by the callback that hands one out, is
+ * `$field`. A callback is asked what it answers: by the time an identity is
+ * read the body is compiled, so it answers a reference, an SQL fragment or
+ * any other answer having been refused there. A reference compares two
+ * columns of one row, so its field's name says all of it.
  */
-function queryValue(this: unknown, key: string, value: unknown): unknown {
-  // `JSON.stringify` hands a Date over as its `toJSON` text: read the holder.
-  const held = (this as Record<string, unknown>)[key];
-  if (held instanceof Date) return { $date: held.toISOString() };
-  if (typeof held === "bigint") return { $bigint: held.toString() };
-  if (held instanceof Uint8Array) return { $bytes: hex(held) };
-  const jsonNull = jsonNullKindOf(held);
-  return jsonNull === undefined ? value : { $jsonNull: jsonNull };
+function identityValue(value: unknown): unknown {
+  const jsonNull = jsonNullKindOf(value);
+  if (jsonNull !== undefined) return tagged("$jsonNull", jsonNull);
+  if (typeof value === "bigint") return tagged("$bigint", value.toString());
+  if (typeof value === "number" && !Number.isFinite(value))
+    return tagged("$number", String(value));
+  if (typeof value === "function") return identityValue(value(ASKED));
+  if (typeof value !== "object" || value === null) return value;
+  if (value instanceof Date) return tagged("$date", String(value.getTime()));
+  if (value instanceof Uint8Array) return tagged("$bytes", hex(value));
+  if (value instanceof AskedField) return tagged("$field", value.field);
+  if (isFieldRef(value)) return tagged("$field", fieldRefPayload(value).field);
+  if (Array.isArray(value)) return value.map(identityValue);
+  // A value that states itself as JSON (a Decimal) is that statement, apart
+  // from the plain value it would otherwise be taken for.
+  if ("toJSON" in value && typeof value.toJSON === "function")
+    return tagged("$json", identityValue(value.toJSON()));
+  const record = emptyRecord<unknown>();
+  for (const [key, member] of Object.entries(value))
+    if (member !== undefined) put(record, key, identityValue(member));
+  const keys = Object.keys(record);
+  return keys.length === 1 && keys[0]!.startsWith("$")
+    ? tagged("$raw", record)
+    : record;
 }
 
 /**
  * A resolved relation as identity data: a model is its table, and what a
  * relation or a scalar object holds beside its resolved facts is left out.
+ * Schema objects only: the declared query is written apart, by
+ * `identityValue`, so that no value of it is read as one.
  */
 function relationValue(_key: string, value: unknown): unknown {
   if (value instanceof Model) return { $table: value["~"].names.sql };
@@ -215,7 +261,7 @@ export function viewDefinition(
     {
       revision: VIEW_REVISION,
       source: facts.source["~"].names.sql,
-      query: JSON.parse(JSON.stringify(facts.query, queryValue)),
+      query: JSON.stringify(identityValue(facts.query)),
       shape: body.shape,
       relations: [...crossed].sort(([left], [right]) =>
         left < right ? -1 : 1

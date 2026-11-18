@@ -94,9 +94,16 @@ Everything `findMany` reads, with these refusals at the root of the query:
 | --- | --- |
 | `cursor`, a negative `take` | a paging anchor and a reversed result, not a row set |
 | `orderBy` or `skip` without `take` | a view has no order; order when you read it |
-| an operand that is not a plain value (a caller `Sql` fragment, a callback) | there is nothing to write into the view's SQL |
+| a caller `Sql` fragment as an operand, written or returned by a callback | there is no value to write into the view's SQL, and nothing to compare it by |
 | recursive projections, polymorphic variant slots | not supported in a view yet |
 | an order or a selection by a distance (`_distance`) | it binds a query value on each call |
+
+A [field reference](/docs/client/filtering/field-references) is allowed:
+`where: { updatedAt: { gt: (ctx) => ctx.fields.createdAt } }` compares two
+columns of the row.
+
+`omit` beside `select` takes from the selection, as in a read: what it names
+is no column of the view.
 
 Inside a relation, everything stays allowed: `where`, `orderBy`, `take`,
 `skip`, `cursor` and nested relations. They shape the document, not the rows.

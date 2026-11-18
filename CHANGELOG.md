@@ -28,8 +28,8 @@ Versioning.
     replacement loses what was attached to the view by hand, a `GRANT` on
     PostgreSQL among them.
   - **What a view's query may not say** at its root: `cursor`, a negative
-    `take`, `orderBy` or `skip` without `take`, an SQL fragment or a callback
-    as an operand, a recursive or polymorphic relation, a distance. `viborm
+    `take`, `orderBy` or `skip` without `take`, an SQL fragment as an
+    operand, a recursive or polymorphic relation, a distance. `viborm
     check` reports it (`W005`).
   - **Extensions** act when a view is read, on the view as its own model: a
     view over a soft-deleted model shows deleted rows unless its query filters

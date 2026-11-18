@@ -220,11 +220,20 @@ write the same text.
 The identity of a view is a hash of what was DECLARED and of what the client
 will DECODE, not of the SQL text (`viewDefinition`,
 `src/migrations/view-definition.ts`): a revision number, the source table,
-the declared query (values JSON has no spelling for are tagged), the decoder
+the declared query, the decoder
 shape of a view row, and the resolved relations the query crosses.
 The text is kept in the snapshot (a migration must be able to write the view
 again, and a down migration the previous one) but is not compared. The hash is
 40 hex characters, so its marker fits an identifier on every database.
+
+The declared query is written without loss (`identityValue`): a value JSON
+has no spelling for is tagged, a record that would read as a tag is wrapped in
+`$raw` (the schema document's rule), a column named by a field reference or by
+the callback that hands one out is `$field`, and no schema-object filter of
+the identity ever reads the query's own values. Two queries that differ never
+hash as one, which a first encoder got wrong three ways (Devin, 2026-11-18): a
+`JsonNull` and the object spelling its tag, a JSON operand with a member named
+`~`, and two callbacks naming different columns.
 
 The relations are in because a relation can move between two columns that both
 stay, with the same foreign keys: the body changes, and no column, shape or

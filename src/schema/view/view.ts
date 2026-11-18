@@ -44,17 +44,13 @@ type AskedKeys<Selection> = {
   [K in keyof Selection]: Selection[K] extends false | undefined ? never : K;
 }[keyof Selection];
 
-/** The source scalars a query projects: the selected ones, or all but the omitted. */
-type ViewScalarKeys<M extends AnyModel, Q> = Q extends {
-  select: infer Selection extends object;
-}
-  ? Extract<AskedKeys<Selection>, ProjectableScalarKeys<M>>
-  : Exclude<
-      ProjectableScalarKeys<M>,
-      Q extends { omit: infer Omitted extends object }
-        ? AskedKeys<Omitted>
-        : never
-    >;
+/** The source scalars a query projects: the selected ones, or all, but the omitted. */
+type ViewScalarKeys<M extends AnyModel, Q> = Exclude<
+  Q extends { select: infer Selection extends object }
+    ? Extract<AskedKeys<Selection>, ProjectableScalarKeys<M>>
+    : ProjectableScalarKeys<M>,
+  Q extends { omit: infer Omitted extends object } ? AskedKeys<Omitted> : never
+>;
 
 type CompoundKeys = Record<string, ObjectSchema<Record<string, VibSchema>>>;
 
@@ -208,8 +204,9 @@ function deriveViewState(
   const projectable = projectableScalarNames(source);
   const selected = isRecord(query.select) ? askedKeys(query.select) : undefined;
   const omitted = new Set(askedKeys(query.omit));
-  const columns = projectable.filter((name) =>
-    selected ? selected.includes(name) : !omitted.has(name)
+  // As a read does: `omit` takes from the selection, written or default.
+  const columns = projectable.filter(
+    (name) => (selected?.includes(name) ?? true) && !omitted.has(name)
   );
   // A selection names scalars and JSON columns alike; without one, a view
   // keeps its source's JSON columns and adds the relations it includes.
@@ -220,13 +217,13 @@ function deriveViewState(
   const documents = (
     selected
       ? selected.filter((name) => !projectable.includes(name))
-      : [
-          ...kept.filter((name) => !omitted.has(name)),
-          ...askedKeys(query.include),
-        ]
+      : [...kept, ...askedKeys(query.include)]
   ).filter(
     (name) =>
-      name !== "_count" || kept.includes(name) || countsRelation(from, counted)
+      !omitted.has(name) &&
+      (name !== "_count" ||
+        kept.includes(name) ||
+        countsRelation(from, counted))
   );
   const projected = new Set(columns);
   const scalars = emptyRecord<Scalar>();

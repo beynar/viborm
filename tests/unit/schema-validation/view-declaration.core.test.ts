@@ -131,6 +131,22 @@ describe("a view's derived model", () => {
     expect(partial["~"].state.compoundId).toBeUndefined();
   });
 
+  it("omit takes from a written selection as a read does: scalars, keys and JSON columns", () => {
+    const trimmed = s.view(() => post, {
+      select: { id: true, title: true, author: true },
+      omit: { id: true },
+    } as never);
+    expect(scalarsOf(trimmed)).toEqual(["title"]);
+    expect(getModelKeyCatalog(trimmed).addressableKeys).toEqual([]);
+    expect(viewFacts(trimmed)?.documents).toEqual(["author"]);
+    const over = s.view(() => trimmed, {
+      select: { title: true, author: true },
+      omit: { author: true },
+    } as never);
+    expect(scalarsOf(over)).toEqual(["title"]);
+    expect(viewFacts(over)?.documents).toEqual([]);
+  });
+
   it("reads another view: its scalars, and its JSON columns unless omitted", () => {
     const first = s.view(() => post, {
       select: { id: true, title: true, author: true },
