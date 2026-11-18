@@ -194,17 +194,26 @@ Time steps exist on PostgreSQL only, as in `groupBy`.
 
 The body is compiled by the read compiler itself (a `Queries` subclass that
 only changes how root scalars are projected: no second compiler), then rendered
-by a new optional adapter member, absent on Snowflake and SurrealDB, that walks
-the `Sql` tree and writes each bound value as a literal of its dialect. It is a
-sibling of `Sql.toStatement`, so value positions are exact and no SQL text is
-parsed; casts are already in the text around each value. Per dialect: strings
-(PostgreSQL `'…'` under `standard_conforming_strings`, refused if it holds a
-NUL; MySQL through the existing `mysqlStringLiteral`; SQLite `'…'`), finite
-numbers, bigint, booleans (1/0 on SQLite), bytes (`'\x…'::bytea`, `X'…'`),
-PostgreSQL arrays as one array literal (`arrayLiteralText`), `JsonParameter`
-text. A value kind without a rule is a refusal, not a guess. The compile uses a
-fixed adapter configuration (no shared relation bodies, no transport bounds),
-so two drivers of one dialect write the same text.
+by `inlineLiterals(dialect, statement)` (`src/adapters/inline-literals.ts`),
+which walks the `Sql` tree and writes each bound value as a literal of its
+dialect. It is a sibling of `Sql.toStatement`, so value positions are exact and
+no SQL text is parsed; casts are already in the text around each value. It is
+a module only the migrations import, not an adapter member, so no application
+bundle carries it.
+
+Each literal is what the dialect's reference driver sends for the value in the
+same position, so the inlined text reads the rows the bound statement reads
+(57 engine reads compared bound and inlined on PostgreSQL 18, MySQL 8.4,
+SQLite and PGlite). PostgreSQL: quoted constants of unknown type, numbers and
+booleans included (`'10'`, as node-postgres sends them; a bare `10` is
+`int4`), `E'…'` when the string holds a backslash, `…::bytea`, one array
+literal for a JavaScript array. MySQL: `mysqlStringLiteral`, bare numbers,
+`X'…'`. SQLite: numbers as REAL (`10.0`, as the drivers bind them), negatives
+in parentheses (`5 --3` opens a comment), `X'…'`. A value kind no read of the
+dialect binds is a refusal, not a guess (`Date`, a string holding NUL on
+PostgreSQL and SQLite). The compile uses a fixed adapter configuration (no
+shared relation bodies, no transport bounds), so two drivers of one dialect
+write the same text.
 
 ### 3.2 Identity
 
