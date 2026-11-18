@@ -106,3 +106,11 @@ export interface PgEnum {
   enum_value: string;
   sort_order: number;
 }
+
+/** A view of the namespace: its deparsed definition and what it reads. */
+export interface PgView {
+  view_name: string;
+  definition: string | null;
+  /** JSON text: the names of the namespace's relations its rule depends on. */
+  depends_on: string;
+}

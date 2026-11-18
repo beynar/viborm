@@ -243,7 +243,12 @@ export async function planRebuildFromEmpty(
   );
 
   return {
-    operations: prepareSchemaProgram(operations, current, migrationDriver),
+    operations: prepareSchemaProgram(
+      operations,
+      current,
+      desired,
+      migrationDriver
+    ),
     currentSchema: current,
   };
 }
@@ -263,8 +268,11 @@ export async function planPush(
   // discriminator cannot reveal historical public/stored member mappings.
   // Push therefore compares structure only. Stored-value history is owned by
   // file-based generate(), where both serialized snapshots are available.
-  const current = withDeclaredRawTemplates(
-    await introspectSchema(client.$driver, migrationDriver),
+  const current = withDeclaredViews(
+    withDeclaredRawTemplates(
+      await introspectSchema(client.$driver, migrationDriver),
+      desired
+    ),
     desired
   );
   const diffOptions: DiffOptions = {
@@ -291,7 +299,12 @@ export async function planPush(
   );
 
   return {
-    operations: prepareSchemaProgram(operations, current, migrationDriver),
+    operations: prepareSchemaProgram(
+      operations,
+      current,
+      desired,
+      migrationDriver
+    ),
     currentSchema: current,
   };
 }
@@ -326,6 +339,29 @@ function withDeclaredRawTemplates(
           : { ...index, raw: { hash, template } };
       }),
     })),
+  };
+}
+
+/**
+ * The live views with the definitions the schema declares for them. A
+ * database holds a view's rewritten text and its marker, never the body it
+ * was given, and MySQL and SQLite do not say what a view reads; a view whose
+ * name and hash are declared is the declared one, body and reads included.
+ */
+function withDeclaredViews(
+  current: SchemaSnapshot,
+  desired: SchemaSnapshot
+): SchemaSnapshot {
+  if (current.views === undefined || desired.views === undefined)
+    return current;
+  const declared = new Map(
+    desired.views.map((view) => [`${view.name}\0${view.hash}`, view])
+  );
+  return {
+    ...current,
+    views: current.views.map(
+      (view) => declared.get(`${view.name}\0${view.hash}`) ?? view
+    ),
   };
 }
 

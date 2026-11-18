@@ -146,6 +146,11 @@ export type DropPrimaryKeyOperation = Extract<
   DiffOperation,
   { type: "dropPrimaryKey" }
 >;
+export type CreateViewOperation = Extract<
+  DiffOperation,
+  { type: "createView" }
+>;
+export type DropViewOperation = Extract<DiffOperation, { type: "dropView" }>;
 export type CreateEnumOperation = Extract<
   DiffOperation,
   { type: "createEnum" }
@@ -786,6 +791,20 @@ export abstract class MigrationDriver {
   ): GeneratedStatements;
 
   // ===========================================================================
+  // DDL GENERATION - View Operations
+  // ===========================================================================
+
+  /** `CREATE VIEW`, its body wrapped by `wrappedViewBody` so it carries its marker. */
+  abstract generateCreateView(
+    op: CreateViewOperation,
+    context: DDLContext
+  ): GeneratedStatements;
+  abstract generateDropView(
+    op: DropViewOperation,
+    context: DDLContext
+  ): GeneratedStatements;
+
+  // ===========================================================================
   // DDL GENERATION - Enum Operations
   // ===========================================================================
 
@@ -1100,6 +1119,10 @@ export abstract class MigrationDriver {
         return this.generateAddPrimaryKey(operation, context);
       case "dropPrimaryKey":
         return this.generateDropPrimaryKey(operation, context);
+      case "createView":
+        return this.generateCreateView(operation, context);
+      case "dropView":
+        return this.generateDropView(operation, context);
       case "createEnum":
         return this.generateCreateEnum(operation, context);
       case "dropEnum":

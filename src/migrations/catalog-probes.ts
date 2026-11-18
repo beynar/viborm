@@ -94,6 +94,42 @@ export function tableExistsProbe(
   };
 }
 
+/** Whether a view of that name exists (a table of the name is not one). */
+export function viewExistsProbe(
+  driver: MigrationDriver,
+  viewName: string,
+  exists: boolean,
+  lifetime: CatalogProbeLifetime = "live-command"
+): CatalogProbe {
+  const id = `view:${exists ? "exists" : "absent"}:${viewName}`;
+  if (driver.dialect === "postgresql")
+    return {
+      id,
+      sql: "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'v')",
+      parameters: [
+        stringParam(boundCatalogNamespace(driver)),
+        stringParam(viewName),
+      ],
+      equals: exists,
+    };
+  if (driver.dialect === "mysql")
+    return {
+      id,
+      sql: "SELECT EXISTS (SELECT 1 FROM information_schema.views WHERE table_schema = ? AND table_name = ?)",
+      parameters: [
+        mysqlNamespaceParam(driver, lifetime),
+        stringParam(viewName),
+      ],
+      equals: exists,
+    };
+  return {
+    id,
+    sql: "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'view' AND name = ?)",
+    parameters: [stringParam(viewName)],
+    equals: exists,
+  };
+}
+
 export function columnExistsProbe(
   driver: MigrationDriver,
   tableName: string,
@@ -400,6 +436,36 @@ export function probeForGeneratedStatement(
           driver,
           operation.tableName,
           operation.indexName,
+          false,
+          "stored-artifact"
+        ),
+      };
+    case "createView":
+      return {
+        pre: viewExistsProbe(
+          driver,
+          operation.view.name,
+          false,
+          "stored-artifact"
+        ),
+        post: viewExistsProbe(
+          driver,
+          operation.view.name,
+          true,
+          "stored-artifact"
+        ),
+      };
+    case "dropView":
+      return {
+        pre: viewExistsProbe(
+          driver,
+          operation.viewName,
+          true,
+          "stored-artifact"
+        ),
+        post: viewExistsProbe(
+          driver,
+          operation.viewName,
           false,
           "stored-artifact"
         ),

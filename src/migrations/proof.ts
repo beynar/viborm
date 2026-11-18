@@ -280,7 +280,11 @@ export async function assertEmptyManaged(
   command: BoundMigrationDriver
 ): Promise<void> {
   const live = await introspectManaged(producer, command);
-  if (live.tables.length > 0 || (live.enums?.length ?? 0) > 0) {
+  if (
+    live.tables.length > 0 ||
+    (live.enums?.length ?? 0) > 0 ||
+    (live.views?.length ?? 0) > 0
+  ) {
     throw new MigrationError(
       "Ordinary apply requires an empty managed target; use baseline to adopt an existing schema",
       VibORMErrorCode.MIGRATION_INVALID_STATE

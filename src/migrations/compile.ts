@@ -383,14 +383,20 @@ function compileGeneratedOperation(
   });
   return {
     id: `${operation.type}:${index}`,
-    label:
-      "tableName" in operation
-        ? `${operation.type} ${operation.tableName}${"columnName" in operation ? `.${operation.columnName}` : "column" in operation ? `.${operation.column.name}` : ""}`
-        : operation.type,
+    label: operationLabel(operation),
     origin: "generated",
     risk: isDestructiveOperation(operation) ? "destructive" : "safe",
     steps,
   };
+}
+
+function operationLabel(operation: DiffOperation): string {
+  if (operation.type === "createView")
+    return `createView ${operation.view.name}`;
+  if (operation.type === "dropView") return `dropView ${operation.viewName}`;
+  return "tableName" in operation
+    ? `${operation.type} ${operation.tableName}${"columnName" in operation ? `.${operation.columnName}` : "column" in operation ? `.${operation.column.name}` : ""}`
+    : operation.type;
 }
 
 export function compileManualTransition(

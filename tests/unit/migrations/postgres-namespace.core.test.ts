@@ -518,11 +518,13 @@ type CatalogQuery =
   | "uniques"
   | "enums"
   | "nullsNotDistinct"
+  | "views"
   | "unknown";
 
 /** Which catalog question a statement is, by a fragment unique to it. */
 function classifyCatalogQuery(sql: string): CatalogQuery {
   if (sql.includes("SELECT 1 AS present")) return "proof";
+  if (sql.includes("pg_get_viewdef")) return "views";
   if (sql.includes("format_type")) return "columns";
   if (sql.includes("(owner_ns.nspname = $1) <> (referenced_ns.nspname = $1)")) {
     return "crossSchemaForeignKeys";
@@ -582,6 +584,7 @@ describe("introspection is relative to the estate's schema", () => {
       "proof",
       "tables",
       "uniques",
+      "views",
     ]);
     for (const [query, statement] of executor.asked) {
       // Whether `pg_index` has a column is a question about the server, not

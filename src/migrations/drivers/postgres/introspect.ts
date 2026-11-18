@@ -19,6 +19,7 @@ import {
 } from "@validation/primitives/decimal-codec";
 import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
+import { isString } from "../../../validation/value-guards";
 import { readStoredDecimalDescriptor } from "../../decimal";
 import { RAW_INDEX_MARKER_PREFIX, readRawIndexMarker } from "../../raw-index";
 import type {
@@ -29,7 +30,9 @@ import type {
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
+  ViewDef,
 } from "../../types";
+import { readViewMarker } from "../../view";
 import { groupBy, groupByNested, mapReferentialAction } from "../utils";
 import { throwIfCatalogRefusal } from "./catalog-refusal";
 
@@ -42,6 +45,7 @@ import type {
   PgPrimaryKey,
   PgTable,
   PgUniqueConstraint,
+  PgView,
 } from "./types";
 
 // Regex for cleaning up PostgreSQL type casting (e.g., 'value'::text -> 'value')
@@ -373,6 +377,35 @@ JOIN pg_namespace n ON n.oid = t.typnamespace
 WHERE n.nspname = $1
 `;
 const ENUMS_QUERY = `${ENUMS_SOURCE}ORDER BY t.typname, e.enumsortorder;
+`;
+
+/** The namespace's views, each with its definition as `pg_get_viewdef` deparses it. */
+export const VIEWS_SOURCE = `
+SELECT rel.oid AS view_oid, rel.relname::text AS view_name, pg_catalog.pg_get_viewdef(rel.oid) AS definition
+FROM pg_catalog.pg_class rel
+JOIN pg_catalog.pg_namespace rel_namespace ON rel_namespace.oid = rel.relnamespace
+WHERE rel_namespace.nspname = $1
+  AND rel.relkind = 'v'
+`;
+/**
+ * The views and, as JSON text, the relations of the namespace each one's rule
+ * depends on: what a drop under RESTRICT must come after.
+ */
+const VIEWS_QUERY = `SELECT v.view_name, v.definition, coalesce((
+  SELECT json_agg(DISTINCT read_rel.relname::text)
+  FROM pg_catalog.pg_rewrite rw
+  JOIN pg_catalog.pg_depend dep
+    ON dep.classid = 'pg_catalog.pg_rewrite'::pg_catalog.regclass
+    AND dep.objid = rw.oid
+    AND dep.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
+  JOIN pg_catalog.pg_class read_rel ON read_rel.oid = dep.refobjid
+  JOIN pg_catalog.pg_namespace read_namespace ON read_namespace.oid = read_rel.relnamespace
+  WHERE rw.ev_class = v.view_oid
+    AND read_rel.oid <> v.view_oid
+    AND read_namespace.nspname = $1
+)::text, '[]') AS depends_on
+FROM (${VIEWS_SOURCE}) v
+ORDER BY v.view_name;
 `;
 
 // =============================================================================
@@ -783,6 +816,7 @@ export async function introspectPostgresSchema(
     UNIQUE_CONSTRAINTS_QUERY
   );
   const enumsResult = await read<PgEnum>("enums", ENUMS_QUERY);
+  const viewsResult = await read<PgView>("views", VIEWS_QUERY);
 
   assertNoCrossSchemaForeignKeys(crossSchemaForeignKeysResult.rows, scope);
 
@@ -991,9 +1025,26 @@ export async function introspectPostgresSchema(
     });
   }
 
+  // A view is VibORM's when its definition ends with the marker; any other
+  // is not this schema's, and stays out of the snapshot.
+  const views: ViewDef[] = [];
+  for (const row of viewsResult.rows) {
+    const hash = readViewMarker(row.definition);
+    if (hash === undefined) continue;
+    const reads: unknown = JSON.parse(row.depends_on);
+    views.push({
+      name: row.view_name,
+      hash,
+      dependsOn: Array.isArray(reads)
+        ? [...new Set(reads.filter(isString))].sort()
+        : [],
+    });
+  }
+
   return {
     tables,
     enums: enums.length > 0 ? enums : undefined,
+    ...(views.length > 0 ? { views } : {}),
   };
 }
 

@@ -67,6 +67,7 @@ import {
 } from "../../raw-index";
 import { readExecutableStatements } from "../../statement-safety";
 import type { CatalogRead, CommandNamespaceResolver } from "../../target";
+import { type LiveRelation, refuseRelationCollision } from "../../view";
 import type {
   AddColumnOperation,
   AddForeignKeyOperation,
@@ -266,23 +267,36 @@ export class MySQLMigrationDriver
     executeRaw: CatalogReader
   ): Promise<boolean> {
     const names = new Set(
-      snapshots.flatMap((snapshot) =>
-        snapshot.tables.map((table) => table.name)
-      )
+      snapshots.flatMap((snapshot) => [
+        ...snapshot.tables.map((table) => table.name),
+        ...(snapshot.views ?? []).map((view) => view.name),
+      ])
     );
     if (names.size === 0) return false;
     const namespace = await resolveCatalogNamespace(executeRaw, this.namespace);
-    const views = await executeRaw<{ TABLE_NAME: string }>(
-      "SELECT TABLE_NAME FROM information_schema.VIEWS WHERE TABLE_SCHEMA = ?",
+    const relations = await executeRaw<{
+      TABLE_NAME: string;
+      TABLE_TYPE: string;
+      VIEW_DEFINITION: string | null;
+    }>(
+      "SELECT t.TABLE_NAME, t.TABLE_TYPE, v.VIEW_DEFINITION FROM information_schema.TABLES t LEFT JOIN information_schema.VIEWS v ON v.TABLE_SCHEMA = t.TABLE_SCHEMA AND v.TABLE_NAME = t.TABLE_NAME WHERE t.TABLE_SCHEMA = ?",
       [namespace]
     );
-    const collision = views.rows.find((row) => names.has(row.TABLE_NAME));
-    if (collision)
-      throw new MigrationError(
-        `MySQL relation "${collision.TABLE_NAME}" is a view, but this schema declares a table. Synchronization refuses before effects and preserves the view.`,
-        VibORMErrorCode.MIGRATION_INVALID_STATE,
-        { meta: { table: collision.TABLE_NAME, feature: "view", namespace } }
-      );
+    refuseRelationCollision(
+      "MySQL",
+      snapshots,
+      relations.rows.flatMap((row): LiveRelation[] =>
+        names.has(row.TABLE_NAME)
+          ? [
+              {
+                name: row.TABLE_NAME,
+                kind: row.TABLE_TYPE === "VIEW" ? "view" : "table",
+                definition: row.VIEW_DEFINITION,
+              },
+            ]
+          : []
+      )
+    );
     return false;
   }
 

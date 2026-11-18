@@ -8,6 +8,7 @@ import type { MigrationDriver } from "./drivers";
 import { orderTableDrops } from "./drop-order";
 import { sha256Hex, utf8Bytes } from "./identity";
 import type { Dialect, DiffOperation, SchemaSnapshot } from "./types";
+import { withViewReplacements } from "./view";
 
 /** PostgreSQL/MySQL derived identifiers keep their uniqueness under byte caps. */
 export function derivedMigrationName(name: string): string {
@@ -89,6 +90,8 @@ export function createQueryExecutor(driver: AnyDriver): QueryExecutor {
  * Lower numbers execute first.
  */
 const OPERATION_PRIORITY: Record<DiffOperation["type"], number> = {
+  // Before every table and enum operation: nothing runs under a view.
+  dropView: 0,
   createEnum: 1,
   dropForeignKey: 2,
   dropIndex: 3,
@@ -107,6 +110,8 @@ const OPERATION_PRIORITY: Record<DiffOperation["type"], number> = {
   addForeignKey: 16,
   alterEnum: 1.5,
   dropEnum: 18,
+  // After every table and enum operation: a view reads what they leave.
+  createView: 19,
 };
 
 /**
@@ -182,6 +187,9 @@ function supersededIndexDrops(operations: DiffOperation[]): Set<DiffOperation> {
  * 8. Create indexes
  * 9. Drop the indexes those creates supersede (see `supersededIndexDrops`)
  * 10. Add foreign keys (after tables/columns exist)
+ *
+ * Views are dropped before all of it and created after all of it; their
+ * order among themselves is `withViewReplacements`'.
  */
 export function sortOperations(operations: DiffOperation[]): DiffOperation[] {
   const superseded = supersededIndexDrops(operations);
@@ -460,20 +468,26 @@ export function materializeDroppedTableForeignKeys(
  * One compile-order owner for generated schema programs. Generate and push
  * both hand this result to the compiler, and nothing sorts it afterwards. Do
  * not lift, materialize or order drops at a second call site. Drops are
- * ordered last, once every foreign-key removal the program makes is known.
+ * ordered last, once every foreign-key removal the program makes is known;
+ * then the views around the whole of it, once every table change is known.
  */
 export function prepareSchemaProgram(
   operations: DiffOperation[],
   current: SchemaSnapshot,
+  desired: SchemaSnapshot,
   migrationDriver: MigrationDriver
 ): DiffOperation[] {
-  return orderTableDrops(
-    materializeDroppedTableForeignKeys(
-      extractForwardReferenceForeignKeys(operations, migrationDriver),
-      current,
-      migrationDriver
+  return withViewReplacements(
+    orderTableDrops(
+      materializeDroppedTableForeignKeys(
+        extractForwardReferenceForeignKeys(operations, migrationDriver),
+        current,
+        migrationDriver
+      ),
+      current
     ),
-    current
+    current,
+    desired
   );
 }
 
@@ -523,6 +537,12 @@ export function generateMigrationName(operations: DiffOperation[]): string {
       return `drop-enum-${primaryOp.enumName}`;
     case "alterEnum":
       return `alter-enum-${primaryOp.enumName}`;
+    case "createView":
+      return operations.every((operation) => operation.type === "createView")
+        ? `create-view-${primaryOp.view.name}`
+        : "migration";
+    case "dropView":
+      return `drop-view-${primaryOp.viewName}`;
     default:
       return "migration";
   }

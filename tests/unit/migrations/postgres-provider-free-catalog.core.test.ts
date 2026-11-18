@@ -296,9 +296,11 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
     const execution = catalogDriver({});
     const calls: unknown[][] = [];
     execution.respond = (sql, params) => {
-      if (sql.includes("relation.relkind IN ('v','m')")) {
+      if (sql.includes("relation.relkind IN ('r','p','f','v','m')")) {
         calls.push(params ?? []);
-        return [{ name: "mapped_view" }];
+        return [
+          { name: "mapped_view", kind: "v", definition: " SELECT 1 AS c;" },
+        ];
       }
       return [];
     };

@@ -11,7 +11,11 @@
 
 import type { ScalarState } from "@schema/scalars/common";
 import type { AnyDriver } from "../../../drivers/driver";
-import { MigrationError, VibORMErrorCode } from "../../../errors";
+import {
+  MigrationError,
+  type MigrationErrorCode,
+  VibORMErrorCode,
+} from "../../../errors";
 import { isRecord, isString } from "../../../validation/value-guards";
 import { CONTROL_TABLES } from "../../control";
 import {
@@ -108,10 +112,13 @@ const DELETE_ACTIONS: Readonly<Record<string, string>> = {
   setNull: "UNSET",
 };
 
-function refuse(what: string): never {
+function refuse(
+  what: string,
+  code: MigrationErrorCode = VibORMErrorCode.MIGRATION_INVALID_STATE
+): never {
   throw new MigrationError(
     `SurrealDB migrations do not support ${what} yet.`,
-    VibORMErrorCode.MIGRATION_INVALID_STATE
+    code
   );
 }
 
@@ -1935,6 +1942,15 @@ export class SurrealMigrationDriver extends MigrationDriver {
     if (!replaced)
       refuse(`leaving '${tableName}' without a key: a record's key is its id`);
     return [];
+  }
+
+  // Views on SurrealDB arrive with materialized views (DEFINE TABLE … AS).
+  generateCreateView(): string[] {
+    return refuse("a view", VibORMErrorCode.FEATURE_NOT_SUPPORTED);
+  }
+
+  generateDropView(): string[] {
+    return refuse("a view", VibORMErrorCode.FEATURE_NOT_SUPPORTED);
   }
 
   generateCreateEnum(): string[] {

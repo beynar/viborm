@@ -136,7 +136,26 @@ const rawIndexes = (): Record<string, AnyModel> => ({
     .map("documents"),
 });
 
+/**
+ * Views VibORM marked, one reading another, beside one it did not: the digest
+ * projects the marked ones as name and hash, as introspection does.
+ */
+const VIEW_DRIFT = [
+  `CREATE VIEW "{ns}"."digest_feed" AS SELECT * FROM (SELECT "id", "title" FROM "{ns}"."digest_posts") AS "viborm_view_${"a".repeat(40)}"`,
+  `CREATE VIEW "{ns}"."digest_digest" AS SELECT * FROM (SELECT "id" FROM "{ns}"."digest_feed") AS "viborm_view_${"b0".repeat(20)}"`,
+  `CREATE VIEW "{ns}"."digest_foreign" AS SELECT "id" FROM "{ns}"."digest_posts"`,
+];
+
 export const catalogDigestCorpus: readonly DigestCase[] = [
+  {
+    id: "views",
+    build: () => ({
+      post: s
+        .model({ id: s.string().id(), title: s.string() })
+        .map("digest_posts"),
+    }),
+    drift: VIEW_DRIFT,
+  },
   {
     id: "raw indexes",
     build: rawIndexes,

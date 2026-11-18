@@ -1003,6 +1003,8 @@ dependency-safe clear are compiled before anything is dropped.
 | Refusal of an alteration INTO a binary column | `binary-conversion.ts` `refuseBinaryReencoding`, from the one `alterColumn` dispatch |
 | Text→identifier conversion pre-checks, and the message PostgreSQL's `col::uuid` does not give | `identifier-conversion.ts` |
 | A raw index's template reading, hash, rendering, refused words and marker | `raw-index.ts` |
+| A view's marker, wrapper, marker reader, hash format and order; the program rule that drops and creates a view around a change to what it reads; the refusal of a declared name the database holds as something VibORM cannot take over | `view.ts` |
+| A declared view's body, identity and reads | `view-definition.ts` `viewDefinition`, asked by the serializer |
 
 If a new check cannot be assigned to exactly one row, fix the ownership before
 adding it. Consumers use trusted projections; they do not re-derive the fact.
@@ -1128,6 +1130,7 @@ journal migrator.
 | Change live push planning | `push/index.ts` | `push/planner.ts`, `differ.ts`; never estate storage |
 | Change target admission, qualification, locking, or clear behavior | `admission.ts`, `target.ts`, `pinned-session.ts`, or `live-reset.ts` respectively | bound migration drivers |
 | Change the programmatic operation surface | `client.ts` | `index.ts`, `public-view.ts`; keep the noun list and capability partition exact |
+| Change views (marker, program rule, order, collisions) | `view.ts` | `view-definition.ts`, each driver's view DDL and introspection, `drivers/postgres/catalog-digest.ts` |
 
 ## Non-negotiable review questions
 
@@ -1329,3 +1332,65 @@ trailing `/* viborm:raw:… */` in `sqlite_master.sql` (`/` escaped), SurrealDB
 the index comment `{columns, name, raw}`. Introspection reads a marker naming
 that index as the raw index, whatever its structure; a hand-made index carries
 none and keeps today's refusal (V8001), so declaring one does not adopt it.
+
+### Views
+
+`s.view(() => source, query)` declares a view: a model with view facts
+(`viewFacts`, `src/schema/view/facts.ts`) whose rows are a read of the
+schema. The serializer writes no table, column, key or index for it; it asks
+`viewDefinition` (`view-definition.ts`) for the body, the identity and the
+reads, and records `SchemaSnapshot.views`: `ViewDef = { name, hash, sql?,
+dependsOn }`, sorted by name, the key absent when there is no view so every
+other snapshot, state id, fingerprint and catalog digest keeps its bytes.
+`hash` is 40 lowercase hex characters and is the view's identity: no layer
+compares `sql`, which every catalog rewrites. `v1-parse-snapshot.ts` admits a
+stored `views` only non-empty, sorted and unique by name, each with its `sql`
+and a sorted, unique `dependsOn`; only an introspected view lacks `sql`, and
+`planPush` fills `sql` and `dependsOn` from the declared view of the same name
+and hash (`withDeclaredViews`). The fingerprint and the PostgreSQL digest add
+`views: [{ name, hash }]` only when one exists.
+
+`view.ts` is its one owner. In the database the identity is the marker alias
+of the wrapper every driver writes, `CREATE VIEW <qualified name> AS SELECT *
+FROM (<sql>) AS <quoted viborm_view_<hash>>` (`wrappedViewBody`): it is the
+last token of `pg_get_viewdef` (`…) viborm_view_<hash>;`), MySQL's
+`VIEW_DEFINITION` (`` …) `viborm_view_<hash>` ``) and `sqlite_master.sql` (as
+written), measured on PostgreSQL 18, PGlite, MySQL 8.4 and SQLite 3.53, and
+each planner flattens the wrapper. `readViewMarker` reads it with
+`VIEW_MARKER_PATTERN`, anchored at the end of the text (a literal in the body
+may spell anything), and the digest applies the same text in SQL.
+Introspection returns only marked views of the namespace; PostgreSQL also
+reads what each one's rule depends on (`pg_rewrite`/`pg_depend`), since its
+`DROP VIEW` is RESTRICT, while MySQL and SQLite neither check nor report it.
+An unmarked view stays out of every snapshot.
+
+Two operations, `createView { view }` and `dropView { viewName }`; a
+replacement is a drop and a create on every dialect (PostgreSQL's `CREATE OR
+REPLACE VIEW` refuses a changed column list). The differ drops and creates a
+view whose hash changed and creates or drops one declared on one side only.
+`withViewReplacements`, the last step of `prepareSchemaProgram`, adds the one
+rule only the resolved program can answer: a view that keeps its hash is
+dropped and created again when the program changes a table it reads (any
+table operation but an index's creation or drop: PostgreSQL refuses a type
+change or a drop under a view and an enum recreation retypes columns, MySQL's
+view breaks on a rename, SQLite rewrites it on a rename and refuses a rebuild
+under it, `lostDependents`, and rebuilds for a key, a unique or a column
+change) or drops a view it reads, transitively. Every `dropView` runs first,
+dependents before what they read, every `createView` last, after what it
+reads (`orderViews`); `OPERATION_PRIORITY` puts them at 0 and 19. `invert.ts`
+turns one into the other, a `dropView` into the previous snapshot's view.
+Dropping a view loses no row: no consent, no warning. Each step has its probe
+(`view:exists` / `view:absent`). On Neki a view's creation plans its body, so
+`catalogCommitBoundaries` reads `CREATE [OR REPLACE] VIEW … AS` as a planned
+statement. Reset and force-reset push drop the marked views first, dependents
+first, with their probes on a stepwise clear.
+
+Preflight (`refuseRelationCollision`, from each SQL driver's
+`preflightSchemaRequirements`) refuses before effects, V11009, a declared
+table whose name is a view without the marker (or a materialized view), and a
+declared view whose name is a table no snapshot declares, or a view without
+the marker; a marked view is VibORM's to drop or keep. A `tables` scope names
+a view as it names a table. Snowflake refuses both operations; SurrealDB
+refuses them until materialized views (`DEFINE TABLE … AS`) arrive. Pull
+(`viborm/schema/introspect`) still skips every database view.
+

@@ -13,6 +13,30 @@ export interface SchemaSnapshot {
    * This is descriptive metadata only; the structural differ ignores it.
    */
   polymorphicStorage?: readonly PolymorphicSnapshotStorage[] | undefined;
+  /**
+   * The views the schema declares (`s.view`), sorted by name. The key is
+   * absent when there is none, so a snapshot without a view keeps its bytes,
+   * its hash and every state id built on it.
+   */
+  views?: ViewDef[] | undefined;
+}
+
+/**
+ * One view: a read of the schema's tables that the database keeps under
+ * `name`. Its identity is `hash` (40 lowercase hex characters), never `sql`:
+ * a catalog rewrites the text it is given.
+ */
+export interface ViewDef {
+  name: string;
+  hash: string;
+  /**
+   * The body, a parameter-free SELECT in the dialect's own SQL, without the
+   * wrapper that carries the marker. A stored snapshot always has it; only an
+   * introspected one lacks it, since a database holds the text it rewrote.
+   */
+  sql?: string | undefined;
+  /** The tables and views the body reads, by physical name, sorted, each once. */
+  dependsOn: string[];
 }
 
 export interface PolymorphicToOneSnapshotMember {
@@ -258,6 +282,8 @@ export type DiffOperation =
   | { type: "dropUniqueConstraint"; tableName: string; constraintName: string }
   | { type: "addPrimaryKey"; tableName: string; primaryKey: PrimaryKeyDef }
   | { type: "dropPrimaryKey"; tableName: string; constraintName: string }
+  | { type: "createView"; view: ViewDef }
+  | { type: "dropView"; viewName: string }
   | { type: "createEnum"; enumDef: EnumDef }
   | {
       type: "dropEnum";

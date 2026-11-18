@@ -35,6 +35,10 @@ export function formatOperation(op: DiffOperation): string {
       return `+ Add primary key to "${op.tableName}"`;
     case "dropPrimaryKey":
       return `- Drop primary key "${op.constraintName}" from "${op.tableName}"`;
+    case "createView":
+      return `+ Create view "${op.view.name}"`;
+    case "dropView":
+      return `- Drop view "${op.viewName}"`;
     case "createEnum":
       return `+ Create enum "${op.enumDef.name}" with values [${op.enumDef.values.join(", ")}]`;
     case "dropEnum":

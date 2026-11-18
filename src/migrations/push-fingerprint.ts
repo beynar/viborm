@@ -238,7 +238,17 @@ export function fingerprintSnapshot(
   const enums = [...(snapshot.enums ?? [])]
     .map((item) => ({ name: item.name, values: item.values }))
     .sort(byName);
-  return domainHash(HASH_DOMAIN.snapshot, canonicalizeJson({ tables, enums }));
+  // A view is its name and hash; present only where one is, so a schema
+  // without a view keeps its fingerprint.
+  const views = [...(snapshot.views ?? [])]
+    .map((view) => ({ name: view.name, hash: view.hash }))
+    .sort(byName);
+  return domainHash(
+    HASH_DOMAIN.snapshot,
+    canonicalizeJson(
+      views.length > 0 ? { tables, enums, views } : { tables, enums }
+    )
+  );
 }
 
 /** A total btree unique index and a unique constraint enforce the same key. */

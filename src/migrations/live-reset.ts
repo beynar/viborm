@@ -28,8 +28,9 @@ import { childrenBeforeParents, type TableReference } from "./drop-order";
 import { introspectSchema } from "./push/planner";
 import type { ForeignKeyDef, SchemaSnapshot } from "./types";
 import { createQueryExecutor } from "./utils";
+import { orderViews } from "./view";
 
-/** One table this reset drops, and the statement that drops it. */
+/** One table or view this reset drops, and the statement that drops it. */
 interface PlannedTableDrop {
   readonly name: string;
   readonly sql: string;
@@ -48,6 +49,11 @@ interface PlannedTableDrop {
  */
 export interface LiveNamespaceResetPlan {
   /**
+   * The views VibORM created in the estate, dependents first: they go before
+   * anything they read (PostgreSQL drops a table without CASCADE).
+   */
+  readonly dropViews: readonly PlannedTableDrop[];
+  /**
    * Every foreign key the estate owns, as an explicit drop, or SQLite's one
    * deferral of them all ({@link clearForeignKeys}).
    */
@@ -56,7 +62,7 @@ export interface LiveNamespaceResetPlan {
   readonly dropTables: readonly PlannedTableDrop[];
   /** Managed enum drops, which run after the tables that use them. */
   readonly dropEnums: string[];
-  /** The whole clear, in the order it runs: keys, then tables, then enums. */
+  /** The whole clear, in the order it runs: views, keys, tables, enums. */
   readonly clear: readonly string[];
 }
 
@@ -155,6 +161,21 @@ export async function planLiveNamespaceReset(
     assertNoInboundTrackingReference(snapshot, CONTROL_TABLES.state);
   }
 
+  // The views VibORM marked go first, each before what it reads. A view
+  // without the marker is not in the snapshot, and RESTRICT keeps it.
+  const views = snapshot.views ?? [];
+  const dropViews: PlannedTableDrop[] = orderViews(
+    new Set(views.map((view) => view.name)),
+    views,
+    true
+  ).map((name) => ({
+    name,
+    sql: migrationDriver.generateDDL(
+      { type: "dropView", viewName: name },
+      { destination: "live" }
+    ),
+  }));
+
   // Drop every foreign key the estate owns, explicitly, before any table
   // drop. This is what replaces `CASCADE` and `FOREIGN_KEY_CHECKS = 0`:
   // cycles and mutually-dropped tables are handled, and a dependency this
@@ -189,10 +210,12 @@ export async function planLiveNamespaceReset(
   }
 
   return {
+    dropViews,
     dropForeignKeys,
     dropTables,
     dropEnums,
     clear: [
+      ...dropViews.map((view) => view.sql),
       ...dropForeignKeys,
       ...dropTables.map((table) => table.sql),
       ...dropEnums,

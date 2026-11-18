@@ -8,9 +8,10 @@
  * is shared with `introspect.ts`, never copied) and hashes the projection
  * `fingerprintSnapshot` hashes: `formatColumnType`, `cleanDefault` and
  * `normalizeDefault`, `normalizeType`, `canonicalUniqueEntities`, the
- * managed-table list `selectManagedSnapshot` applies (its tables and the
- * enums they use), the control tables left out, RFC 8785 bytes, the
- * snapshot hash domain.
+ * managed-table list `selectManagedSnapshot` applies (its tables, the enums
+ * they use and its views), the control tables left out, each view VibORM
+ * marked as its name and hash (`views` only where there is one), RFC 8785
+ * bytes, the snapshot hash domain.
  *
  * Where reproducing a fact exactly would need more than SQL can say, the
  * statement answers NULL instead of a digest, and the caller introspects as
@@ -49,6 +50,7 @@ import type { AnyDriver } from "../../../drivers/driver";
 import { boundNamespace } from "../../catalog-probes";
 import { HASH_DOMAIN, isSha256, type Sha256 } from "../../identity";
 import { RAW_INDEX_MARKER_PREFIX } from "../../raw-index";
+import { VIEW_MARKER_PATTERN } from "../../view";
 import type { BoundMigrationDriver } from "..";
 import type { ControlTableNames } from "../base";
 import {
@@ -61,6 +63,7 @@ import {
   POSTGRES_MANAGED_TABLE_NAMES_SOURCE,
   PRIMARY_KEYS_SOURCE,
   UNIQUE_CONSTRAINTS_SOURCE,
+  VIEWS_SOURCE,
 } from "./introspect";
 
 /** A regular expression or replacement as an E'' literal. */
@@ -185,6 +188,7 @@ fk AS (${FOREIGN_KEYS_SOURCE}),
 xfk AS (${CROSS_SCHEMA_FOREIGN_KEYS_SOURCE}),
 uq AS (${UNIQUE_CONSTRAINTS_SOURCE}),
 en AS (${ENUMS_SOURCE}),
+vw AS (${VIEWS_SOURCE}),
 scope AS (
   SELECT table_name::text AS table_name,
     ($4::text[] IS NULL OR table_name::text = ANY ($4::text[])) AS selected,
@@ -316,9 +320,16 @@ enums AS (
   WHERE $4::text[] IS NULL OR enum_name::text IN (SELECT ${elementType("c.type")} FROM columns c WHERE c.selected OR NOT c.kept)
   GROUP BY enum_name
 ),
+views AS (
+  SELECT view_name AS name, substring(definition FROM ${re(VIEW_MARKER_PATTERN)}) AS hash
+  FROM vw
+  WHERE $4::text[] IS NULL OR view_name = ANY ($4::text[])
+),
 projection AS (
   SELECT '{"enums":[' || coalesce((SELECT string_agg(json, ',' ORDER BY name COLLATE "C") FROM enums), '')
-    || '],"tables":[' || coalesce((SELECT string_agg(json, ',' ORDER BY table_name COLLATE "C") FROM tables), '') || ']}' AS json
+    || '],"tables":[' || coalesce((SELECT string_agg(json, ',' ORDER BY table_name COLLATE "C") FROM tables), '') || ']'
+    || coalesce((SELECT ',"views":[' || string_agg('{"hash":' || to_json(hash)::text || ',"name":' || to_json(name)::text || '}', ',' ORDER BY name COLLATE "C") || ']' FROM views WHERE hash IS NOT NULL), '')
+    || '}' AS json
 )
 SELECT CASE WHEN
   EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = $1::text)

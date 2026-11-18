@@ -28,7 +28,9 @@ import type {
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
+  ViewDef,
 } from "../../types";
+import { readViewMarker } from "../../view";
 import { mapReferentialAction } from "../utils";
 import type {
   SqliteColumn,
@@ -263,11 +265,12 @@ export async function introspect(
   // PRAGMAs. Filter that exact prefix only where the driver's capability
   // reserves it; GLOB treats `_` literally, and an ordinary SQLite
   // application's similarly named tables stay visible.
-  const tablesResult = await executeRaw<SqliteTable>(
+  // The views ride along too: one carrying VibORM's marker is the schema's.
+  const relationsResult = await executeRaw<SqliteTable>(
     `
-    SELECT name, sql
+    SELECT name, sql, type
     FROM sqlite_master
-    WHERE type = 'table'
+    WHERE (type = 'table' OR type = 'view')
       AND name NOT LIKE 'sqlite_%'
       AND name <> ?
       ${reservedTablePrefixes === "_cf_" ? "AND name NOT GLOB '_cf_*'" : ""}
@@ -277,8 +280,17 @@ export async function introspect(
   );
 
   const tables: TableDef[] = [];
+  // SQLite does not check what a view reads when one is dropped, so its
+  // reads are not read here: push takes a declared view's from its declaration.
+  const views: ViewDef[] = [];
 
-  for (const tableRow of tablesResult.rows) {
+  for (const tableRow of relationsResult.rows) {
+    if (tableRow.type === "view") {
+      const hash = readViewMarker(tableRow.sql);
+      if (hash !== undefined)
+        views.push({ name: tableRow.name, hash, dependsOn: [] });
+      continue;
+    }
     const tableName = tableRow.name;
 
     const selected =
@@ -519,5 +531,5 @@ export async function introspect(
   }
 
   // SQLite doesn't have native enum types
-  return { tables, enums: [] };
+  return { tables, enums: [], ...(views.length > 0 ? { views } : {}) };
 }

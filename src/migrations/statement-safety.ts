@@ -1000,11 +1000,13 @@ const CREATE_TABLE = new RegExp(
   String.raw`${TABLE_PREFIX}TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(${QUALIFIED})`,
   "i"
 );
-/** `CREATE TABLE … AS` and `CREATE MATERIALIZED VIEW … AS` plan a query. */
-const CREATE_AS = new RegExp(
-  String.raw`${TABLE_PREFIX}(?:TABLE|MATERIALIZED\s+VIEW)\b[\s\S]*\bAS\s+(?:SELECT|WITH|TABLE|VALUES|EXECUTE)\b`,
-  "i"
-);
+/**
+ * `CREATE TABLE … AS`, `CREATE MATERIALIZED VIEW … AS` and `CREATE [OR
+ * REPLACE] VIEW … AS` plan a query: a view's body resolves its names when the
+ * view is created.
+ */
+const CREATE_AS =
+  /^CREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:GLOBAL|LOCAL|TEMP|TEMPORARY|UNLOGGED|RECURSIVE)\s+)*(?:TABLE|MATERIALIZED\s+VIEW|VIEW)\b[\s\S]*\bAS\s+(?:SELECT|WITH|TABLE|VALUES|EXECUTE)\b/i;
 const RENAME_TO = new RegExp(String.raw`^RENAME\s+TO\s+(${NAME})\s*$`, "i");
 /**
  * The unregistered-relation refusal's actions (NK316): a type change, a
@@ -1204,7 +1206,8 @@ function readCatalogChunk(
  * target the transaction changed fails there, or reads the old schema without
  * an error; a schema statement sees the transaction, except that a relation it
  * created or renamed has no column it can retype, rename or drop, and cannot
- * move to another schema (`NK316`). Defaults, NOT NULL, CHECK and foreign
+ * move to another schema (`NK316`), and that a statement creating a table or a
+ * view from a query plans that query like a row statement. Defaults, NOT NULL, CHECK and foreign
  * keys, validated constraints and comments change nothing a statement is
  * planned by. A routine, a view's body or a literal (`nextval('…')`,
  * `to_regclass('…')`, stale for a created or dropped table, index or
