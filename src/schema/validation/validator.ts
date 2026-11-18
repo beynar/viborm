@@ -19,6 +19,7 @@ import {
   memberNamesAreNotReserved,
   publicSelectorNamesAreUnambiguous,
 } from "./rules/model";
+import { viewIsItsRead } from "./rules/view";
 import type {
   Schema,
   SchemaValidationIssue,
@@ -203,12 +204,14 @@ export function validateResolvedSchemaOrThrow(
 /**
  * The rules every effect-capable boundary runs beside the relation gate: each
  * gives one admitted selector one meaning — a compound selector never reuses a
- * member name (I006), and no member takes an output key a selection
- * reserves, `_count`, `_aggregate` or `_distance` (F010).
+ * member name (I006), no member takes an output key a selection reserves,
+ * `_count`, `_aggregate` or `_distance` (F010), and a view is its read of its
+ * source (W001-W003).
  */
 const SELECTOR_RULES: ValidationRule[] = [
   publicSelectorNamesAreUnambiguous,
   memberNamesAreNotReserved,
+  viewIsItsRead,
 ];
 
 /**
