@@ -344,6 +344,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "VectorSchema",
       "VariantToManyRelation",
       "VariantToOneRelation",
+      "ViewState",
       "ChainedExtensionState",
       "ClientExtensionState",
       "EmptyClientExtensionState",
@@ -487,6 +488,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "VectorSchema",
       "VariantToManyRelation",
       "VariantToOneRelation",
+      "ViewState",
     ],
     []
   ),

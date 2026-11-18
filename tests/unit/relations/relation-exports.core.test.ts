@@ -45,6 +45,7 @@ const SCHEMA_BUILDER_KEYS = [
   "toMany",
   "toOne",
   "vector",
+  "view",
 ] as const;
 
 /**

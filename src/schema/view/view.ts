@@ -178,11 +178,13 @@ function countsRelation(from: ModelState, count: unknown): boolean {
       );
 }
 
-function deriveViewState(source: AnyModel, declared: object): ViewModelState {
+function deriveViewState(
+  source: AnyModel,
+  query: Readonly<Record<string, unknown>>
+): ViewModelState {
   if (!(source instanceof Model)) {
     throw new Error("s.view reads a model or a view");
   }
-  const query: Readonly<Record<string, unknown>> = { ...declared };
   const from = source["~"].state;
   const projectable = projectableScalarNames(source);
   const selected = isRecord(query.select) ? askedKeys(query.select) : undefined;
@@ -193,7 +195,9 @@ function deriveViewState(source: AnyModel, declared: object): ViewModelState {
   // A selection names scalars and JSON columns alike; without one, a view
   // keeps its source's JSON columns and adds the relations it includes.
   const kept = viewFacts(source)?.documents ?? [];
-  const selection = isRecord(query.select) ? query.select : query.include;
+  const counted = (
+    isRecord(query.select) ? query.select : { ...(query.include as object) }
+  )._count;
   const documents = (
     selected
       ? selected.filter((name) => !projectable.includes(name))
@@ -203,9 +207,7 @@ function deriveViewState(source: AnyModel, declared: object): ViewModelState {
         ]
   ).filter(
     (name) =>
-      name !== "_count" ||
-      kept.includes(name) ||
-      countsRelation(from, isRecord(selection) ? selection._count : undefined)
+      name !== "_count" || kept.includes(name) || countsRelation(from, counted)
   );
   const projected = new Set(columns);
   const scalars = emptyRecord<Scalar>();
@@ -248,5 +250,5 @@ export const view = <M extends AnyModel, const Q extends ViewQuery<M>>(
   query: Q
 ): Model<ViewState<M, Q>> =>
   new Model(
-    deferredState(() => deriveViewState(source(), query ?? {}))
+    deferredState(() => deriveViewState(source(), { ...(query as object) }))
   ) as unknown as Model<ViewState<M, Q>>;
