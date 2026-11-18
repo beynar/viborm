@@ -114,14 +114,34 @@ const STATE_KEYS = [
   "view",
 ] as const satisfies readonly (keyof ViewModelState)[];
 
-/** A state whose every member is read from `derive`'s answer, asked once. */
+/**
+ * A state whose every member is read from `derive`'s answer, asked once. A
+ * view that reads itself through its sources asks again while the first
+ * answer is being made, and is refused there.
+ */
 function deferredState(derive: () => ViewModelState): ViewModelState {
   let derived: ViewModelState | undefined;
+  let deriving = false;
+  const read = (): ViewModelState => {
+    if (derived) return derived;
+    if (deriving) {
+      throw new Error(
+        "A view cannot read itself: its source reads this view back"
+      );
+    }
+    deriving = true;
+    try {
+      derived = derive();
+    } finally {
+      deriving = false;
+    }
+    return derived;
+  };
   const state = {};
   for (const key of STATE_KEYS) {
     Object.defineProperty(state, key, {
       enumerable: true,
-      get: () => (derived ??= derive())[key],
+      get: () => read()[key],
     });
   }
   return state as ViewModelState;

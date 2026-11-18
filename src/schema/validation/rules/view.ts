@@ -21,9 +21,10 @@ function foreignMembers(
 /**
  * W001: a view's source is a model of the same schema, so the read that
  * defines it can be compiled. W002: every scalar and key of a view is its
- * source's own, and it takes no index: `.extends()`, `.id()`, `.unique()`,
- * `.index()`, `.rawIndex()` and `.withoutRowid()` state what a view cannot
- * hold. W003: a view declares no relation.
+ * source's own, and it takes no index and no omission: `.extends()`, `.id()`,
+ * `.unique()`, `.index()`, `.rawIndex()`, `.withoutRowid()` and `.omit()`
+ * state what a view cannot hold (a column a view should not return is one its
+ * query does not project). W003: a view declares no relation.
  */
 export function viewIsItsRead(
   _schema: Schema,
@@ -49,14 +50,15 @@ export function viewIsItsRead(
     ...foreignMembers(state.compoundId, source.compoundId),
     ...foreignMembers(state.compoundUniques, source.compoundUniques),
   ];
-  const indexed =
+  const stored =
     state.indexes.length > 0 ||
     model["~"].rawIndexes.length > 0 ||
-    model["~"].withoutRowid;
-  if (added.length > 0 || indexed) {
+    model["~"].withoutRowid ||
+    state.omit !== undefined;
+  if (added.length > 0 || stored) {
     issues.push({
       code: "W002",
-      message: `View '${name}' declares ${added.length > 0 ? `'${added.join("', '")}'` : "an index"} beside its query; a view holds the fields and keys its query projects from its source, and no index`,
+      message: `View '${name}' declares ${added.length > 0 ? `'${added.join("', '")}'` : "an index or an omission"} beside its query; a view holds the fields and keys its query projects from its source, with no index and no omission of its own`,
       severity: "error",
       model: name,
     });

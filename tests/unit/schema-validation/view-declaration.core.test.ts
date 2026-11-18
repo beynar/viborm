@@ -121,6 +121,12 @@ describe("a view's derived model", () => {
     expect(scalarsOf(early)).toEqual(["id"]);
   });
 
+  it("refuses views that read each other in a cycle", () => {
+    const first: ReturnType<typeof s.view> = s.view(() => second, {});
+    const second: ReturnType<typeof s.view> = s.view(() => first, {});
+    expect(() => first["~"].state.scalars).toThrow("A view cannot read itself");
+  });
+
   it("is named by .map() like a table", () => {
     const view = s.view(() => post, {}).map("published_posts");
     expect(view["~"].state.tableName).toBe("published_posts");
@@ -163,6 +169,7 @@ describe("definition validation of a view", () => {
         pg: "CREATE INDEX {name} ON {table} ({title})",
       }),
       view.withoutRowid(),
+      view.omit({ title: true }),
     ];
     for (const declared of refused) {
       expect(codes(validateSchema({ user, post, declared }))).toContain("W002");
