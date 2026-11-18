@@ -221,14 +221,23 @@ The identity of a view is a hash of what was DECLARED and of what the client
 will DECODE, not of the SQL text (`viewDefinition`,
 `src/migrations/view-definition.ts`): a revision number, the source table,
 the declared query (values JSON has no spelling for are tagged), the decoder
-shape of a view row, and the resolved relations of every table the body reads.
+shape of a view row, and the resolved relations the query crosses.
 The text is kept in the snapshot (a migration must be able to write the view
 again, and a down migration the previous one) but is not compared. The hash is
 40 hex characters, so its marker fits an identifier on every database.
 
 The relations are in because a relation can move between two columns that both
 stay, with the same foreign keys: the body changes, and no column, shape or
-query does (pinned in `view-definition.core.test.ts`).
+query does. Only the relations the query crosses are in, found by walking the
+query's keys against the resolved index: a relation added elsewhere on a
+table the view reads changes nothing. Field names are the schema's, not the
+columns': a field renamed over the same column changes the identity, and the
+view is replaced once (the decoder shape is keyed by field names too).
+
+The body is not in the identity, so nothing notices by itself that a release
+writes a JSON column in another encoding under the same decoder shape. A
+golden body per dialect (`view-definition.core.test.ts`) fails on any change
+of the text and states the choice: update the text, or raise the revision.
 
 Why not the text: every engine change that respells a read would produce a
 migration per view on the next VibORM upgrade, and a materialized view would
@@ -255,16 +264,21 @@ without the marker under a declared name is refused, as today.
 - One rule, held by the program and not by the differ
   (`withViewReplacements` in `src/migrations/view.ts`, the last step of
   `prepareSchemaProgram`): a view is dropped before and created again after
-  when its identity changed, when the program changes a table it reads in
-  any way but an index's creation or drop (its name, a column, a key, a unique
-  constraint, a foreign key, an enum one of its columns holds), or when a view
-  it reads is dropped. The differ alone cannot hold it: the resolver diffs
-  again from a snapshot where accepted renames are applied and keeps the last
-  diff only. The rule is wider than "columns or primary key" because SQLite
-  rebuilds a table for a key, a unique or a foreign key change and refuses
-  the rebuild under a view. Drops run first, dependents before what they
-  read; creates run last, in the other order. This covers PostgreSQL's
-  refusal, MySQL's broken view and SQLite's rewritten one with the same rule.
+  when its identity changed, when the program changes a table it reads in a
+  way the view does not survive, or when a view it reads is dropped. The
+  differ alone cannot hold it: the resolver diffs again from a snapshot where
+  accepted renames are applied and keeps the last diff only.
+- What a view does not survive depends on the dialect. Everywhere: a table
+  renamed, dropped or created again, a column dropped, renamed or given
+  another type, an enum recreated under one of its columns. On SQLite, which
+  rebuilds a table to change it and refuses the rebuild under a view: every
+  other change too, except an index. PostgreSQL and MySQL keep a view through
+  an added column and a key, unique or foreign key change, so a `GRANT` on it
+  is not lost for those, and a materialized view (PR 3) is not recomputed.
+- Drops run first, dependents before what they read; creates run last, in the
+  other order. They are not placed next to the operation that needs them:
+  with several tables and views on views that is one order to prove per
+  shape, for a gain on MySQL alone (the time a replaced view is missing).
 - Dropping a view loses no data and asks no consent. A materialized view is
   recomputed by its `CREATE`; the plan says so.
 - Reset drops views before tables. Neki: `CREATE VIEW` resolves names, so
@@ -285,9 +299,9 @@ Answered in 2.6.
 One principle: an extension acts per call on a client; a view is compiled once
 from the schema. So only schema facts go into the body.
 
-- Schema `.omit()`: a hard exclusion already (`projectableScalarNames`): the
-  field is in no `select`, no default projection and no result, at the root and
-  in every document. A view cannot name it, so it cannot leak through one.
+- Schema `.omit()`: a hard exclusion of a projection already
+  (`projectableScalarNames`): the field is in no `select` and no default
+  projection, at the root and in every relation. A view cannot select it.
 - Soft delete, permissions, client `omit`, `defaults`: not in the body. They
   apply when the view is READ, to the view as its own model. Soft delete: the
   body shows deleted rows unless the query filters them
@@ -296,6 +310,12 @@ from the schema. So only schema facts go into the body.
   written for it, so a governed client refuses to read it (R9, deny by
   default); the source model's policy does not carry over, as with any SQL
   view. The docs state both.
+
+An aggregate reads a field the schema omits, as in any read today
+(`_max: { secret: true }` answers it on `aggregate`, `groupBy` and a
+relation's `_aggregate`): `aggregate.ts` builds its keys from every scalar.
+So a view can hold one through `_aggregate`. That is the read path's rule,
+not the views': it is reported to the maintainer apart from this work.
 
 ### 3.7 Everything that enumerates schema objects
 

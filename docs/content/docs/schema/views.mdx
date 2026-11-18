@@ -100,9 +100,11 @@ Inside a relation, everything stays allowed: `where`, `orderBy`, `take`,
 
 A view declares nothing beside its query. `.id()`, `.unique()`, `.index()`,
 `.rawIndex()`, `.withoutRowid()`, `.omit()`, `.extends()` and relations are
-refused when the schema is validated (`W002`, `W003`), and a view whose source
-is not in the schema is refused too (`W001`). To keep a column out of a view,
-leave it out of the query.
+refused (`W002`, `W003`), and so are a view whose source is not in the schema
+(`W001`) and a selection named like the column of a selected field (`W004`).
+`viborm check`, `push` and `migrate` run these rules; creating a client does
+not, since a view exists only where a migration created it. To keep a column
+out of a view, leave it out of the query.
 
 ## The key
 
@@ -158,23 +160,65 @@ comparison on it would mean a different thing on each database.
 `push` and `migrate` own a view like a table.
 
 - A declared view is created.
-- It is replaced, by a drop and a create, when its query changes, or when the
-  same migration changes a table it reads: its name, a column, a key, a
-  unique constraint or a foreign key. Creating or dropping an index leaves the
-  view alone.
+- It is replaced, by a drop and a create, when its query changes.
+- It is also replaced when the same migration changes a table it reads in a
+  way the view does not survive:
+
+  | Database | A view is replaced around |
+  | --- | --- |
+  | PostgreSQL, MySQL | a table renamed or dropped; a column dropped, renamed or given another type |
+  | SQLite, D1, libSQL, Durable Objects | any change to the table except an index, because SQLite rebuilds the table |
+
 - A view the schema no longer declares is dropped.
 
 Dropping a view loses no data, so it asks no confirmation. Views are dropped
-before the tables they read and created after them.
+before the tables they read and created after them. On MySQL, where a
+migration is not one transaction, a replaced view is missing from its drop to
+the end of the migration.
+
+A push that finds a table under a declared view's name treats it like any
+table the schema no longer declares: it is dropped, with the confirmation a
+drop takes, and the view is created.
 
 The SQL of a view is written from its query by the same compiler as a read,
 with every value written as a literal: a view's SQL holds no parameter. The
 migration does not compare that SQL. It compares what was declared: the
-source, the query, the shape of the JSON columns, and the relations of the
-tables the view reads. An upgrade of VibORM that
-writes the same read differently does not replace your views.
+source, the query, the shape of the JSON columns, and the relations the query
+crosses. An upgrade of VibORM that writes the same read differently does not
+replace your views.
 
-A view under a declared name that VibORM did not create is refused.
+`viborm check` compiles each view's query and reports one a view cannot hold
+(`W005`).
+
+### What the database keeps beside a view
+
+A replacement is a `DROP VIEW` and a `CREATE VIEW`, so what you attached to
+the view by hand goes with it:
+
+- On PostgreSQL, its `GRANT`s, its owner and its comment. Grant again after a
+  migration that replaces the view, or grant on a role's default privileges.
+- A view of your own that reads a VibORM view blocks the drop on PostgreSQL:
+  the migration fails until you drop yours.
+
+A view under a declared name that VibORM did not create is refused. VibORM
+knows its own views by a marker in their definition, so a second application
+that shares the database should name its own tables and views in
+[`tables`](/docs/migration/push): a push without it drops the marked views it
+does not declare.
+
+### Privileges
+
+A view is a database object with its own rules, which VibORM leaves at each
+database's default:
+
+- **PostgreSQL** reads the tables with the rights of the view's owner. Row
+  level security on those tables does not apply to a reader of the view,
+  unless you set `security_invoker` on it.
+- **MySQL** creates a view with `SQL SECURITY DEFINER`: it runs as the user
+  that created it, and fails (error 1449) if that user is removed. MySQL also
+  shows a view's definition only to its definer and to users granted
+  `SHOW VIEW`. The user that runs migrations needs it, or VibORM cannot tell
+  its own views and refuses them.
 
 ## Extensions
 
@@ -182,8 +226,10 @@ A view is written into the database once, from the schema. An extension acts
 on each call of a client. So the only extension facts inside a view are schema
 facts.
 
-- **A schema `.omit()` field is never in a view.** It cannot be selected, in
-  the view's root or in any of its JSON columns. A view cannot expose it.
+- **A schema `.omit()` field is not a column of a view.** It cannot be
+  selected, in the view's root or in a relation it selects. An aggregate can
+  still read it, as in any read: `_aggregate: { sessions: { _max: { token: true } } }`
+  puts the largest `token` in the view.
 - **Soft delete is not applied inside the view's query.** A view over a model
   with [soft delete](/docs/extensions/soft-delete) shows deleted rows, unless
   its query filters them: `where: { deletedAt: null }`. When the view selects
