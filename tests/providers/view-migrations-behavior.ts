@@ -3,8 +3,8 @@
  * creates a view and reads it back by its marker (a second push is a no-op),
  * replaces it when its hash changes, drops and creates it again around a
  * column type change, a column rename and a table rename, keeps a view on a
- * view in order, drops it when undeclared, refuses the two name collisions
- * before any effect, and generate, apply, verify, down and reset converge.
+ * view in order, drops it when undeclared, replaces a table of its name with
+ * consent and refuses a hand-made view of its name before any effect, and generate, apply, verify, down and reset converge.
  *
  * The test file mocks `@migrations/view-definition` with
  * `testViewDefinition` (`./view-definitions`): the body is written per
@@ -39,8 +39,6 @@ const NOOP = { outcome: "noop", operations: [] };
 const DROP_DIGEST = /^DROP VIEW .*view_digest/;
 const DROP_FEED = /^DROP VIEW .*view_feed/;
 const DROP_POSTS = /^DROP TABLE .*view_posts/;
-const VIEW_OVER_TABLE =
-  /relation "view_feed" is a table, but this schema declares a view of that name/;
 const VIEW_OVER_FOREIGN_VIEW =
   /relation "view_feed" is a view VibORM did not create, but this schema declares a view/;
 
@@ -267,17 +265,22 @@ export function runViewMigrationBehavior({
         await push(driver, { ...FIRST, feed: undefined });
         await seed(driver);
 
-        // A table under the view's name.
+        // A table under the view's name is an undeclared table of this push:
+        // dropped with the consent a drop takes, never without it.
         await driver._executeRaw(
           `CREATE TABLE ${feed} (${id} VARCHAR(10) PRIMARY KEY)`
         );
         await driver._executeRaw(`INSERT INTO ${feed} (${id}) VALUES ('kept')`);
-        await expect(push(driver, FIRST)).rejects.toMatchObject({
-          code: "V11009",
-          message: expect.stringMatching(VIEW_OVER_TABLE),
+        await expect(pushAgain(driver, FIRST)).rejects.toMatchObject({
+          code: "V11017",
         });
         expect(await ids(driver, FEED)).toEqual(["kept"]);
-        await driver._executeRaw(`DROP TABLE ${feed}`);
+        expect(await push(driver, FIRST)).toEqual([
+          `- Drop table "${FEED}"`,
+          `+ Create view "${FEED}"`,
+        ]);
+        expect(await ids(driver, FEED)).toEqual(["p1", "p2"]);
+        await push(driver, { ...FIRST, feed: undefined });
 
         // A view VibORM did not create under the view's name.
         await driver._executeRaw(

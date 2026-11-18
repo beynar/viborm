@@ -359,8 +359,8 @@ describe("the program rule", () => {
       view("people", H3, ["authors"]),
     ]
   );
-  const replaced = (operations: DiffOperation[]) =>
-    kinds(withViewReplacements(operations, current, current));
+  const replaced = (operations: DiffOperation[], rebuilds = true) =>
+    kinds(withViewReplacements(operations, current, current, rebuilds));
 
   const cases: [string, DiffOperation][] = [
     ["renameTable", { type: "renameTable", from: "posts", to: "articles" }],
@@ -444,9 +444,55 @@ describe("the program rule", () => {
     ],
   ];
 
+  // What a view survives where a table is changed in place (PostgreSQL,
+  // MySQL): a column added, a key, a unique or a foreign key changed.
+  const SURVIVED = new Set([
+    "addColumn",
+    "dropPrimaryKey",
+    "addPrimaryKey",
+    "addForeignKey",
+    "dropForeignKey",
+    "addUniqueConstraint",
+    "dropUniqueConstraint",
+  ]);
+
   it.each(
     cases
-  )("%s on a table a view reads replaces it and every view reading it", (_, operation) => {
+  )("%s on a table a view reads: replaced where the table is rebuilt, and elsewhere only if the view cannot survive it", (name, operation) => {
+    expect(replaced([operation], false)).toEqual(
+      SURVIVED.has(name)
+        ? [operation.type]
+        : [
+            "dropView digest",
+            "dropView feed",
+            operation.type,
+            "createView feed",
+            "createView digest",
+          ]
+    );
+  });
+
+  it("a column that keeps its type is changed under a view, where tables are changed in place", () => {
+    const nullability: DiffOperation = {
+      type: "alterColumn",
+      tableName: "posts",
+      columnName: "score",
+      from: { name: "score", type: "integer", nullable: false },
+      to: { name: "score", type: "integer", nullable: true },
+    };
+    expect(replaced([nullability], false)).toEqual(["alterColumn"]);
+    expect(replaced([nullability])).toEqual([
+      "dropView digest",
+      "dropView feed",
+      "alterColumn",
+      "createView feed",
+      "createView digest",
+    ]);
+  });
+
+  it.each(
+    cases
+  )("%s on a table a view reads replaces it and every view reading it, where tables are rebuilt", (_, operation) => {
     const program = replaced([operation]);
     // The dependent first on the way down, last on the way up; `people`
     // reads another table and stays.
@@ -486,11 +532,7 @@ describe("the program rule", () => {
       [
         { type: "dropView", viewName: "digest" },
         { type: "dropView", viewName: "people" },
-        {
-          type: "addColumn",
-          tableName: "posts",
-          column: { name: "body", type: "text", nullable: true },
-        },
+        { type: "renameColumn", tableName: "posts", from: "title", to: "name" },
       ],
       current,
       desired,
@@ -500,7 +542,7 @@ describe("the program rule", () => {
       "dropView digest",
       "dropView people",
       "dropView feed",
-      "addColumn",
+      "renameColumn",
       "createView feed",
     ]);
   });
@@ -518,7 +560,8 @@ describe("the program rule", () => {
         withViewReplacements(
           [{ type: "renameTable", from: "posts", to: "articles" }],
           live,
-          desired
+          desired,
+          false
         )
       )
     ).toEqual(["dropView feed", "renameTable", "createView feed"]);
@@ -538,7 +581,8 @@ describe("the program rule", () => {
         (item): DiffOperation => ({ type: "createView", view: item })
       ),
       snapshot([posts]),
-      desired
+      desired,
+      false
     );
     expect(kinds(created)).toEqual([
       "createView z_base",
@@ -550,7 +594,8 @@ describe("the program rule", () => {
         (viewName): DiffOperation => ({ type: "dropView", viewName })
       ),
       desired,
-      snapshot([posts])
+      snapshot([posts]),
+      false
     );
     expect(kinds(dropped)).toEqual([
       "dropView a_top",

@@ -487,7 +487,9 @@ export function prepareSchemaProgram(
       current
     ),
     current,
-    desired
+    desired,
+    // SQLite changes a column, a key or a constraint by rebuilding the table.
+    migrationDriver.dialect === "sqlite"
   );
 }
 

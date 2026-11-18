@@ -80,14 +80,19 @@ function isViewOperation(operation: DiffOperation): operation is ViewOperation {
 
 /**
  * The tables an operation changes in a way a view reading them does not
- * survive everywhere: PostgreSQL refuses a column type change and a table
- * drop under a view (and an enum recreation retypes its columns), MySQL's
- * view breaks on a column rename, SQLite rewrites a view's text on a rename
- * and refuses to rebuild a table a view reads (a key, a unique or a column
- * change rebuilds one there). Only an index's creation or drop leaves every
- * view as it was.
+ * survive. Everywhere: a table renamed, dropped or created again, a column
+ * dropped, renamed or given another type (PostgreSQL refuses a type change
+ * and a drop under a view, and its enum recreation retypes columns; MySQL's
+ * view breaks on a rename; SQLite rewrites a view's text on a rename).
+ * Where the dialect `rebuilds` a table to change it (SQLite: a column, a key,
+ * a unique or a foreign key), every other change to the table too, since it
+ * refuses to rebuild a table a view reads. An index's creation or drop leaves
+ * every view as it was, on every dialect.
  */
-function changedTables(operations: readonly DiffOperation[]): Set<string> {
+function changedTables(
+  operations: readonly DiffOperation[],
+  rebuilds: boolean
+): Set<string> {
   const names = new Set<string>();
   for (const operation of operations) {
     switch (operation.type) {
@@ -102,6 +107,15 @@ function changedTables(operations: readonly DiffOperation[]): Set<string> {
         for (const column of operation.dependentColumns ?? [])
           names.add(column.tableName);
         break;
+      case "dropTable":
+      case "dropColumn":
+      case "renameColumn":
+        names.add(operation.tableName);
+        break;
+      case "alterColumn":
+        if (rebuilds || operation.from.type !== operation.to.type)
+          names.add(operation.tableName);
+        break;
       case "createIndex":
       case "dropIndex":
       case "createEnum":
@@ -109,7 +123,7 @@ function changedTables(operations: readonly DiffOperation[]): Set<string> {
       case "dropView":
         break;
       default:
-        names.add(operation.tableName);
+        if (rebuilds) names.add(operation.tableName);
     }
   }
   return names;
@@ -147,15 +161,18 @@ export function orderViews(
  * A prepared program with its views where they must run. The differ plans a
  * view's drop and creation when its hash changes or it is declared on one
  * side only; this adds the one rule the program decides: a view is dropped
- * and created again when a table it reads is changed by the program (see
- * `changedTables`), or a view it reads is dropped, transitively. Every drop
+ * and created again when a table it reads is changed by the program in a
+ * way it does not survive on this dialect (see `changedTables`; `rebuilds`
+ * says the dialect rebuilds tables), or a view it reads is dropped,
+ * transitively. Every drop
  * runs first, dependents before what they read, and every creation last,
  * after what it reads: no table or enum operation runs under a view.
  */
 export function withViewReplacements(
   operations: readonly DiffOperation[],
   current: SchemaSnapshot,
-  desired: SchemaSnapshot
+  desired: SchemaSnapshot,
+  rebuilds: boolean
 ): DiffOperation[] {
   const rest = operations.filter((operation) => !isViewOperation(operation));
   const dropped = new Set<string>();
@@ -168,7 +185,7 @@ export function withViewReplacements(
   const declared = new Map(
     (desired.views ?? []).map((view) => [view.name, view])
   );
-  const changed = changedTables(rest);
+  const changed = changedTables(rest, rebuilds);
   const live = current.views ?? [];
   for (let grew = true; grew; ) {
     grew = false;
@@ -245,7 +262,7 @@ export function refuseRelationCollision(
       (relation.kind === "table" || foreignView)
     )
       throw new MigrationError(
-        `${database} relation "${relation.name}" is a ${relation.kind === "table" ? "table" : relation.kind === "view" ? "view VibORM did not create" : "materialized view"}, but this schema declares a view of that name. Synchronization refuses before effects and preserves it: drop or rename it yourself, or give the view another name.`,
+        `${database} relation "${relation.name}" is a ${relation.kind === "table" ? "table" : relation.kind === "view" ? `view ${relation.definition ? "VibORM did not create" : "whose definition this user cannot read, so nothing says VibORM created it (MySQL shows a view's definition to its definer and to a user granted SHOW VIEW)"}` : "materialized view"}, but this schema declares a view of that name. Synchronization refuses before effects and preserves it: drop or rename it yourself, or give the view another name.`,
         VibORMErrorCode.MIGRATION_INVALID_STATE,
         { meta: { relation: relation.name, feature: "view" } }
       );

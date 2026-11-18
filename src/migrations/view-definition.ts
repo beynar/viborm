@@ -6,8 +6,8 @@
  * The identity is what was DECLARED and what a client will DECODE, never the
  * body's text: the declared query, the table it reads, the decoder shape of a
  * view row (a JSON column holds a positional document, so a view written for
- * another shape would decode wrong in silence), and the relations of the
- * tables the body reads (a relation moved between two columns that both stay
+ * another shape would decode wrong in silence), and the relations the query
+ * crosses, as resolved (a relation moved between two columns that both stay
  * changes the body and no column). An engine change that respells a read
  * therefore plans no migration. {@link VIEW_REVISION} is the lever for the
  * other case: a release whose bodies must all be written again raises it.
@@ -26,6 +26,7 @@ import { viewIsItsRead } from "../schema/validation/rules/view";
 import type { ValidationContext } from "../schema/validation/types";
 import { viewFacts } from "../schema/view/facts";
 import { createResolvedSchemaRegistry } from "../validation/builder";
+import { isRecord } from "../validation/value-guards";
 import type { MigrationDriver } from "./drivers/base";
 import { domainHash, HASH_DOMAIN, utf8Bytes } from "./identity";
 
@@ -84,6 +85,49 @@ function relationValue(_key: string, value: unknown): unknown {
   return typeof value === "object" && value !== null && "~" in value
     ? undefined
     : value;
+}
+
+/**
+ * The relations `value`, a part of a view's query read at `model`, crosses:
+ * each key that names a relation of the model it is read at, then what its
+ * own value crosses at the relation's target. A key that names a scalar holds
+ * a value, whatever is in it; any other key is a clause or an operator of the
+ * same model. `_count: true` counts every to-many relation.
+ */
+function crossedRelations(
+  model: AnyModel,
+  value: unknown,
+  relations: ResolvedRelationIndex,
+  crossed: Map<string, unknown>
+): void {
+  if (Array.isArray(value)) {
+    for (const member of value)
+      crossedRelations(model, member, relations, crossed);
+    return;
+  }
+  if (!isRecord(value)) return;
+  const slots = relations.get(model);
+  const state = model["~"].state;
+  const cross = (field: string, member: unknown): void => {
+    const slot = slots?.get(field);
+    if (slot === undefined) return;
+    crossed.set(`${model["~"].names.sql}.${field}`, slot);
+    if (!("endpoints" in slot.edge)) return;
+    for (const { source } of slot.edge.endpoints)
+      if (
+        source !== model ||
+        slot.edge.endpoints[0].source === slot.edge.endpoints[1].source
+      )
+        crossedRelations(source, member, relations, crossed);
+  };
+  for (const [key, member] of Object.entries(value)) {
+    if (key in state.scalars) continue;
+    if (key === "_count" && member === true) {
+      for (const [field, relation] of Object.entries(state.relations))
+        if (relation["~"].state.cardinality === "many") cross(field, undefined);
+    } else if (slots?.has(key)) cross(key, member);
+    else crossedRelations(model, member, relations, crossed);
+  }
 }
 
 /**
@@ -147,21 +191,18 @@ export function viewDefinition(
   const dependsOn = [...new Set(body.reads)]
     .filter((read) => read !== name)
     .sort();
-  const read = new Set(dependsOn);
   const facts = viewFacts(view)!;
+  const crossed = new Map<string, unknown>();
+  crossedRelations(facts.source, facts.query, relations, crossed);
   const identity = JSON.stringify(
     {
       revision: VIEW_REVISION,
       source: facts.source["~"].names.sql,
       query: JSON.parse(JSON.stringify(facts.query, queryValue)),
       shape: body.shape,
-      relations: Object.values(models)
-        .filter((model) => read.has(model["~"].names.sql ?? ""))
-        .map((model) => [
-          model["~"].names.sql,
-          [...(relations.get(model) ?? [])],
-        ])
-        .sort(([left], [right]) => (left! < right! ? -1 : 1)),
+      relations: [...crossed].sort(([left], [right]) =>
+        left < right ? -1 : 1
+      ),
     },
     relationValue
   );
