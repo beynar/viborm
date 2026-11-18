@@ -8,6 +8,11 @@
  */
 
 import { Command } from "commander";
+import type { ViewWriter } from "../../migrations/drivers/base";
+import { mysqlMigrationDriver } from "../../migrations/drivers/mysql";
+import { postgresMigrationDriver } from "../../migrations/drivers/postgres";
+import { sqlite3MigrationDriver } from "../../migrations/drivers/sqlite";
+import type { Dialect } from "../../migrations/drivers/types";
 import {
   auditStorage,
   type StorageColumnAudit,
@@ -62,6 +67,13 @@ const describe = (issue: SchemaValidationIssue): string =>
     .filter(Boolean)
     .join("\n    ");
 
+/** Who writes a view's body, per dialect VibORM creates views on. */
+const VIEW_WRITERS: Partial<Record<Dialect, () => ViewWriter>> = {
+  postgresql: () => postgresMigrationDriver.viewWriter(),
+  mysql: () => mysqlMigrationDriver.viewWriter(),
+  sqlite: () => sqlite3MigrationDriver.viewWriter(),
+};
+
 /**
  * What a view's query is refused for (W005), found by compiling its body as
  * a migration would: a clause a view cannot hold, or a query its source does
@@ -72,16 +84,13 @@ function withViewQueries(
   result: ValidationResult,
   { models, driver: { dialect } }: LoadedConfig
 ): ValidationResult {
-  if (
-    !result.valid ||
-    (dialect !== "postgresql" && dialect !== "mysql" && dialect !== "sqlite")
-  )
-    return result;
+  const writer = result.valid ? VIEW_WRITERS[dialect] : undefined;
+  if (writer === undefined) return result;
   const errors = [...result.errors];
   for (const [model, view] of Object.entries(models)) {
     if (viewFacts(view) === undefined) continue;
     try {
-      viewBody({ schema: models, dialect }, view);
+      viewBody({ schema: models, adapter: writer().adapter }, view);
     } catch (cause) {
       errors.push({
         code: "W005",

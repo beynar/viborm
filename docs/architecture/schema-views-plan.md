@@ -370,6 +370,11 @@ fact by name; the list is kept closed in two places, neither of them a guard:
   +10 M otherwise: see `ViewQuery`). The compile, the literal renderer's caller, identity
   and DDL live in migrations. `pnpm package:build && pnpm size` before each
   push; the pg application and the D1 Worker are the two numbers that count.
+- The body's adapter comes from the dialect's migration driver
+  (`MigrationDriver.viewWriter`), never from an import of the three adapters:
+  the first form put the MySQL and SQLite adapters in the PostgreSQL
+  migrations bundle (measured on the pg + migrations Worker: 299.53 kB with
+  the three, 294.17 kB with its own, 288.23 kB before views).
 
 ## 4. Pull requests
 

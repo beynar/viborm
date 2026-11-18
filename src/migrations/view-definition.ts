@@ -203,7 +203,8 @@ export function viewDefinition(
 ): ViewDefinition {
   const { models, relations, migrationDriver } = context;
   const { dialect } = migrationDriver;
-  if (dialect !== "postgresql" && dialect !== "mysql" && dialect !== "sqlite")
+  const writer = migrationDriver.viewWriter();
+  if (writer === undefined)
     throw new MigrationError(
       `The view "${view["~"].names.ts}" cannot be migrated: VibORM creates no view on ${dialect === "surrealql" ? "SurrealDB yet; views arrive there with materialized views" : dialect}.`,
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
@@ -236,17 +237,11 @@ export function viewDefinition(
       VibORMErrorCode.INVALID_INPUT,
       { meta: { feature: "view", model: view["~"].names.ts } }
     );
-  // PostgreSQL names every relation by its schema (a migration sets no
-  // search path); a MySQL artifact is relative to the database its session
-  // selects, and SQLite has no namespace.
   const body = viewBody(
     {
       schema: models,
       resolved: { index: relations, registry: schema.registry },
-      dialect,
-      ...(dialect === "postgresql" && migrationDriver.executionDriver
-        ? { estate: migrationDriver.executionDriver.adapter }
-        : {}),
+      adapter: writer.adapter,
     },
     view
   );
@@ -270,7 +265,7 @@ export function viewDefinition(
     relationValue
   );
   return {
-    sql: inlineLiterals(dialect, body.statement),
+    sql: inlineLiterals(writer.dialect, body.statement),
     hash: domainHash(HASH_DOMAIN.view, utf8Bytes(identity)).slice(0, 40),
     dependsOn,
   };

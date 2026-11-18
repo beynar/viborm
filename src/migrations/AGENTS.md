@@ -1340,7 +1340,12 @@ none and keeps today's refusal (V8001), so declaring one does not adopt it.
 (`viewFacts`, `src/schema/view/facts.ts`) whose rows are a read of the
 schema. The serializer writes no table, column, key or index for it; it asks
 `viewDefinition` (`view-definition.ts`) for the body, the identity and the
-reads, and records `SchemaSnapshot.views`: `ViewDef = { name, hash, sql?,
+reads. The body is written with what the dialect's migration driver answers
+to `viewWriter()`: its SQL dialect and an adapter under one fixed
+configuration, so every driver of a dialect writes one text; a driver that
+answers nothing creates no view, and that is the one refusal. Each SQL driver
+names its own adapter there, so a dialect's migrations bundle carries one
+adapter, not three. The serializer records `SchemaSnapshot.views`: `ViewDef = { name, hash, sql?,
 dependsOn }`, sorted by name, the key absent when there is no view so every
 other snapshot, state id, fingerprint and catalog digest keeps its bytes.
 `hash` is 40 lowercase hex characters and is the view's identity: no layer

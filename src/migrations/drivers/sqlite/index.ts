@@ -1,3 +1,4 @@
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { nativeTypeFor } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
 import type { IdDomain } from "@validation/primitives/id-codec";
@@ -77,6 +78,7 @@ import type {
   DropUniqueConstraintOperation,
   RenameColumnOperation,
   RenameTableOperation,
+  ViewWriter,
 } from "../base";
 import { SqlMigrationDriver } from "../sql";
 import { getSQLiteType } from "../type-mapping";
@@ -405,6 +407,10 @@ export function sqliteTableBearsRelations(
  */
 export class SQLite3MigrationDriver extends SqlMigrationDriver {
   readonly dialect = "sqlite" as const;
+
+  override viewWriter(): ViewWriter {
+    return { dialect: this.dialect, adapter: new SQLiteAdapter() };
+  }
   readonly driverName: string = "sqlite3";
 
   override finalizeTable(table: TableDef): TableDef {
