@@ -80,6 +80,9 @@ A view's columns come from its query. Nothing else is declared.
 `publishedPost` above has three scalar columns (`id`, `title`, `authorId`) and
 three JSON columns (`author`, `comments`, `_count`).
 
+A `_count` that counts no relation is no column, as it is no key of a read:
+`_count: true` on a source without a to-many relation, for instance.
+
 A query without `select` keeps every scalar of the source, minus its `omit`,
 and adds a JSON column for each relation in its `include`.
 
@@ -239,25 +242,26 @@ facts.
   read, to the view as its own model. A view the policy does not list is
   closed, like a model, and the source model's policy does not carry over.
 
-### MySQL string values
-
-A string value of a view's query is written with MySQL's backslash escapes. A
-server running with `NO_BACKSLASH_ESCAPES` reads a backslash or a line break
-in such a value differently: run migrations without that mode, as for every
-other VibORM migration on MySQL.
-
 ## Databases
 
 | Database | Views |
 | --- | --- |
 | PostgreSQL | ✅ JSON columns are `json` |
 | MySQL | ✅ JSON columns are `JSON` |
-| SQLite, D1, libSQL, Durable Objects | ✅ JSON columns are text |
+| SQLite | ✅ JSON columns are text |
+| libSQL, D1, Durable Objects | The SQL is SQLite's. Not run with views in VibORM's test suite yet; D1 takes them through `migrate`, since it refuses a live `push` |
 | Snowflake | A schema holding a view is refused |
 | SurrealDB | Not supported yet |
 
 Not supported yet, on any database: materialized views, relations between a
 view and a model, and aggregated views (a view over a `groupBy`).
+
+### MySQL string values
+
+A string value of a view's query is written with MySQL's backslash escapes. A
+server running with `NO_BACKSLASH_ESCAPES` reads a backslash or a line break
+in such a value differently: run migrations without that mode, as for every
+other VibORM migration on MySQL.
 
 ## In a JSON document
 
