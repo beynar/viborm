@@ -253,6 +253,27 @@ export interface PreparedRelationProjection {
   readonly projection: PreparedProjection;
   readonly recurrence?: NormalizedRecurrence;
 }
+/**
+ * One aggregate selection, as `aggregate`, `groupBy` and a relation's
+ * `_aggregate` admit it ({@link Queries.aggregateSelection}): the decoder
+ * shape of each selected aggregate, and the members it was built from, in that
+ * shape's own key order. A lowering builds each carrier from `members`.
+ */
+export interface PreparedAggregates {
+  readonly shape: Record<string, Shape | Leaf>;
+  /** Each aggregate, in {@link AGGREGATES} order: `undefined` for `_count: true`'s row count. */
+  readonly members: readonly {
+    readonly name: Aggregate;
+    readonly fields: readonly string[] | undefined;
+  }[];
+}
+/** One `_aggregate` entry: a relation's rows, the filter that narrows them, what is aggregated. */
+export interface PreparedRelationAggregate {
+  readonly relation: string;
+  readonly edge: Membership;
+  readonly selector?: Pick<PreparedSelector, "model" | "predicate">;
+  readonly selection: PreparedAggregates;
+}
 /** One counted slot: its memberships, and the filter that narrows them. */
 export type PreparedCount = {
   readonly relation: string;
@@ -278,6 +299,11 @@ export type PreparedProjectionField =
       readonly kind: "counts";
       readonly name: string;
       readonly counts: readonly PreparedCount[];
+    }
+  | {
+      readonly kind: "aggregates";
+      readonly name: string;
+      readonly aggregates: readonly PreparedRelationAggregate[];
     }
   | {
       /**
@@ -3153,6 +3179,88 @@ export abstract class Queries {
     };
     prepared.push({ kind: "counts", name, counts });
   }
+  /** The `_aggregate` member of a projection, out of line: most reads have none. */
+  #projectAggregates(
+    model: AnyModel,
+    name: string,
+    selection: Input,
+    fields: Record<string, Shape | Leaf>,
+    prepared: PreparedProjectionField[]
+  ): void {
+    const aggregates: PreparedRelationAggregate[] = [];
+    const shapes: Record<string, Shape> = {};
+    for (const relation of Object.keys(selection)) {
+      const entry = selection[relation] as Input;
+      // Admission admits at least one entry, each on an ordinary to-many
+      // relation and selecting at least one aggregate.
+      const edge = bindMembership(this.schema, model, relation);
+      const aggregated = this.aggregateSelection(edge.target, entry);
+      // Built on every row, as a count carrier is: one aggregate row answers
+      // even where the relation reaches none.
+      shapes[relation] = {
+        kind: "object",
+        nullable: false,
+        fields: aggregated.shape,
+      };
+      aggregates.push({
+        relation,
+        edge,
+        selector:
+          entry.where === undefined
+            ? undefined
+            : this.prepareSelector(
+                edge.target,
+                entry.where as Input,
+                false,
+                false
+              ),
+        selection: aggregated,
+      });
+    }
+    fields[name] = { kind: "object", nullable: false, fields: shapes };
+    prepared.push({ kind: "aggregates", name, aggregates });
+  }
+  /**
+   * One aggregate selection over `model`'s rows — `aggregate`, `groupBy`, a
+   * relation's `_aggregate` — classified once: each selected aggregate in
+   * {@link AGGREGATES} order, its leaves in the caller's own key order.
+   */
+  aggregateSelection(model: AnyModel, args: Input): PreparedAggregates {
+    const shape: Record<string, Shape | Leaf> = {};
+    const members: PreparedAggregates["members"][number][] = [];
+    for (const name of AGGREGATES) {
+      const selection = args[name];
+      if (!selection) continue;
+      if (name === "_count" && selection === true) {
+        shape._count = COUNT_LEAF;
+        members.push({ name, fields: undefined });
+        continue;
+      }
+      const selected = Object.keys(selection as Input).filter(
+        (field) => (selection as Input)[field]
+      );
+      if (selected.length === 0) continue;
+      const leaves: Record<string, Leaf> = {};
+      for (const field of selected)
+        leaves[field] = this.aggregateLeaf(model, name, field);
+      shape[name] = { kind: "object", fields: leaves };
+      members.push({ name, fields: selected });
+    }
+    return { shape, members };
+  }
+  /** One aggregate leaf classification: projection, `having` and `orderBy`. */
+  aggregateLeaf(model: AnyModel, aggregate: Aggregate, field: string): Leaf {
+    if (aggregate === "_count") return COUNT_LEAF;
+    const leaf = this.scalarShape(model, field);
+    if (aggregate === "_avg" && leaf.type !== "decimal")
+      return { kind: "scalar", type: "number", nullable: true };
+    // Admission admits `_sum` only on the summable types, every one widened.
+    return {
+      ...leaf,
+      nullable: true,
+      widened: aggregate === "_sum" ? true : undefined,
+    };
+  }
   /** A selected `_distance`, out of line: most reads select none. */
   #projectDistance(
     model: AnyModel,
@@ -3316,6 +3424,17 @@ export abstract class Queries {
       // validation refuses a member of that name (F010).
       if (name === "_count") {
         this.#projectCounts(model, name, selection, fields, prepared);
+        continue;
+      }
+      // `_aggregate` likewise (F010).
+      if (name === "_aggregate") {
+        this.#projectAggregates(
+          model,
+          name,
+          selection as Input,
+          fields,
+          prepared
+        );
         continue;
       }
       if (!model["~"].state.relations[name]) {

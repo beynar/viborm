@@ -957,21 +957,26 @@ type InferSelectedFields<
 > = SelectedFields<
   Selection,
   {
-    [K in keyof Selection & keyof S["shape"] as S["shape"][K] extends Scalar
-      ? true extends Selection[K]
-        ? K
-        : never
-      : K]: S["shape"][K] extends Scalar
-      ? InferScalarOutput<S["shape"][K]>
-      : S["shape"][K] extends AnyRelation
-        ? InferSelectedRelation<
-            S,
-            K,
-            S["shape"][K],
-            Selection[K],
-            ClientDefaults
-          >
-        : never;
+    [K in keyof Selection &
+      (keyof S["shape"] | "_aggregate") as K extends keyof S["shape"]
+      ? S["shape"][K] extends Scalar
+        ? true extends Selection[K]
+          ? K
+          : never
+        : K
+      : K]: K extends keyof S["shape"]
+      ? S["shape"][K] extends Scalar
+        ? InferScalarOutput<S["shape"][K]>
+        : S["shape"][K] extends AnyRelation
+          ? InferSelectedRelation<
+              S,
+              K,
+              S["shape"][K],
+              Selection[K],
+              ClientDefaults
+            >
+          : never
+      : RelationAggregatesResult<S, Selection[K]>;
   }
 >;
 
@@ -1125,6 +1130,28 @@ type InferRelationCountSelection<
     : Record<never, never>;
 
 /**
+ * `_aggregate: { posts: { _sum: { views: true } } }` → `{ _aggregate: { posts:
+ * { _sum: { views: number | null } } } }`: each entry is typed as the target
+ * model's own `aggregate` result for the same selection, which is what the
+ * engine decodes it with. Admission admits an entry on a to-many relation
+ * only, so a key that is not one never reaches a value here.
+ *
+ * `_aggregate` is one more key of the select and include mapped types, never
+ * a conditional intersected beside them: that form cost the 50-model extended
+ * client 6,400 more types (`tests/package/type-budgets.json`), this one none.
+ */
+type RelationAggregatesResult<S extends ModelState, Entries> = {
+  [K in keyof Entries & keyof S["relations"] as Entries[K] extends object
+    ? K
+    : never]: S["relations"][K] extends AnyRelation
+    ? AggregateResultType<
+        GetTargetModelState<S["relations"][K]>["shape"],
+        Entries[K]
+      >
+    : never;
+};
+
+/**
  * Result when include is provided - base result + included relations
  */
 export type InferIncludeResult<
@@ -1133,19 +1160,20 @@ export type InferIncludeResult<
   ClientDefaults = never,
 > = Prettify<
   InferModelOutput<S> & {
-    [K in keyof Include & keyof S["relations"] as Include[K] extends
-      | true
-      | object
+    [K in keyof Include &
+      (keyof S["relations"] | "_aggregate") as Include[K] extends true | object
       ? K
-      : never]: S["relations"][K] extends AnyRelation
-      ? InferSelectedRelation<
-          S,
-          K,
-          S["relations"][K],
-          Include[K],
-          ClientDefaults
-        >
-      : never;
+      : never]: K extends keyof S["relations"]
+      ? S["relations"][K] extends AnyRelation
+        ? InferSelectedRelation<
+            S,
+            K,
+            S["relations"][K],
+            Include[K],
+            ClientDefaults
+          >
+        : never
+      : RelationAggregatesResult<S, Include[K]>;
   } & InferRelationCountSelection<S, Include>
 >;
 

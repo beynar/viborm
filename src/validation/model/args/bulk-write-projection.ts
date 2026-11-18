@@ -92,8 +92,8 @@ const hasOwnKey = (value: unknown, key: string): boolean =>
 
 /**
  * The first relation-shaped key in the payload's `select`, or `undefined`.
- * `_count` counts as one: it is a relation-derived projection built by the same
- * correlated-subquery machinery.
+ * `_count` and `_aggregate` count as one: each is a relation-derived
+ * projection built by the same correlated-subquery machinery.
  */
 const findProjectedRelation = (
   value: unknown,
@@ -104,7 +104,8 @@ const findProjectedRelation = (
   if (!isRecord(select)) return undefined;
   for (const key of Object.keys(select)) {
     if (select[key] === undefined) continue;
-    if (key === "_count" || relationKeys.has(key)) return key;
+    if (key === "_count" || key === "_aggregate" || relationKeys.has(key))
+      return key;
   }
   return undefined;
 };

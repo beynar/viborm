@@ -99,11 +99,13 @@ import {
   type OrderJoins,
   type OrderTerm,
   type PlacedBody,
+  type PreparedAggregates,
   type PreparedDomain,
   type PreparedOperand,
   type PreparedPredicate,
   type PreparedProjection,
   type PreparedProjectionField,
+  type PreparedRelationAggregate,
   type PreparedRelationProjection,
   type PreparedScalar,
   type PreparedSelector,
@@ -142,7 +144,12 @@ import {
   type Input,
   type ReadOperation,
 } from "./schema";
-import { hopFieldsOf, linkMembers, type Membership } from "./storage";
+import {
+  bindMembership,
+  hopFieldsOf,
+  linkMembers,
+  type Membership,
+} from "./storage";
 import { engineFault, listed, nameOf, tableOf, unsupported } from "./terms";
 
 /** A select's controls, and a condition spelled for the alias this language gives it. */
@@ -3459,7 +3466,12 @@ export class SqlQueries extends Queries {
     for (const order of entries(input)) {
       for (const field of Object.keys(order)) {
         const direction = order[field];
-        if (direction !== undefined)
+        if (direction === undefined) continue;
+        if (
+          model["~"].state.relations[field]?.["~"].state.cardinality === "many"
+        )
+          this.#collectionOrder(model, field, direction as Input, alias, terms);
+        else
           terms.push(
             this.#orderTerm(
               model,
@@ -3474,6 +3486,64 @@ export class SqlQueries extends Queries {
       }
     }
     return terms;
+  }
+  /**
+   * A collection orders by how many rows it reaches — the projection's own
+   * count owner, a variant carrier's summed arms included — or by ONE
+   * aggregate of one field of those rows, as `groupBy` orders by one of its
+   * own: a correlated scalar subquery per sort key, which a widened `_sum`
+   * needs two of where the adapter states its exact order so (`splitSum`).
+   */
+  #collectionOrder(
+    model: AnyModel,
+    field: string,
+    specification: Input,
+    alias: string,
+    terms: OrderTerm[]
+  ): void {
+    const { edges } = this.countedMemberships(model, field);
+    // Admission names one key: `_count`, or one aggregate of one field.
+    const [aggregate, members] = Object.entries(specification)[0] ?? [];
+    if (aggregate === undefined || aggregate === "_count") {
+      terms.push(
+        this.#sortKey(
+          this.#correlatedCount(edges, undefined, alias),
+          members === "desc",
+          undefined,
+          false
+        )
+      );
+      return;
+    }
+    // Only an ordinary relation admits a value aggregate: one membership.
+    const edge = edges[0]!;
+    const [name, direction] = Object.entries(members as Input)[0]!;
+    const { sort, nulls } =
+      typeof direction === "string"
+        ? { sort: direction, nulls: undefined }
+        : (direction as Input);
+    const childAlias = this.alias();
+    const scalar = this.scalar(edge.target, name);
+    const keys = (aggregate === "_sum" &&
+      this.#splitSumSql(scalar, this.#preparedColumn(scalar, childAlias))
+        ?.order) || [
+      this.#aggregateExpression(aggregate as Aggregate, scalar, childAlias),
+    ];
+    const where = this.correlation(edge, alias, childAlias);
+    for (const key of keys)
+      terms.push(
+        this.#sortKey(
+          this.#scalar({
+            columns: key,
+            from: this.table(edge.target, childAlias),
+            where,
+          }),
+          sort === "desc",
+          nulls as "first" | "last" | undefined,
+          // An aggregate over no row is NULL.
+          true
+        )
+      );
   }
   #orderTerm(
     model: AnyModel,
@@ -3540,8 +3610,9 @@ export class SqlQueries extends Queries {
     );
   }
   /**
-   * A to-one path is one value of the related row; a collection orders by
-   * `_count`. Where the page takes joins and the edge reaches at most one row
+   * A to-one path is one value of the related row; a collection orders in
+   * {@link #collectionOrder}, which no to-one path reaches (admission refuses a
+   * to-many hop). Where the page takes joins and the edge reaches at most one row
    * by a key ({@link #joinsOnce}), the row is LEFT JOINed once per path, its
    * related domain in the ON clause so a parent whose row is hidden or absent
    * stays with NULL, and a deeper hop chains off the joined alias. Otherwise
@@ -3555,21 +3626,7 @@ export class SqlQueries extends Queries {
     joins?: OrderJoins
   ): OrderTerm {
     const a = this.adapter;
-    // A collection orders by `_count`, and that count is the projection's own
-    // count owner — including a variant carrier, which has no single membership.
-    const { edges: counted } = this.countedMemberships(model, field);
-    if (
-      counted.length > 1 ||
-      counted[0]!.many ||
-      specification._count !== undefined
-    )
-      return this.#sortKey(
-        this.#correlatedCount(counted, undefined, alias),
-        specification._count === "desc",
-        undefined,
-        false
-      );
-    const edge = counted[0]!;
+    const edge = bindMembership(this.schema, model, field);
     const [nested] = Object.entries(specification);
     if (joins && this.#joinsOnce(edge)) {
       const path = `${alias}.${field}`;
@@ -4445,33 +4502,35 @@ export class SqlQueries extends Queries {
     readonly fields_: Record<string, Shape | Leaf>;
     columns(alias: string): [string, Sql][];
   } {
-    const a = this.adapter;
+    const selection = this.aggregateSelection(model, args as Input);
     const fields: string[] = [];
-    const shape: Record<string, Shape | Leaf> = {};
-    const builders: ((alias: string) => [string, Sql])[] = [];
-    for (const name of AGGREGATES) {
-      const selection = args[name];
-      if (!selection) continue;
-      if (name === "_count" && selection === true) {
-        shape._count = COUNT_LEAF;
-        builders.push(() => ["_count", a.aggregates.count()]);
-        continue;
-      }
-      const selected = Object.entries(selection as Input).filter(
-        ([, include]) => include
-      );
-      if (selected.length === 0) continue;
-      const leaves: Record<string, Leaf> = {};
-      for (const [field] of selected) {
+    for (const member of selection.members)
+      for (const field of member.fields ?? [])
         if (field !== "_all") fields.push(field);
-        leaves[field] = this.#aggregateLeaf(model, name, field);
-      }
-      shape[name] = { kind: "object", fields: leaves };
-      builders.push((alias) => [
+    return {
+      fields,
+      fields_: selection.shape,
+      columns: (alias) => this.#aggregateColumns(model, selection, alias),
+    };
+  }
+  /**
+   * Each selected aggregate as its column: `_count: true`'s row count, or the
+   * carrier of the fields it selects, members in the order its shape lists them.
+   */
+  #aggregateColumns(
+    model: AnyModel,
+    { shape, members }: PreparedAggregates,
+    alias: string
+  ): [string, Sql][] {
+    const a = this.adapter;
+    return members.map(({ name, fields }): [string, Sql] => {
+      if (fields === undefined) return [name, a.aggregates.count()];
+      const leaves = (shape[name] as Extract<Shape, { kind: "object" }>).fields;
+      return [
         name,
         this.carriedDocument(
-          selected.map(([field]): [string, Sql] => {
-            const leaf = leaves[field]!;
+          fields.map((field): [string, Sql] => {
+            const leaf = leaves[field] as Leaf;
             const scalar =
               field === "_all" ? undefined : this.scalar(model, field);
             const split = this.splitSum(leaf);
@@ -4493,26 +4552,8 @@ export class SqlQueries extends Queries {
             ];
           })
         ),
-      ]);
-    }
-    return {
-      fields,
-      fields_: shape,
-      columns: (alias) => builders.map((build) => build(alias)),
-    };
-  }
-  /** One aggregate leaf classification: projection, `having` and `orderBy`. */
-  #aggregateLeaf(model: AnyModel, aggregate: Aggregate, field: string): Leaf {
-    if (aggregate === "_count") return COUNT_LEAF;
-    const leaf = this.scalarShape(model, field);
-    if (aggregate === "_avg" && leaf.type !== "decimal")
-      return { kind: "scalar", type: "number", nullable: true };
-    // Admission admits `_sum` only on the summable types, every one widened.
-    return {
-      ...leaf,
-      nullable: true,
-      widened: aggregate === "_sum" ? true : undefined,
-    };
+      ];
+    });
   }
   /**
    * A split `_sum` as `having` compares it and a grouped `orderBy` sorts it:
@@ -4521,7 +4562,7 @@ export class SqlQueries extends Queries {
    */
   #splitSumSql(scalar: PreparedScalar, column: Sql): SplitSumSql | undefined {
     return this.splitSum(
-      this.#aggregateLeaf(scalar.model, "_sum", scalar.field)
+      this.aggregateLeaf(scalar.model, "_sum", scalar.field)
     )?.sql(column);
   }
   #aggregateExpression(
@@ -4626,7 +4667,7 @@ export class SqlQueries extends Queries {
     }
     return columns;
   }
-  /** Count, distance and polymorphic members, out of line from plain columns. */
+  /** Count, aggregate, distance and polymorphic members, out of line from plain columns. */
   #lowerSpecialProjectionField(
     projection: PreparedProjection,
     field: Exclude<
@@ -4647,6 +4688,13 @@ export class SqlQueries extends Queries {
             alias ?? "",
             count.negated
           ),
+        ])
+      );
+    } else if (field.kind === "aggregates") {
+      expression = this.carriedDocument(
+        field.aggregates.map((entry): [string, Sql] => [
+          entry.relation,
+          this.#document(this.#correlatedAggregates(entry, alias ?? "")),
         ])
       );
     } else if (field.kind === "distance") {
@@ -4945,6 +4993,31 @@ export class SqlQueries extends Queries {
       });
     });
     return counted.reduce((total, arm) => a.expressions.add(total, arm));
+  }
+  /**
+   * One `_aggregate` entry: every aggregate it selects over the rows its
+   * relation reaches, in ONE correlated subquery. An ungrouped aggregate
+   * answers exactly one row, so the carrier is built even where the relation
+   * reaches none (`_count` 0, every other aggregate NULL), as at the root.
+   */
+  #correlatedAggregates(
+    entry: PreparedRelationAggregate,
+    parentAlias: string
+  ): Sql {
+    const target = entry.edge.target;
+    const childAlias = this.alias();
+    const filter =
+      entry.selector && this.lowerSelector(entry.selector, childAlias);
+    return this.#scalar({
+      columns: this.carriedDocument(
+        this.#aggregateColumns(target, entry.selection, childAlias)
+      ),
+      from: this.table(target, childAlias),
+      where: this.#and(
+        this.correlation(entry.edge, parentAlias, childAlias),
+        ...(filter ? [filter] : [])
+      ),
+    });
   }
   #lowerRelationProjection(
     relation: PreparedRelationProjection,

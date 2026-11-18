@@ -343,6 +343,35 @@ describe("schema operation introspection", () => {
 } | null`);
   });
 
+  test("renders relation aggregates as the target's own aggregate result", () => {
+    expect(
+      renderOperationResultType(schema, "user", "findFirst", {
+        select: {
+          id: true,
+          _aggregate: {
+            posts: {
+              _count: { _all: true, title: true },
+              _max: { title: true },
+            },
+          },
+        },
+      })
+    ).toBe(`{
+  id: string;
+  _aggregate: {
+    posts: {
+      _count: {
+        _all: number;
+        title: number;
+      };
+      _max: {
+        title: string | null;
+      };
+    };
+  };
+} | null`);
+  });
+
   test("renders visible variant-relation arms", () => {
     expect(
       renderOperationResultType(variantSchema, "library", "findMany", {

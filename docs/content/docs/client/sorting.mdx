@@ -220,6 +220,40 @@ const posts = await client.post.findMany({
 });
 ```
 
+Or by the sum, average, smallest or largest value of a field of those rows:
+
+```ts
+// Shops by revenue, the shops with no order last
+const shops = await client.shop.findMany({
+  orderBy: {
+    orders: { _sum: { total: { sort: "desc", nulls: "last" } } },
+  },
+});
+
+// Authors by their latest post
+const authors = await client.user.findMany({
+  orderBy: { posts: { _max: { createdAt: "desc" } } },
+});
+```
+
+One term orders by one aggregate of one field; give an array to order by
+several. `_sum` and `_avg` take the numeric fields, `_min` and `_max` any field
+but a list, a GeoPoint, a JSON, a vector or a blob field (PostgreSQL has no
+`MAX` of `jsonb`), as in [`groupBy`](/docs/client/group-by).
+
+A relation with no row has no sum, average, minimum or maximum: its value is
+`NULL`, placed as PostgreSQL places it on every database (first in a
+descending order, last in an ascending one) unless you spell `nulls`. Its
+count is `0`.
+
+Each aggregate term is one correlated subquery per row, apart from the one
+`_aggregate` reads for the same relation. On MySQL, a term that can be `NULL`
+reads it twice (once to place `NULL`); on SQLite and D1, a sum of integers is
+ordered exactly by its two parts, so it reads it twice too. A `cursor` cannot
+follow an order by an aggregate, as it cannot follow one by `_count`.
+SurrealDB and Snowflake refuse an order by an aggregate before anything is
+sent.
+
 ## Sorting Included Relations
 
 Included rows come back in the order you ask for, and in no particular order

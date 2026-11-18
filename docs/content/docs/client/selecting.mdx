@@ -313,6 +313,53 @@ const users = await client.user.findMany({
 `_count` means relation counts and nothing else: a model member cannot be
 named `_count` (see [Reserved member names](/docs/schema/model#reserved-member-names)).
 
+## Aggregate Relations
+
+`_aggregate` sums, averages and finds the smallest and largest value of a
+field over the rows of a to-many relation, beside or instead of their count.
+Each relation takes what [`aggregate`](/docs/client/aggregate) takes on its
+model, without the page: `where`, `_count`, `_sum`, `_avg`, `_min` and `_max`.
+
+```ts
+const shops = await client.shop.findMany({
+  select: {
+    id: true,
+    _aggregate: {
+      orders: {
+        where: { status: "paid" },
+        _count: true,
+        _sum: { total: true },
+        _avg: { total: true },
+        _max: { placedAt: true },
+      },
+    },
+  },
+});
+// shop._aggregate.orders._count: number
+// shop._aggregate.orders._sum.total: number | null
+// shop._aggregate.orders._max.placedAt: Date | null
+```
+
+Each value is the one `client.order.aggregate()` returns for the same
+selection, typed the same way: the sum of a `bigInt` is a `bigint`, of a
+`decimal` an exact `Decimal`, and the average of a `decimal` a `Decimal` at
+the field's scale. A shop with no order gets `_count: 0` and `null` for every
+other aggregate. `_aggregate` works in `include` and in nested relations too.
+
+All the aggregates of one relation are computed in **one** subquery per row,
+however many you ask for. Only a to-many relation can be aggregated: a to-one
+relation has one row, select its fields; a polymorphic slot stores its members
+in different tables, so it has `_count` only. An entry must ask for at least
+one aggregate. `_aggregate` is a [reserved member name](/docs/schema/model#reserved-member-names).
+
+A field the caller [may not read](/docs/extensions/permissions) reads as
+`NULL` on the rows that withhold it, so `_sum` and `_avg` skip those rows, as
+they do in `aggregate`. Rows hidden from the caller (a permission's `read`, a
+[soft-deleted](/docs/extensions/soft-delete) row) are not aggregated.
+
+SurrealDB and Snowflake do not support `_aggregate` yet: the call fails with
+an `UnsupportedOperationError` before anything is sent.
+
 ## Examples
 
 ### Public Profile

@@ -8,6 +8,10 @@ import type {
 import type { RelationState } from "@schema/relation/types";
 import type { ScalarState } from "@schema/scalars";
 import {
+  type AggregateOrderSchemas,
+  getAggregateOrderSchemas,
+} from "@validation/model/args/aggregate";
+import {
   type DecimalListOrderByRefusalSchema,
   decimalListOrderByRefusalSchema,
   isDecimalListScalarKey,
@@ -286,16 +290,45 @@ export const toOneOrderByFactory = <
 };
 
 /**
- * To-many orderBy: can order by _count aggregate
- * e.g., orderBy: { posts: { _count: 'desc' } }
+ * A to-many order term names ONE sort key: `_count`, or one aggregate of one
+ * field. Several keys in one object would order by an order the caller never
+ * wrote (the object's key order); an array of terms states it.
  */
-export type ToManyOrderBySchema<_S extends RelationState> = V.Object<{
-  _count: V.Enum<["asc", "desc"]>;
-}>;
-export const toManyOrderByFactory = <S extends RelationState>(
-  _state: S
-): ToManyOrderBySchema<S> => {
-  return v.object({
-    _count: v.enum(["asc", "desc"]),
-  });
+const requireOneAggregate = (
+  term: Record<string, unknown>
+): string | undefined => {
+  const keys = Object.keys(term);
+  const aggregate = keys[0];
+  return keys.length > 1 ||
+    (aggregate !== undefined &&
+      aggregate !== "_count" &&
+      Object.keys(term[aggregate] as object).length !== 1)
+    ? "A to-many relation orders by one aggregate: '_count', or one field of '_sum', '_avg', '_min' or '_max'; use an orderBy array for more."
+    : undefined;
 };
+
+/**
+ * To-many orderBy: by how many rows the relation reaches, or by an aggregate
+ * of one of their fields, e.g. `{ posts: { _count: 'desc' } }` or
+ * `{ posts: { _max: { createdAt: 'desc' } } }`. An aggregate over no row is
+ * NULL, so its direction also takes `{ sort, nulls }`.
+ */
+export type ToManyOrderBySchema<S extends RelationState> = V.Object<
+  {
+    _count: V.Enum<["asc", "desc"]>;
+  } & AggregateOrderSchemas<TargetModel<S>, SortOrderSchema>,
+  { readonly refuse: typeof requireOneAggregate }
+>;
+export const toManyOrderByFactory = <S extends RelationState>(
+  relation: AnyRelation
+): ToManyOrderBySchema<S> =>
+  v.object(
+    {
+      _count: v.enum(["asc", "desc"]),
+      ...getAggregateOrderSchemas(
+        relation["~"].settleTarget() as AnyModel,
+        sortOrderSchema
+      ),
+    },
+    { refuse: requireOneAggregate }
+  ) as ToManyOrderBySchema<S>;

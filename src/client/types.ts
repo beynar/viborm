@@ -1929,7 +1929,8 @@ type RecursiveProjectionGuard<
 };
 
 /**
- * A model-target node's `select` / `include` keys, beside `_count`: every
+ * A model-target node's `select` / `include` keys, beside `_count` and
+ * `_aggregate`: every
  * key the value names, optional ones included, is refused as `?: undefined`.
  * That is the type of the one unknown key nobody wrote: a held node (typed as
  * the payload, as `Parameters<…>` reads it) is a union of the ordinary and the
@@ -1948,6 +1949,7 @@ type ProjectionKeySeal<
         [Key in Exclude<
           WrittenKeys<NonNullable<Clause>>,
           | "_count"
+          | "_aggregate"
           | ([LinkModel] extends [never] ? never : "$through")
           | keyof T["~"]["state"][Kind extends "select" ? "shape" : "relations"]
         >]?: undefined;

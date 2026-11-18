@@ -6,11 +6,13 @@ import {
   DISTANCE_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultName,
+  RELATION_AGGREGATES_RESULT_KEY,
   RELATION_COUNTS_RESULT_KEY,
 } from "../result-aliases";
 import type {
   ExpectedAggregateResultShape,
   ExpectedPolymorphicResultShape,
+  ExpectedRelationAggregateShape,
   ExpectedRelationResultShape,
   ExpectedResultShape,
 } from "../types";
@@ -26,6 +28,10 @@ export type ResultColumn =
   | {
       readonly kind: "relationCounts";
       readonly relations: ReadonlySet<string>;
+    }
+  | {
+      readonly kind: "relationAggregates";
+      readonly relations: ReadonlyMap<string, ExpectedRelationAggregateShape>;
     }
   | {
       readonly kind: "relation";
@@ -69,6 +75,9 @@ export function classifyResultColumn(
 
   if (key === RELATION_COUNTS_RESULT_KEY) {
     return { kind: "relationCounts", relations: shape.relationCounts };
+  }
+  if (key === RELATION_AGGREGATES_RESULT_KEY && shape.relationAggregates) {
+    return { kind: "relationAggregates", relations: shape.relationAggregates };
   }
 
   const relations = model["~"].state.relations;

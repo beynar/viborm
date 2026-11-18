@@ -16,8 +16,9 @@ export type ModelShape = Record<string, AnyModelField>;
 
 /**
  * The shape `s.model(...)` and `.extends(...)` accept: a model shape with no
- * member named `_count` or `_distance`, the names a selection's own outputs
- * reserve (relation counts, a distance). This is the compile-time spelling of
+ * member named `_count`, `_aggregate` or `_distance`, the names a selection's
+ * own outputs reserve (relation counts and aggregates, a distance). This is
+ * the compile-time spelling of
  * rule F010 for TypeScript callers; F010 (`memberNamesAreNotReserved`) stays
  * the contract for every caller. It constrains keys only and never reads a
  * member's type, so it cannot change what a shape infers. Each key's type is
@@ -28,6 +29,7 @@ export type ModelShape = Record<string, AnyModelField>;
  */
 export type DeclaredModelShape = ModelShape & {
   readonly _count?: "`_count` is reserved for relation counts (F010)";
+  readonly _aggregate?: "`_aggregate` is reserved for relation aggregates (F010)";
   readonly _distance?: "`_distance` is reserved for distance results (F010)";
   readonly $through?: "`$through` is reserved for a relation's link row (F010)";
 };

@@ -5,6 +5,8 @@
  */
 export const DISTANCE_RESULT_KEY = "0viborm_distance" as const;
 export const RELATION_COUNTS_RESULT_KEY = "0viborm_relation_counts" as const;
+export const RELATION_AGGREGATES_RESULT_KEY =
+  "0viborm_relation_aggregates" as const;
 export const EMPTY_ROW_RESULT_KEY = "0viborm_empty_row" as const;
 /** The `index`-th read gate of one projected row (K5), never published. */
 export const gateResultKey = (index: number): string => `0viborm_gate:${index}`;

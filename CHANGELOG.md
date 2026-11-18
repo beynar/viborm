@@ -5,6 +5,52 @@ Versioning.
 
 ## Unreleased
 
+### Added
+
+- **Aggregates of a relation's rows: `_aggregate`, and an `orderBy` by
+  `_sum`, `_avg`, `_min` or `_max` of a to-many relation.** `select` and
+  `include` take `_aggregate: { orders: { where, _count, _sum, _avg, _min,
+  _max } }`: per to-many relation, what `aggregate` takes on its model,
+  without the page, and the same answer, typed the same way (the sum of a
+  `bigInt` is a `bigint`, of a `decimal` an exact `Decimal`). A relation with
+  no row answers `_count: 0` and `null` for every other aggregate. A to-many
+  `orderBy` term takes `_count` as before, or one aggregate of one field,
+  `{ orders: { _max: { placedAt: "desc" } } }`, whose direction also takes
+  `{ sort, nulls }`: an aggregate over no row is `NULL`, placed as PostgreSQL
+  places it on every database unless `nulls` is spelled. Drizzle 1.0.0-rc.5
+  orders by `min`, `max`, `count`, `avg` and `first` of a relation's field
+  (`"desc(max)"`) and selects none; Prisma aggregates a relation by `_count`
+  only.
+  - **One subquery per relation.** All the aggregates of one `_aggregate`
+    entry are computed in one correlated subquery per row, whatever their
+    number; on PlanetScale Neki an entry adds one relation to the statement's
+    256 (two through a junction). Each aggregate sort key is a correlated
+    subquery of its own, apart from the projection's, as an order by `_count`
+    is; MySQL reads a nullable one twice (once to place `NULL`), and SQLite and
+    D1 order a sum of integers by its two exact parts, so twice as well.
+  - **The rows the caller reads.** A row a permission's `read` or a
+    soft delete hides is not aggregated, and a read-gated field reads `NULL`
+    on a row that withholds it, so `_sum` and `_count` of it skip that row,
+    as `aggregate` does.
+  - **Refused.** A to-one relation (its aggregate is the field itself), a
+    polymorphic slot (its members share no column; `_count` stays), an entry
+    that selects no aggregate, an `_aggregate` that names no relation, a
+    field the aggregate does not admit (`_sum` and `_avg` take numeric fields;
+    `_min` and `_max` no list and no GeoPoint, and in an order no JSON,
+    vector or blob field), more than one aggregate in one order term (use an
+    array), and a `cursor` after an order by an aggregate. SurrealDB and
+    Snowflake refuse `_aggregate` and an order by an aggregate with an
+    `UnsupportedOperationError` before anything is sent.
+  - **`groupBy` too.** Its `orderBy` by `_min` or `_max` of a JSON, vector or
+    blob field is now refused at validation: PostgreSQL has no `MAX` of
+    `jsonb`, and the call failed there in the database.
+  - **Reserved name.** `_aggregate` joins `_count` and `_distance` as a member
+    name a model cannot declare (`F010`); a column of that name is kept with
+    `.map("_aggregate")`.
+  - **Bundle.** The pg application grows 880 B gzip (173.72 → 174.60 kB) and
+    the D1 Worker 840 B (170.97 → 171.81 kB); fourteen size limits are raised
+    under OD-17.
+
 ## 1.15.0 — 2026-11-17
 
 PostgreSQL statements can be sent as named, prepared statements: an opt-in on

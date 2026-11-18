@@ -133,7 +133,7 @@ await client.post.groupBy({
 ```
 
 :::info
-Every `orderBy` field must either appear in `by` or be an aggregate key (`_count`, `_avg`, `_sum`, `_min`, `_max`). Note the two shapes differ: `orderBy` takes the aggregate at the top level, while `having` is keyed by field name with the aggregate nested inside (`having: { authorId: { _count: { gt: 5 } } }`).
+Every `orderBy` field must either appear in `by` or be an aggregate key (`_count`, `_avg`, `_sum`, `_min`, `_max`); `_min` and `_max` order no JSON, vector or blob field. Note the two shapes differ: `orderBy` takes the aggregate at the top level, while `having` is keyed by field name with the aggregate nested inside (`having: { authorId: { _count: { gt: 5 } } }`).
 
   ```ts
   await client.post.groupBy({

@@ -528,8 +528,9 @@ two ways. `prepareOperations`/`prepareOperation` prepare every one of them,
 aggregate targets for that same walker. Do not add a second operator switch.
 
 `Queries.orderTerms` is the one order owner: scalars, `{ sort, nulls }`, to-one
-relation paths, collection `_count` and distance are all sort keys, and it marks
-the direct scalar keys a cursor may use. An unspelled `nulls` is not a
+relation paths, a collection's `_count` or one aggregate of one of its fields,
+and distance are all sort keys, and it marks the direct scalar keys a cursor
+may use. An unspelled `nulls` is not a
 placement — the bare direction names the provider's own default, and
 `totalOrder`, the windowed path and only it, fills the established default,
 because the cursor predicate must name the same total order the statement emits.
@@ -634,6 +635,27 @@ variant carrier — and `correlatedCount` sums them through the adapter. The
 `_count` projection and the `_count` order term both read it, so a variant
 carrier is countable in the projection and in the ordering from one place; no
 second correlated-count subquery exists.
+
+`Queries.aggregateSelection` is the one aggregate classification: `aggregate`,
+`groupBy` and a relation's `_aggregate` (Arnaud, 2026-11-17) read it, and
+`aggregateLeaf` is the one leaf rule it and `having` and a grouped `orderBy`
+share. Its `members` are the list its shape was built from, in AGGREGATES order,
+and `#aggregateColumns` builds every carrier from them, so a root aggregate and
+a relation's entry are one lowering at two placements. An `_aggregate` entry is
+ONE correlated subquery per relation, every aggregate it names in it, its rows
+reached through `correlation` (the related domain included, so a hidden row is
+not aggregated) and its fields through `#preparedColumn` (a read-gated field
+reads NULL on a row that withholds it). An ungrouped aggregate answers one row,
+so its carrier is never NULL: `nullable: false`, as a `_count` carrier. A
+collection order by an aggregate (`#collectionOrder`) is the same expression in
+a correlated subquery of its own per sort key, `nullable` because an aggregate
+over no row is NULL; a widened `_sum` takes the adapter's exact `order` keys
+(`splitSum`), two on SQLite's integers. Admission admits an entry and an
+aggregate order term on an ordinary to-many relation only (one membership), and
+one aggregate of one field per term; `_min` and `_max` order no JSON, vector or
+blob field (`MAX(jsonb)` does not exist). SurrealDB and Snowflake refuse
+`_aggregate` and an order by an aggregate by name before any request (Snowflake
+documents a correlated subquery in WHERE only).
 
 `Queries.carriedValue` is the one carrier transport rule for a value that rides
 inside a JSON document: a value that is already JSON stays a document, a
@@ -1848,7 +1870,8 @@ in silence, each as the other. What rules that out is the lowering itself:
 every one lists its members from the list the shape was made of, in the
 shape's own-key order — a row walks `Object.keys(shape.fields)` then
 `shape.gates` (`#pageObject`, the recursive node document), a `_count`, an
-aggregate carrier and a link row map the one list their shape was built from
+aggregate carrier (a root's or an `_aggregate` entry's) and a link row map the
+one list their shape was built from
 (schema identifiers, which own-key order never moves), and an evidence
 document's names, which are the caller's and may be integer-like, are held in
 own-key order (`extensions/projection.ts`). Never build a carried document
