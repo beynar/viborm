@@ -218,11 +218,17 @@ write the same text.
 ### 3.2 Identity
 
 The identity of a view is a hash of what was DECLARED and of what the client
-will DECODE, not of the SQL text:
-`{ revision, kind, source table, admitted query (canonical, tagged values),
-decoder shape, relation edges the query crosses }`. The text is kept in the
-snapshot (a migration must be able to write the view again, and a down
-migration the previous one) but is not compared.
+will DECODE, not of the SQL text (`viewDefinition`,
+`src/migrations/view-definition.ts`): a revision number, the source table,
+the declared query (values JSON has no spelling for are tagged), the decoder
+shape of a view row, and the resolved relations of every table the body reads.
+The text is kept in the snapshot (a migration must be able to write the view
+again, and a down migration the previous one) but is not compared. The hash is
+40 hex characters, so its marker fits an identifier on every database.
+
+The relations are in because a relation can move between two columns that both
+stay, with the same foreign keys: the body changes, and no column, shape or
+query does (pinned in `view-definition.core.test.ts`).
 
 Why not the text: every engine change that respells a read would produce a
 migration per view on the next VibORM upgrade, and a materialized view would
@@ -246,12 +252,19 @@ without the marker under a declared name is refused, as today.
 - Two operations, `createView` and `dropView`. A replacement is a drop and a
   create (PostgreSQL's `CREATE OR REPLACE` refuses a changed column list; one
   path for every change and every dialect).
-- One rule in the differ: a view is dropped before and created again after
-  when its identity changed, when a table it reads changes its name, its
-  columns or its primary key, or when a view it reads is dropped. Drops run
-  first, dependents before what they read; creates run last, in the other
-  order. This covers PostgreSQL's refusal, MySQL's broken view and SQLite's
-  rewritten one with the same rule.
+- One rule, held by the program and not by the differ
+  (`withViewReplacements` in `src/migrations/view.ts`, the last step of
+  `prepareSchemaProgram`): a view is dropped before and created again after
+  when its identity changed, when the program changes a table it reads in
+  any way but an index's creation or drop (its name, a column, a key, a unique
+  constraint, a foreign key, an enum one of its columns holds), or when a view
+  it reads is dropped. The differ alone cannot hold it: the resolver diffs
+  again from a snapshot where accepted renames are applied and keeps the last
+  diff only. The rule is wider than "columns or primary key" because SQLite
+  rebuilds a table for a key, a unique or a foreign key change and refuses
+  the rebuild under a view. Drops run first, dependents before what they
+  read; creates run last, in the other order. This covers PostgreSQL's
+  refusal, MySQL's broken view and SQLite's rewritten one with the same rule.
 - Dropping a view loses no data and asks no consent. A materialized view is
   recomputed by its `CREATE`; the plan says so.
 - Reset drops views before tables. Neki: `CREATE VIEW` resolves names, so

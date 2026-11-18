@@ -93,15 +93,16 @@ Everything `findMany` reads, with these refusals at the root of the query:
 | `orderBy` or `skip` without `take` | a view has no order; order when you read it |
 | an operand that is not a plain value (a caller `Sql` fragment, a callback) | there is nothing to write into the view's SQL |
 | recursive projections, polymorphic variant slots | not supported in a view yet |
-| `orderBy` by vector distance | it binds a query vector on each call |
+| an order or a selection by a distance (`_distance`) | it binds a query value on each call |
 
 Inside a relation, everything stays allowed: `where`, `orderBy`, `take`,
 `skip`, `cursor` and nested relations. They shape the document, not the rows.
 
 A view declares nothing beside its query. `.id()`, `.unique()`, `.index()`,
-`.rawIndex()`, `.withoutRowid()`, `.extends()` and relations are refused when
-the schema is validated (`W002`, `W003`), and a view whose source is not in the
-schema is refused too (`W001`).
+`.rawIndex()`, `.withoutRowid()`, `.omit()`, `.extends()` and relations are
+refused when the schema is validated (`W002`, `W003`), and a view whose source
+is not in the schema is refused too (`W001`). To keep a column out of a view,
+leave it out of the query.
 
 ## The key
 
@@ -157,8 +158,10 @@ comparison on it would mean a different thing on each database.
 `push` and `migrate` own a view like a table.
 
 - A declared view is created.
-- It is replaced, by a drop and a create, when its query changes, or when a
-  table it reads changes its name, its columns or its primary key.
+- It is replaced, by a drop and a create, when its query changes, or when the
+  same migration changes a table it reads: its name, a column, a key, a
+  unique constraint or a foreign key. Creating or dropping an index leaves the
+  view alone.
 - A view the schema no longer declares is dropped.
 
 Dropping a view loses no data, so it asks no confirmation. Views are dropped
@@ -167,7 +170,8 @@ before the tables they read and created after them.
 The SQL of a view is written from its query by the same compiler as a read,
 with every value written as a literal: a view's SQL holds no parameter. The
 migration does not compare that SQL. It compares what was declared: the
-source, the query, and the shape of the JSON columns. An upgrade of VibORM that
+source, the query, the shape of the JSON columns, and the relations of the
+tables the view reads. An upgrade of VibORM that
 writes the same read differently does not replace your views.
 
 A view under a declared name that VibORM did not create is refused.

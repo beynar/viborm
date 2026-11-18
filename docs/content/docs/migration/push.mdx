@@ -485,8 +485,8 @@ See the [ResolveChange interface](#resolvechange-interface) above for the full `
 ## Views
 
 A [view](/docs/schema/views) declared in the schema is created by `push`,
-replaced by a drop and a create when its query changes or when a table it reads
-changes its name, its columns or its primary key, and dropped when the schema
+replaced by a drop and a create when its query changes or when the same push
+changes a table it reads (anything but an index), and dropped when the schema
 no longer declares it. Dropping a view loses no data, so it asks no consent.
 
 ## Next Steps
