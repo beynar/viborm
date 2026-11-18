@@ -2,8 +2,8 @@
  * Schema check CLI.
  *
  * Runs every check a client runs when it is created (identifiers, model
- * identity, relation resolution, selector names), plus the advisory rules,
- * against the schema of the configured client. Run it in a build or CI step to
+ * identity, relation resolution, selector names), plus the advisory rules and
+ * the query of every view, against the schema of the configured client. Run it in a build or CI step to
  * create clients with `skipSchemaValidation: true` at runtime.
  */
 
@@ -12,8 +12,12 @@ import {
   auditStorage,
   type StorageColumnAudit,
 } from "../../migrations/sqlite-storage-audit";
+import { viewBody } from "../../query-engine/raptor3/view-body";
 import { hydrateSchemaNames } from "../../schema/hydration";
-import type { SchemaValidationIssue } from "../../schema/validation/types";
+import type {
+  SchemaValidationIssue,
+  ValidationResult,
+} from "../../schema/validation/types";
 import { validateSchema } from "../../schema/validation/validator";
 import { viewFacts } from "../../schema/view/facts";
 import { type LoadedConfig, runCli } from "../utils";
@@ -58,6 +62,38 @@ const describe = (issue: SchemaValidationIssue): string =>
     .filter(Boolean)
     .join("\n    ");
 
+/**
+ * What a view's query is refused for (W005), found by compiling its body as
+ * a migration would: a clause a view cannot hold, or a query its source does
+ * not take. Asked of a schema whose relations resolve, on a dialect VibORM
+ * creates views on.
+ */
+function withViewQueries(
+  result: ValidationResult,
+  { models, driver: { dialect } }: LoadedConfig
+): ValidationResult {
+  if (
+    !result.valid ||
+    (dialect !== "postgresql" && dialect !== "mysql" && dialect !== "sqlite")
+  )
+    return result;
+  const errors = [...result.errors];
+  for (const [model, view] of Object.entries(models)) {
+    if (viewFacts(view) === undefined) continue;
+    try {
+      viewBody({ schema: models, dialect }, view);
+    } catch (cause) {
+      errors.push({
+        code: "W005",
+        message: cause instanceof Error ? cause.message : String(cause),
+        severity: "error",
+        model,
+      });
+    }
+  }
+  return { ...result, errors, valid: errors.length === 0 };
+}
+
 async function runCheck(options: CheckCliOptions): Promise<void> {
   const load = { config: options.config, skipValidation: true };
   await runCli(load, options.json, async (config) => {
@@ -65,7 +101,7 @@ async function runCheck(options: CheckCliOptions): Promise<void> {
     // The identifier and identity checks hydration runs, whatever the
     // configured client skipped.
     hydrateSchemaNames(models);
-    const result = validateSchema(models);
+    const result = withViewQueries(validateSchema(models), config);
     const storage = options.db
       ? await auditStorage({ $driver: config.driver, $schema: models })
       : undefined;

@@ -115,34 +115,40 @@ const STATE_KEYS = [
 ] as const satisfies readonly (keyof ViewModelState)[];
 
 /**
- * A state whose every member is read from `derive`'s answer, asked once. A
- * view that reads itself through its sources asks again while the first
- * answer is being made, and is refused there.
+ * A state whose members are derived on the first read of any of them, and are
+ * plain data from then on, as a table's state is: every later read finds a
+ * value, not an accessor. A view that reads itself through its sources asks
+ * again while the first answer is being made, and is refused there.
  */
 function deferredState(derive: () => ViewModelState): ViewModelState {
-  let derived: ViewModelState | undefined;
   let deriving = false;
-  const read = (): ViewModelState => {
-    if (derived) return derived;
-    if (deriving) {
-      throw new Error("A view cannot read itself");
-    }
+  const state = {} as ViewModelState;
+  const settle = (): ViewModelState => {
+    if (deriving) throw new Error("A view cannot read itself");
     deriving = true;
     try {
-      derived = derive();
+      const derived = derive();
+      for (const key of STATE_KEYS) {
+        Object.defineProperty(state, key, {
+          value: derived[key],
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      }
     } finally {
       deriving = false;
     }
-    return derived;
+    return state;
   };
-  const state = {};
   for (const key of STATE_KEYS) {
     Object.defineProperty(state, key, {
       enumerable: true,
-      get: () => read()[key],
+      configurable: true,
+      get: () => settle()[key],
     });
   }
-  return state as ViewModelState;
+  return state;
 }
 
 /** The keys of a selection its value does not switch off, in the order written. */
@@ -183,7 +189,7 @@ function deriveViewState(
   query: Readonly<Record<string, unknown>>
 ): ViewModelState {
   if (!(source instanceof Model)) {
-    throw new Error("s.view reads a model or a view");
+    throw new Error("A view reads a model or a view");
   }
   const from = source["~"].state;
   const projectable = projectableScalarNames(source);

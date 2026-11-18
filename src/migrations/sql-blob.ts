@@ -183,7 +183,8 @@ export function sliceDispatch(
   );
 }
 
-const MYSQL_DELIMITER = /(^|\s)DELIMITER\s/i;
+/** The client command opens a line: the word inside a statement or a value is none. */
+const MYSQL_DELIMITER = /^[ \t]*DELIMITER\s/im;
 
 export function refuseMysqlDelimiter(text: string): void {
   if (MYSQL_DELIMITER.test(text)) {

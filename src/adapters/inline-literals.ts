@@ -24,6 +24,11 @@
  *
  * A value kind no read of the dialect binds has no literal here and is
  * refused, never guessed.
+ *
+ * No value brings a line break into the text: a migration's statements are a
+ * review artifact of plain lines (`migrations/sql-blob.ts` refuses a carriage
+ * return), so each dialect writes one its own way (an escape on PostgreSQL
+ * and MySQL, `char(13)` and `char(10)` on SQLite).
  */
 import type { SqlDialect } from "@drivers/types";
 import { UnsupportedOperationError } from "@errors";
@@ -39,7 +44,17 @@ const DIALECT_NAMES: Record<SqlDialect, string> = {
 };
 
 const QUOTE = /'/g;
-const BACKSLASH = /\\/g;
+/** What a PostgreSQL escape string spells: a backslash, and a line break. */
+const ESCAPED = /[\\\n\r]/;
+const EVERY_ESCAPED = /[\\\n\r]/g;
+const POSTGRES_ESCAPES: Record<string, string> = {
+  "\\": "\\\\",
+  "\n": "\\n",
+  "\r": "\\r",
+};
+/** A line break in a SQLite string: SQLite has no escape for one. */
+const LINE_BREAK = /\r|\n/;
+const LINE_BREAKS = /(\r|\n)/;
 const INTEGER_TEXT = /^-?\d+$/;
 
 /** The kind a refusal names. */
@@ -82,14 +97,15 @@ const isArrayMember = (member: unknown): boolean =>
 
 /**
  * A PostgreSQL string constant of unknown type that reads the same under
- * either `standard_conforming_strings`: one holding a backslash is an escape
- * string, whose backslashes are doubled.
+ * either `standard_conforming_strings`: one holding a backslash or a line
+ * break is an escape string, whose backslashes are doubled and whose line
+ * breaks are written `\n` and `\r`.
  */
 function postgresString(text: string): string {
   if (text.includes("\0")) refuseNul("postgresql");
   const quoted = text.replace(QUOTE, "''");
-  return text.includes("\\")
-    ? `E'${quoted.replace(BACKSLASH, "\\\\")}'`
+  return ESCAPED.test(text)
+    ? `E'${quoted.replace(EVERY_ESCAPED, (character) => POSTGRES_ESCAPES[character]!)}'`
     : `'${quoted}'`;
 }
 
@@ -127,11 +143,25 @@ function mysqlLiteral(value: unknown): string {
 const signed = (text: string): string =>
   text.startsWith("-") ? `(${text})` : text;
 
+const sqliteString = (text: string): string => `'${text.replace(QUOTE, "''")}'`;
+
 function sqliteLiteral(value: unknown): string {
   if (value === null) return "NULL";
   if (typeof value === "string") {
     if (value.includes("\0")) refuseNul("sqlite");
-    return `'${value.replace(QUOTE, "''")}'`;
+    if (!LINE_BREAK.test(value)) return sqliteString(value);
+    // Its parts joined around `char(13)` and `char(10)`.
+    return `(${value
+      .split(LINE_BREAKS)
+      .filter((part) => part !== "")
+      .map((part) =>
+        part === "\r"
+          ? "char(13)"
+          : part === "\n"
+            ? "char(10)"
+            : sqliteString(part)
+      )
+      .join(" || ")})`;
   }
   if (typeof value === "number") {
     // The shortest text that reads back as the same double, made REAL where

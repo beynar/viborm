@@ -206,7 +206,7 @@ function asData(this: unknown, key: string, value: unknown): unknown {
 }
 
 /**
- * The body of `view`, a model of `context.schema` that `s.view` declared: its
+ * The body of `view`, a model of `context.schema` that `view` declared: its
  * declared query admitted as its source's `findMany` and compiled by the read
  * compiler without extension, row domain or call, refused where a view cannot
  * hold what it says (plan §2.2).
@@ -227,7 +227,18 @@ export function viewBody(context: ViewBodyContext, view: AnyModel): ViewBody {
   };
   const name = nameOf(view);
   const queries = new ViewBodyQueries(schema, adapter, name);
-  const admitted = schema.admit(source, "findMany", query);
+  // The refusal of a query its source does not take names the view, not
+  // only the read of the source that would have taken it.
+  let admitted: Arguments;
+  try {
+    admitted = schema.admit(source, "findMany", query);
+  } catch (cause) {
+    refuse(
+      name,
+      "its source does not take",
+      cause instanceof Error ? cause.message : String(cause)
+    );
+  }
   refuseRoot(name, admitted);
   const statement =
     admitted.take === undefined && admitted.distinct === undefined

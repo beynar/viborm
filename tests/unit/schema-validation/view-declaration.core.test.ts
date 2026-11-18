@@ -1,5 +1,5 @@
 /**
- * `s.view` at the schema: the model a view derives from its source and its
+ * `view` at the schema: the model a view derives from its source and its
  * query (scalars, keys, JSON columns), and what definition validation refuses
  * on one (W001-W003). The read that defines it is compiled by the migration
  * layer and read back by the client; neither is this layer's.
@@ -42,13 +42,15 @@ const scalarsOf = (model: typeof post | ReturnType<typeof s.view>) =>
 
 describe("a view's derived model", () => {
   it("holds the scalars its selection names, by the source's own objects, in the source's order", () => {
-    const view = s.view(() => post, {
+    const subject = s.view(() => post, {
       select: { title: true, id: true, published: false },
     });
-    expect(scalarsOf(view)).toEqual(["id", "title"]);
-    expect(view["~"].state.scalars.title).toBe(post["~"].state.scalars.title);
-    expect(view["~"].state.shape).toBe(view["~"].state.scalars);
-    expect(view["~"].state.relations).toEqual({});
+    expect(scalarsOf(subject)).toEqual(["id", "title"]);
+    expect(subject["~"].state.scalars.title).toBe(
+      post["~"].state.scalars.title
+    );
+    expect(subject["~"].state.shape).toBe(subject["~"].state.scalars);
+    expect(subject["~"].state.relations).toEqual({});
   });
 
   it("holds every scalar a read projects when it selects nothing: not the omitted ones", () => {
@@ -74,8 +76,8 @@ describe("a view's derived model", () => {
   });
 
   it("has no column for a _count that counts no relation, as a read has no key", () => {
-    const documentsOf = (view: ReturnType<typeof s.view>) =>
-      viewFacts(view)?.documents;
+    const documentsOf = (declared: ReturnType<typeof s.view>) =>
+      viewFacts(declared)?.documents;
     expect(
       documentsOf(s.view(() => post, { include: { _count: true } }))
     ).toEqual([]);
@@ -97,8 +99,8 @@ describe("a view's derived model", () => {
 
   it("keeps the declared query and the source it reads", () => {
     const query = { where: { published: true } };
-    const view = s.view(() => post, query);
-    expect(viewFacts(view)).toMatchObject({ source: post, query });
+    const subject = s.view(() => post, query);
+    expect(viewFacts(subject)).toMatchObject({ source: post, query });
   });
 
   it("has the keys of its source whose members it projects", () => {
@@ -150,27 +152,27 @@ describe("a view's derived model", () => {
   });
 
   it("is named by .map() like a table", () => {
-    const view = s.view(() => post, {}).map("published_posts");
-    expect(view["~"].state.tableName).toBe("published_posts");
-    expect(viewFacts(view)?.source).toBe(post);
+    const subject = s.view(() => post, {}).map("published_posts");
+    expect(subject["~"].state.tableName).toBe("published_posts");
+    expect(viewFacts(subject)?.source).toBe(post);
   });
 
   it("refuses a source that is not a model", () => {
-    const view = s.view(() => ({}) as typeof post, {});
-    expect(() => view["~"].state.scalars).toThrow(
-      "s.view reads a model or a view"
+    const subject = s.view(() => ({}) as typeof post, {});
+    expect(() => subject["~"].state.scalars).toThrow(
+      "A view reads a model or a view"
     );
   });
 });
 
 describe("definition validation of a view", () => {
-  const view = s.view(() => post, { select: { id: true, title: true } });
+  const subject = s.view(() => post, { select: { id: true, title: true } });
 
   it("admits a view beside its source, with or without a key", () => {
     const keyless = s.view(() => post, { select: { title: true } });
-    expect(validateSchema({ user, post, view, keyless }).errors).toEqual([]);
+    expect(validateSchema({ user, post, subject, keyless }).errors).toEqual([]);
     expect(() =>
-      resolveSchemaOrThrow({ user, post, view, keyless })
+      resolveSchemaOrThrow({ user, post, subject, keyless })
     ).not.toThrow();
   });
 
@@ -178,20 +180,22 @@ describe("definition validation of a view", () => {
     const lone = s.model({ id: s.string().id() });
     const orphan = s.view(() => lone, {});
     expect(codes(validateSchema({ orphan }))).toEqual(["W001"]);
-    expect(() => resolveSchemaOrThrow({ orphan })).toThrow("W001");
+    // Advice, and what a migration of the view always runs: a client is
+    // built without it, since no view exists that a migration did not create.
+    expect(() => resolveSchemaOrThrow({ orphan })).not.toThrow();
   });
 
   it("refuses what a view cannot hold beside its query (W002)", () => {
     const refused = [
-      view.extends({ extra: s.string() }),
-      view.id(["id", "title"]),
-      view.unique(["id", "title"]),
-      view.index(["title"]),
-      view.rawIndex("by_title", {
+      subject.extends({ extra: s.string() }),
+      subject.id(["id", "title"]),
+      subject.unique(["id", "title"]),
+      subject.index(["title"]),
+      subject.rawIndex("by_title", {
         pg: "CREATE INDEX {name} ON {table} ({title})",
       }),
-      view.withoutRowid(),
-      view.omit({ title: true }),
+      subject.withoutRowid(),
+      subject.omit({ title: true }),
     ];
     for (const declared of refused) {
       expect(codes(validateSchema({ user, post, declared }))).toContain("W002");
@@ -200,7 +204,9 @@ describe("definition validation of a view", () => {
 
   it("refuses a relation on a view (W003)", () => {
     const related = s
-      .view(() => post, { select: { id: true, authorId: true } })
+      .view(() => post, {
+        select: { id: true, authorId: true },
+      })
       .extends({
         author: s
           .toOne(() => user)
@@ -208,6 +214,27 @@ describe("definition validation of a view", () => {
           .references("id"),
       });
     expect(codes(validateSchema({ user, post, related }))).toContain("W003");
+  });
+
+  it("refuses a JSON column under the name of a scalar's column (W004)", () => {
+    const mapped = s.model({
+      id: s.string().id(),
+      authorId: s.string().map("author"),
+      author: s
+        .toOne(() => user)
+        .fields("authorId")
+        .references("id"),
+    });
+    const twice = s.view(() => mapped, {
+      select: { authorId: true, author: true },
+    });
+    const once = s.view(() => mapped, { select: { id: true, author: true } });
+    expect(codes(validateSchema({ user, post, mapped, twice }))).toContain(
+      "W004"
+    );
+    expect(codes(validateSchema({ user, post, mapped, once }))).not.toContain(
+      "W004"
+    );
   });
 
   it("refuses a view under a table's name (M004)", () => {

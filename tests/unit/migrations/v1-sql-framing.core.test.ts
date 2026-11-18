@@ -128,6 +128,10 @@ describe("migration v1 SQL framing", () => {
       MigrationError
     );
     expect(() => refuseMysqlDelimiter("SELECT 1")).not.toThrow();
+    // The command opens a line: the word in a statement or a value is none.
+    expect(() =>
+      refuseMysqlDelimiter("SELECT 'set the delimiter here' AS note")
+    ).not.toThrow();
     const assembly = new SqlAssembly();
     expect(() =>
       assembly.add("CREATE PROCEDURE p() BEGIN SELECT 1; END;\nDELIMITER //")

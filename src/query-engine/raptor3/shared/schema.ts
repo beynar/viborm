@@ -251,7 +251,7 @@ export class EngineSchema {
   admit(model: AnyModel, operation: Operation, raw: unknown): Arguments {
     // A view's rows are its query's: every root call is admitted here, so a
     // write is refused before any statement, whoever made the call.
-    if (!isReadOperation(operation) && viewFacts(model) !== undefined)
+    if (viewFacts(model) !== undefined && !isReadOperation(operation))
       throw new UnsupportedOperationError(
         `'${nameOf(model)}' is a view: it is read, never written (${operation}).`,
         { meta: { model: nameOf(model), operation } }

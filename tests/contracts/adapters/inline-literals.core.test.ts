@@ -85,6 +85,10 @@ describe("inlineLiterals: PostgreSQL", () => {
     expect(one("postgresql", "")).toBe("''");
   });
 
+  test("a line break is written as an escape: no value breaks the statement's line", () => {
+    expect(one("postgresql", "a\r\nb\\c")).toBe("E'a\\r\\nb\\\\c'");
+  });
+
   test("numbers, bigints and booleans are their text, untyped, as node-postgres sends them", () => {
     expect(one("postgresql", 10)).toBe("'10'");
     expect(one("postgresql", -1.5)).toBe("'-1.5'");
@@ -141,6 +145,10 @@ describe("inlineLiterals: MySQL", () => {
     expect(one("mysql", "a\\b\n\r\0\u001a")).toBe("'a\\\\b\\n\\r\\0\\Z'");
   });
 
+  test("a line break is written as an escape", () => {
+    expect(one("mysql", "a\r\nb")).toBe("'a\\r\\nb'");
+  });
+
   test("numbers and bigints bare, booleans, null and bytes", () => {
     expect(one("mysql", 10)).toBe("10");
     expect(one("mysql", -1.5)).toBe("-1.5");
@@ -174,6 +182,13 @@ describe("inlineLiterals: MySQL", () => {
 describe("inlineLiterals: SQLite", () => {
   test("strings double their quotes and nothing else", () => {
     expect(one("sqlite", "it's \\ %_ 🦀")).toBe("'it''s \\ %_ 🦀'");
+  });
+
+  test("a line break is char(13) or char(10) between the string's parts", () => {
+    expect(one("sqlite", "it's\r\nb\n")).toBe(
+      "('it''s' || char(13) || char(10) || 'b' || char(10))"
+    );
+    expect(one("sqlite", "\n")).toBe("(char(10))");
   });
 
   test("a number is REAL, as the driver binds it; a negative one is parenthesized", () => {

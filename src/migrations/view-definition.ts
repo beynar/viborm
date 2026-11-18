@@ -22,6 +22,8 @@ import { viewBody } from "../query-engine/raptor3/view-body";
 import { jsonNullKindOf } from "../schema/json-null";
 import { type AnyModel, Model } from "../schema/model";
 import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
+import { viewIsItsRead } from "../schema/validation/rules/view";
+import type { ValidationContext } from "../schema/validation/types";
 import { viewFacts } from "../schema/view/facts";
 import { createResolvedSchemaRegistry } from "../validation/builder";
 import type { MigrationDriver } from "./drivers/base";
@@ -49,11 +51,12 @@ export interface ViewDefinitionContext {
 /** Raised by a release that must write every view body again. */
 const VIEW_REVISION = 1;
 
-/** The operation schemas of a schema, built once per resolved index. */
-const registries = new WeakMap<
-  ResolvedRelationIndex,
-  ReturnType<typeof createResolvedSchemaRegistry>
->();
+/** What every view of one schema is defined over, built once per resolved index. */
+interface SchemaFacts {
+  readonly registry: ReturnType<typeof createResolvedSchemaRegistry>;
+  readonly validation: ValidationContext;
+}
+const schemas = new WeakMap<ResolvedRelationIndex, SchemaFacts>();
 
 const hex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -99,18 +102,40 @@ export function viewDefinition(
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
       { meta: { feature: "view", dialect } }
     );
-  let registry = registries.get(relations);
-  if (registry === undefined) {
-    registry = createResolvedSchemaRegistry(models, relations);
-    registries.set(relations, registry);
+  let schema = schemas.get(relations);
+  if (schema === undefined) {
+    schema = {
+      registry: createResolvedSchemaRegistry(models, relations),
+      validation: {
+        modelToName: new Map(
+          Object.entries(models).map(([key, model]) => [model, key])
+        ),
+        tableToModels: new Map(),
+      },
+    };
+    schemas.set(relations, schema);
   }
+  // The view rules, whether or not the migration skipped its advice: a view
+  // exists only where a migration created it, so this is where they bind.
+  const issues = viewIsItsRead(
+    new Map(Object.entries(models)),
+    view["~"].names.ts ?? "",
+    view,
+    schema.validation
+  );
+  if (issues.length > 0)
+    throw new MigrationError(
+      issues.map(({ code, message }) => `${message} (${code})`).join("; "),
+      VibORMErrorCode.INVALID_INPUT,
+      { meta: { feature: "view", model: view["~"].names.ts } }
+    );
   // PostgreSQL names every relation by its schema (a migration sets no
   // search path); a MySQL artifact is relative to the database its session
   // selects, and SQLite has no namespace.
   const body = viewBody(
     {
       schema: models,
-      resolved: { index: relations, registry },
+      resolved: { index: relations, registry: schema.registry },
       dialect,
       ...(dialect === "postgresql" && migrationDriver.namespace !== undefined
         ? { namespace: migrationDriver.namespace }
