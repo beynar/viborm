@@ -158,7 +158,7 @@ describe("a view's derived model", () => {
   it("refuses a source that is not a model", () => {
     const view = s.view(() => ({}) as typeof post, {});
     expect(() => view["~"].state.scalars).toThrow(
-      "A view reads a model or another view"
+      "s.view reads a model or a view"
     );
   });
 });

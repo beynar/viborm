@@ -541,7 +541,8 @@ export function runInlineLiteralsBehavior({
     const client = open(driver);
 
     beforeAll(async () => {
-      await syncLiveSchema(client);
+      // Only this corpus's tables: a shared database holds other suites'.
+      await syncLiveSchema(client, { tables: ["inl_authors", "inl_posts"] });
       await client.post.deleteMany({});
       await client.author.deleteMany({});
       for (const [at, label] of NAMES.entries())

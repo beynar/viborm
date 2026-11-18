@@ -8,13 +8,13 @@ import type {
   ValidationContext,
 } from "../types";
 
-/** The members of `declared` that are not `source`'s own, under the same name. */
-function foreignMembers(
+/** Whether every member of `declared` is `source`'s own, under the same name. */
+function sameMembers(
   declared: Record<string, unknown> | undefined,
   source: Record<string, unknown> | undefined
-): string[] {
-  return Object.keys(declared ?? {}).filter(
-    (name) => declared?.[name] !== source?.[name]
+): boolean {
+  return Object.keys(declared ?? {}).every(
+    (name) => declared?.[name] === source?.[name]
   );
 }
 
@@ -28,49 +28,38 @@ function foreignMembers(
  */
 export function viewIsItsRead(
   _schema: Schema,
-  name: string,
-  model: Model<any>,
+  model: string,
+  view: Model<any>,
   ctx: ValidationContext
 ): SchemaValidationIssue[] {
-  const facts = viewFacts(model);
+  const facts = viewFacts(view);
   if (!facts) return [];
-  const issues: SchemaValidationIssue[] = [];
-  const state = model["~"].state;
+  const state = view["~"].state;
   const source = facts.source["~"].state;
-  if (!ctx.modelToName.has(facts.source)) {
-    issues.push({
-      code: "W001",
-      message: `View '${name}' reads a model this schema does not hold; add its source to the schema`,
-      severity: "error",
-      model: name,
-    });
-  }
-  const added = [
-    ...foreignMembers(state.scalars, source.scalars),
-    ...foreignMembers(state.compoundId, source.compoundId),
-    ...foreignMembers(state.compoundUniques, source.compoundUniques),
-  ];
-  const stored =
+  const refused: [code: string, what: string][] = [];
+  if (!ctx.modelToName.has(facts.source))
+    refused.push(["W001", "reads a model outside this schema"]);
+  if (
+    !(
+      sameMembers(state.scalars, source.scalars) &&
+      sameMembers(state.compoundId, source.compoundId) &&
+      sameMembers(state.compoundUniques, source.compoundUniques)
+    ) ||
     state.indexes.length > 0 ||
-    model["~"].rawIndexes.length > 0 ||
-    model["~"].withoutRowid ||
-    state.omit !== undefined;
-  if (added.length > 0 || stored) {
-    issues.push({
-      code: "W002",
-      message: `View '${name}' declares ${added.length > 0 ? `'${added.join("', '")}'` : "an index or an omission"} beside its query; a view holds the fields and keys its query projects from its source, with no index and no omission of its own`,
-      severity: "error",
-      model: name,
-    });
-  }
-  for (const relation of Object.keys(state.relations)) {
-    issues.push({
-      code: "W003",
-      message: `View '${name}' declares the relation '${relation}'; a relation to or from a view is not supported`,
-      severity: "error",
-      model: name,
-      relation,
-    });
-  }
-  return issues;
+    view["~"].rawIndexes.length > 0 ||
+    view["~"].withoutRowid ||
+    state.omit
+  )
+    refused.push([
+      "W002",
+      "declares a field, a key, an index or an omission beside its query",
+    ]);
+  if (Object.keys(state.relations).length > 0)
+    refused.push(["W003", "declares a relation, which a view cannot hold"]);
+  return refused.map(([code, what]) => ({
+    code,
+    message: `View '${model}' ${what}`,
+    severity: "error",
+    model,
+  }));
 }

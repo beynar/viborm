@@ -125,9 +125,7 @@ function deferredState(derive: () => ViewModelState): ViewModelState {
   const read = (): ViewModelState => {
     if (derived) return derived;
     if (deriving) {
-      throw new Error(
-        "A view cannot read itself: its source reads this view back"
-      );
+      throw new Error("A view cannot read itself");
     }
     deriving = true;
     try {
@@ -182,9 +180,7 @@ function countsRelation(from: ModelState, count: unknown): boolean {
 
 function deriveViewState(source: AnyModel, declared: object): ViewModelState {
   if (!(source instanceof Model)) {
-    throw new Error(
-      "A view reads a model or another view: s.view(() => model, query)"
-    );
+    throw new Error("s.view reads a model or a view");
   }
   const query: Readonly<Record<string, unknown>> = { ...declared };
   const from = source["~"].state;
