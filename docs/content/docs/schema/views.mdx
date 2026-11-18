@@ -169,7 +169,7 @@ comparison on it would mean a different thing on each database.
 
   | Database | A view is replaced around |
   | --- | --- |
-  | PostgreSQL, MySQL | a table renamed or dropped; a column dropped, renamed or given another type |
+  | PostgreSQL, MySQL | a table renamed or dropped; a column dropped, renamed or given another type; a primary key changed (a view orders its rows by it) |
   | SQLite, D1, libSQL, Durable Objects | any change to the table except an index, because SQLite rebuilds the table |
 
 - A view the schema no longer declares is dropped.

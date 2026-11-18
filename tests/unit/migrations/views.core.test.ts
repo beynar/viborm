@@ -445,11 +445,10 @@ describe("the program rule", () => {
   ];
 
   // What a view survives where a table is changed in place (PostgreSQL,
-  // MySQL): a column added, a key, a unique or a foreign key changed.
+  // MySQL): a column added, a unique or a foreign key changed. Not a primary
+  // key: the body orders its rows by it.
   const SURVIVED = new Set([
     "addColumn",
-    "dropPrimaryKey",
-    "addPrimaryKey",
     "addForeignKey",
     "dropForeignKey",
     "addUniqueConstraint",

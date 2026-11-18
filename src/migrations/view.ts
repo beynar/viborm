@@ -83,10 +83,13 @@ function isViewOperation(operation: DiffOperation): operation is ViewOperation {
  * survive. Everywhere: a table renamed, dropped or created again, a column
  * dropped, renamed or given another type (PostgreSQL refuses a type change
  * and a drop under a view, and its enum recreation retypes columns; MySQL's
- * view breaks on a rename; SQLite rewrites a view's text on a rename).
- * Where the dialect `rebuilds` a table to change it (SQLite: a column, a key,
- * a unique or a foreign key), every other change to the table too, since it
- * refuses to rebuild a table a view reads. An index's creation or drop leaves
+ * view breaks on a rename; SQLite rewrites a view's text on a rename), and a
+ * primary key added or dropped: no database refuses that under a view, but a
+ * body orders its rows, and the rows of a relation it reads, by the key
+ * (which row a `take` or a `distinct` keeps), so the view would stay as the
+ * old key wrote it. Where the dialect `rebuilds` a table to change it
+ * (SQLite: a column, a unique or a foreign key), every other change to the
+ * table too, since it refuses to rebuild a table a view reads. An index's creation or drop leaves
  * every view as it was, on every dialect.
  */
 function changedTables(
@@ -110,6 +113,8 @@ function changedTables(
       case "dropTable":
       case "dropColumn":
       case "renameColumn":
+      case "addPrimaryKey":
+      case "dropPrimaryKey":
         names.add(operation.tableName);
         break;
       case "alterColumn":

@@ -12,8 +12,10 @@
  * therefore plans no migration. {@link VIEW_REVISION} is the lever for the
  * other case: a release whose bodies must all be written again raises it.
  *
- * A change to a table a view reads needs no place here: the program replaces
- * the view around it (`withViewReplacements`, `view.ts`).
+ * What a body takes from a TABLE it reads is not here: its name, its columns
+ * and its primary key (the order a body breaks ties by). A program that
+ * changes one of those replaces the view around the change
+ * (`withViewReplacements`, `view.ts`), which is the other half of this rule.
  */
 
 import { inlineLiterals } from "../adapters/inline-literals";
@@ -113,13 +115,25 @@ function crossedRelations(
     const slot = slots?.get(field);
     if (slot === undefined) return;
     crossed.set(`${model["~"].names.sql}.${field}`, slot);
-    if (!("endpoints" in slot.edge)) return;
-    for (const { source } of slot.edge.endpoints)
-      if (
-        source !== model ||
-        slot.edge.endpoints[0].source === slot.edge.endpoints[1].source
-      )
-        crossedRelations(source, member, relations, crossed);
+    const { edge } = slot;
+    // Where the relation leads: the other end of a pair (both ends of a self
+    // relation are this model), or every model a variant slot may hold, and
+    // its carrier from the other side.
+    const targets =
+      "endpoints" in edge
+        ? edge.endpoints.map(({ source }) => source)
+        : [
+            edge.carrier.source,
+            ...edge.members.flatMap((variant) =>
+              "targetModel" in variant
+                ? [variant.targetModel]
+                : [variant.topology.source.model, variant.topology.target.model]
+            ),
+          ];
+    const self = targets.every((target) => target === model);
+    for (const target of new Set(targets))
+      if (self || target !== model)
+        crossedRelations(target, member, relations, crossed);
   };
   for (const [key, member] of Object.entries(value)) {
     if (key in state.scalars) continue;

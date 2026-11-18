@@ -270,7 +270,10 @@ without the marker under a declared name is refused, as today.
   accepted renames are applied and keeps the last diff only.
 - What a view does not survive depends on the dialect. Everywhere: a table
   renamed, dropped or created again, a column dropped, renamed or given
-  another type, an enum recreated under one of its columns. On SQLite, which
+  another type, an enum recreated under one of its columns, and a primary key
+  added or dropped (no database refuses that under a view, but a body orders
+  its rows and its relations' rows by the key: which row a `take` or a
+  `distinct` keeps). On SQLite, which
   rebuilds a table to change it and refuses the rebuild under a view: every
   other change too, except an index. PostgreSQL and MySQL keep a view through
   an added column and a key, unique or foreign key change, so a `GRANT` on it

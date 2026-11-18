@@ -1371,12 +1371,20 @@ REPLACE VIEW` refuses a changed column list). The differ drops and creates a
 view whose hash changed and creates or drops one declared on one side only.
 `withViewReplacements`, the last step of `prepareSchemaProgram`, adds the one
 rule only the resolved program can answer: a view that keeps its hash is
-dropped and created again when the program changes a table it reads (any
-table operation but an index's creation or drop: PostgreSQL refuses a type
-change or a drop under a view and an enum recreation retypes columns, MySQL's
-view breaks on a rename, SQLite rewrites it on a rename and refuses a rebuild
-under it, `lostDependents`, and rebuilds for a key, a unique or a column
-change) or drops a view it reads, transitively. Every `dropView` runs first,
+dropped and created again when the program changes a table it reads in a way
+the view does not survive (`changedTables`), or drops a view it reads,
+transitively. Everywhere that is a table renamed, dropped or created again, a
+column dropped, renamed or given another type, an enum recreated under one of
+its columns (PostgreSQL refuses a type change or a drop under a view, MySQL's
+view breaks on a rename, SQLite rewrites it on a rename), and a primary key
+added or dropped: no database refuses that one, and the body orders its rows
+and its relations' rows by the key, so the view would silently keep the old
+order. On SQLite, which rebuilds a table to change it and refuses a rebuild
+under a view (`lostDependents`), it is every other table operation too,
+except an index's creation or drop. A view's hash holds what the tables do
+not say: the declared query, the decoder shape, the relations the query
+crosses (`view-definition.ts`); the two halves together are what replaces a
+view, and a fact a body reads belongs to exactly one of them. Every `dropView` runs first,
 dependents before what they read, every `createView` last, after what it
 reads (`orderViews`); `OPERATION_PRIORITY` puts them at 0 and 19. `invert.ts`
 turns one into the other, a `dropView` into the previous snapshot's view.

@@ -23,7 +23,7 @@ Versioning.
   - **Migrations.** A view is replaced by a drop and a create when its query
     changes, or when the same migration changes a table it reads in a way it
     does not survive (on PostgreSQL and MySQL: a rename, a drop, a column's
-    type; on SQLite: anything but an index). The SQL is not compared: an
+    type, a primary key; on SQLite: anything but an index). The SQL is not compared: an
     upgrade that writes the same read differently replaces no view. A
     replacement loses what was attached to the view by hand, a `GRANT` on
     PostgreSQL among them.

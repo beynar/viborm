@@ -9,12 +9,14 @@
 
 import { s } from "@schema";
 import type { AnyModel, Model } from "@schema/model";
+import { diff } from "@src/migrations/differ";
 import type { MigrationDriver } from "@src/migrations/drivers/base";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import { surrealMigrationDriver } from "@src/migrations/drivers/surrealql";
 import { serializeModels } from "@src/migrations/serializer";
+import { prepareSchemaProgram } from "@src/migrations/utils";
 import { describe, expect, it } from "vitest";
 
 const VIEW_HASH = /^[0-9a-f]{40}$/;
@@ -38,8 +40,10 @@ function models(
     traded?: boolean;
     /** A model and a relation of `user` that no view of these tests crosses. */
     liked?: boolean;
+    /** A model that reaches `post` through a polymorphic slot. */
+    commented?: boolean;
   } = {}
-) {
+): Record<string, AnyModel> & { user: AnyModel; post: AnyModel } {
   const [authorColumn, editorColumn] = extra.traded
     ? ["editorId", "authorId"]
     : ["authorId", "editorId"];
@@ -83,8 +87,13 @@ function models(
     id: s.string().id(),
     users: s.toMany(() => user),
   }).map("tags");
+  const comment: AnyModel = model({
+    id: s.string().id(),
+    commentable: s.toOne({ post: () => post }),
+  }).map("comments");
   const tables: Record<string, AnyModel> = { user, post, tag };
   if (extra.liked) tables.like = like;
+  if (extra.commented) tables.comment = comment;
   return { ...tables, user, post };
 }
 
@@ -220,6 +229,27 @@ describe("a view's identity", () => {
     expect(after.hash).toBe(feed().hash);
   });
 
+  it("follows a relation crossed behind a polymorphic slot", () => {
+    const behind = (traded: boolean) =>
+      serialized(
+        (tables) => ({
+          noted: view(() => tables.comment!, {
+            where: {
+              commentable: {
+                type: "post",
+                is: { author: { name: "Ann" } },
+              },
+            },
+            select: { id: true },
+          }).map("noted"),
+        }),
+        sqlite3MigrationDriver,
+        { commented: true, traded }
+      ).views![0]!;
+    expect(behind(false).dependsOn).toEqual(["comments", "posts", "users"]);
+    expect(behind(true).hash).not.toBe(behind(false).hash);
+  });
+
   it("keeps its hash when a model it reads gains a relation its query does not cross", () => {
     const declare = ({ post }: ReturnType<typeof models>) => ({
       feed: view(() => post, QUERY).map("feed"),
@@ -241,6 +271,43 @@ describe("a view's identity", () => {
     ).views![0]!;
     expect(moved.hash).not.toBe(feed().hash);
     expect(moved.sql).not.toBe(feed().sql);
+  });
+});
+
+describe("a primary key change under a view", () => {
+  // The key is the order a body breaks ties by: which rows a `take` keeps.
+  const keyed = (slugIsKey: boolean, migrationDriver: MigrationDriver) => {
+    const post: AnyModel = model({
+      id: slugIsKey ? s.string().unique() : s.string().id(),
+      slug: slugIsKey ? s.string().id() : s.string().unique(),
+      title: s.string(),
+    }).map("posts");
+    const schema: Record<string, AnyModel> = {
+      post,
+      feed: view(() => post, { take: 2, select: { title: true } }).map("feed"),
+    };
+    return serializeModels(schema, { migrationDriver });
+  };
+
+  it.each([
+    ["PostgreSQL", postgresMigrationDriver],
+    ["MySQL", mysqlMigrationDriver],
+    ["SQLite", sqlite3MigrationDriver],
+  ] as const)("%s: the view keeps its hash, its body changes, and the program replaces it", async (_, migrationDriver) => {
+    const from = keyed(false, migrationDriver);
+    const to = keyed(true, migrationDriver);
+    expect(to.views![0]!.hash).toBe(from.views![0]!.hash);
+    expect(to.views![0]!.sql).not.toBe(from.views![0]!.sql);
+    const { operations } = await diff(from, to);
+    const program = prepareSchemaProgram(
+      operations,
+      from,
+      to,
+      migrationDriver
+    ).map(({ type }) => type);
+    expect(program.at(0)).toBe("dropView");
+    expect(program.at(-1)).toBe("createView");
+    expect(program).toContain("addPrimaryKey");
   });
 });
 
