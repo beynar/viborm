@@ -167,12 +167,13 @@ const latest = s.view(() => post, latestQuery).map("vw_latest_posts");
  * Values a migration's statement must carry as written: a line break, and
  * the word MySQL's client reads as a command when it opens a line.
  */
+const NOTED: string[] = [
+  "set the delimiter here",
+  "line\r\nbreak",
+  "back\\slash",
+];
 const notedQuery = {
-  where: {
-    title: {
-      notIn: ["set the delimiter here", "line\r\nbreak", "back\\slash"],
-    },
-  },
+  where: { title: { notIn: NOTED } },
   select: { id: true, title: true },
 } as const;
 const noted = s.view(() => post, notedQuery).map("vw_noted_posts");

@@ -61,7 +61,6 @@ import type {
   NodeOmit,
   NodeSelect,
   SameModelResultSurface,
-  ViewRowArgs,
 } from "./result-types";
 
 export type Schema = Record<string, Model<any>>;
@@ -128,6 +127,26 @@ export interface DeclaredTable {
     readonly state: { readonly shape: unknown; readonly view?: undefined };
   };
 }
+
+/** A view whose query projects no key of its source: no key names a row. */
+interface KeylessView {
+  readonly "~": {
+    readonly state: {
+      readonly uniques: Record<string, never>;
+      readonly compoundId: Record<string, never> | undefined;
+      readonly compoundUniques: Record<string, never> | undefined;
+    };
+  };
+}
+
+/**
+ * A view's operations: its reads, the unique ones only where it has a key.
+ * The key set of a view's delegate, asked in the view arm of the per-key
+ * {@link DeclaredTable} test, so a table never asks it.
+ */
+export type ViewOperations<M> = M extends KeylessView
+  ? Exclude<CacheableOperations, "findUnique" | "findUniqueOrThrow">
+  : CacheableOperations;
 
 /**
  * Operations that mutate data (not cacheable)
@@ -416,27 +435,13 @@ export type ClientRowsContext<C extends VibORMConfig, Models extends string> =
 declare const defaultOperationResultArgs: unique symbol;
 type DefaultOperationResultArgs = typeof defaultOperationResultArgs;
 
-declare const viewRows: unique symbol;
-/**
- * The merged arguments of a view's read: its rows are typed from the call's
- * arguments as a view row is (`ViewRowArgs`), so a row the call does not
- * select carries the view's JSON columns. Only a view's delegate passes it.
- */
-interface ViewRows<S, DefaultOmit> {
-  readonly [viewRows]: readonly [S, DefaultOmit];
-}
-
 type ResolvedOperationResultArgs<Args, Merged> =
-  Merged extends DefaultOperationResultArgs
-    ? Args
-    : Merged extends ViewRows<infer S extends ModelState, infer DefaultOmit>
-      ? ViewRowArgs<S, Args, DefaultOmit, Args>
-      : Merged;
+  Merged extends DefaultOperationResultArgs ? Args : Merged;
 
 type ResolvedOperationResultOmit<Args, DefaultOmit, Merged> =
   Merged extends DefaultOperationResultArgs
     ? MergeClientOmit<DefaultOmit, NodeOmit<Args>>
-    : NodeOmit<ResolvedOperationResultArgs<Args, Merged>>;
+    : NodeOmit<Merged>;
 
 /** The verbs whose result is the selected row, wrapped by cardinality. */
 type RowOperation =
@@ -556,14 +561,12 @@ export type Client<
         >;
       }
     : {
-        [O in CacheableOperations]: Operation<
+        [O in ViewOperations<ClientSchema<C>[K]>]: Operation<
           O,
           ClientSchema<C>[K],
           ClientDefaultOmit<C, K>,
           ClientDefaults,
-          PlacedOperationArguments<Arguments, K, O>,
-          OperationPayload<O, ClientSchema<C>[K]>,
-          ViewRows<ClientSchema<C>[K]["~"]["state"], ClientDefaultOmit<C, K>>
+          PlacedOperationArguments<Arguments, K, O>
         >;
       };
 };
@@ -2380,7 +2383,6 @@ type OperationMethod<
   Arguments,
   Payload,
   Pending extends boolean,
-  Merged = DefaultOperationResultArgs,
 > = undefined extends Payload
   ? <Arg extends Payload>(
       args?: WithArguments<
@@ -2394,14 +2396,7 @@ type OperationMethod<
         Arguments
       >
     ) => OperationCarrier<
-      OperationResultWithClientDefaults<
-        O,
-        M,
-        Arg,
-        DefaultOmit,
-        ClientDefaults,
-        Merged
-      >,
+      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>,
       Pending
     >
   : <Arg extends Payload>(
@@ -2410,14 +2405,7 @@ type OperationMethod<
         Arguments
       >
     ) => OperationCarrier<
-      OperationResultWithClientDefaults<
-        O,
-        M,
-        Arg,
-        DefaultOmit,
-        ClientDefaults,
-        Merged
-      >,
+      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>,
       Pending
     >;
 
@@ -2432,7 +2420,6 @@ type Operation<
   ClientDefaults = never,
   Arguments = NoArguments,
   Payload = OperationPayload<O, M>,
-  Merged = DefaultOperationResultArgs,
 > = OperationMethod<
   O,
   M,
@@ -2440,8 +2427,7 @@ type Operation<
   ClientDefaults,
   Arguments,
   Payload,
-  true,
-  Merged
+  true
 >;
 
 type CachedOperation<
@@ -2450,7 +2436,6 @@ type CachedOperation<
   DefaultOmit = undefined,
   ClientDefaults = never,
   Arguments = NoArguments,
-  Merged = DefaultOperationResultArgs,
 > = OperationMethod<
   O,
   M,
@@ -2458,8 +2443,7 @@ type CachedOperation<
   ClientDefaults,
   Arguments,
   OperationPayload<O, M>,
-  false,
-  Merged
+  false
 >;
 
 /**
@@ -2488,13 +2472,12 @@ export type CachedClient<
         >;
       }
     : {
-        [O in CacheableOperations]: CachedOperation<
+        [O in ViewOperations<ClientSchema<C>[K]>]: CachedOperation<
           O,
           ClientSchema<C>[K],
           ClientDefaultOmit<C, K>,
           ClientDefaults,
-          PlacedOperationArguments<Arguments, K, O>,
-          ViewRows<ClientSchema<C>[K]["~"]["state"], ClientDefaultOmit<C, K>>
+          PlacedOperationArguments<Arguments, K, O>
         >;
       }) &
     CachedProjectedOperations<

@@ -115,12 +115,20 @@ type ScalarsOf<T extends AnyTarget, M> = M extends keyof ClientSchema<
   ? Extract<keyof ClientSchema<T["config"]>[M]["~"]["state"]["scalars"], string>
   : never;
 
-/** What `softDelete(config)` adds: its two arguments, the models it hides rows of, the methods. */
+/**
+ * What `softDelete(config)` adds: its two arguments, the models it hides rows
+ * of, the methods. A view it lists is filtered as it is read, and gains no
+ * method: each one writes.
+ */
 type SoftDeleteFacts<T extends AnyTarget, Models> = Facts<
   Record<never, never>,
   {
     readonly [K in keyof Models &
-      keyof ClientSchema<T["config"]>]: SoftDeleteMethods<T["config"], K>;
+      keyof ClientSchema<T["config"]> as ClientSchema<
+      T["config"]
+    >[K]["~"]["state"] extends { readonly view: object }
+      ? never
+      : K]: SoftDeleteMethods<T["config"], K>;
   },
   {
     // A mode chooses rows a call selects: a create selects none. Spelled

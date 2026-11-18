@@ -1210,12 +1210,20 @@ type KnownModels<Config, T extends AnyTarget> = {
     : never;
 };
 
-/** What `ordering(config)` adds: each ordered model's methods, its appended key. */
+/**
+ * What `ordering(config)` adds: each ordered model's methods, its appended
+ * key. A view it lists is read in its order, and gains no method: each one
+ * writes.
+ */
 type OrderingFacts<T extends AnyTarget, Config extends OrderingConfig> = Facts<
   Record<never, never>,
   {
     readonly [K in Names<Config> &
-      keyof ClientSchema<T["config"]>]: OrderingMethods<
+      keyof ClientSchema<T["config"]> as ClientSchema<
+      T["config"]
+    >[K]["~"]["state"] extends { readonly view: object }
+      ? never
+      : K]: OrderingMethods<
       VibORMClient<T["config"], T["state"]>,
       T["config"],
       Config,

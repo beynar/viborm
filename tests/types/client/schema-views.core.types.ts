@@ -7,12 +7,16 @@
  */
 
 import { createClient } from "@client/client";
+import type { InferDatabase, OperationResult } from "@client/types";
 import { PGliteDriver } from "@drivers/pglite";
 import { defaults } from "@extensions/defaults";
 import { extension } from "@extensions/extension";
+import { fields } from "@extensions/fields";
 import { s } from "@schema";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/extension";
+import { ordering } from "@src/ordering";
+import { softDelete } from "@src/soft-delete";
 import type { Decimal } from "@validation/primitives/decimal-value";
 
 type Equal<Left, Right> =
@@ -34,12 +38,15 @@ const post = s.model({
   title: s.string(),
   views: s.bigInt(),
   published: s.boolean(),
+  deletedAt: s.dateTime().nullable(),
   authorId: s.string(),
   author: s
     .toOne(() => author)
     .fields("authorId")
     .references("id"),
 });
+/** A model with no to-many relation: a `_count` on it counts nothing. */
+const tag = s.model({ id: s.string().id(), label: s.string() });
 
 const publishedPost = s.view(() => post, {
   where: { published: true },
@@ -61,11 +68,41 @@ const popular = s.view(() => publishedPost, {
   where: { views: { gte: 10n } },
   select: { id: true, author: true },
 });
-
-const client = createClient({
-  schema: { author, post, publishedPost, digest, popular },
-  driver: new PGliteDriver(),
+/** No key of its source projected. */
+const headlines = s.view(() => post, {
+  select: { title: true, deletedAt: true },
 });
+const labels = s.view(() => tag, { select: { label: true, _count: true } });
+const uncounted = s.view(() => author, {
+  select: { name: true, _count: { select: {} } },
+});
+const counted = s.view(() => author, {
+  select: { id: true, _count: { select: { posts: true } } },
+});
+const tagged = s.view(() => tag, { include: { _count: true } });
+const overDigest = s.view(() => digest, {
+  select: { name: true, _count: true },
+});
+const overPopular = s.view(() => popular, {
+  select: { id: true, _count: true },
+});
+
+const schema = {
+  author,
+  post,
+  tag,
+  publishedPost,
+  digest,
+  popular,
+  headlines,
+  labels,
+  uncounted,
+  counted,
+  tagged,
+  overDigest,
+  overPopular,
+};
+const client = createClient({ schema, driver: new PGliteDriver() });
 
 // =============================================================================
 // THE READ-ONLY SURFACE
@@ -228,3 +265,175 @@ export const _keyed = async () => {
     where: { title: "t" },
   });
 };
+
+// =============================================================================
+// A VIEW WITHOUT A KEY: no unique read, in every form of the delegate
+// =============================================================================
+
+type _keylessReads = Expect<
+  Equal<
+    Exclude<keyof typeof client.headlines, `$${string}`>,
+    | "findMany"
+    | "findFirst"
+    | "findFirstOrThrow"
+    | "count"
+    | "aggregate"
+    | "groupBy"
+    | "exist"
+  >
+>;
+// A view of a view keeps the key its source view projects.
+type _keyedOver = Expect<
+  Equal<"findUnique" extends keyof typeof client.popular ? true : false, true>
+>;
+
+const computed = client.$extends(
+  extension(
+    "computed",
+    fields({
+      publishedPost: {
+        byline: {
+          needs: { title: true, author: true },
+          compute(row) {
+            // What `compute` reads of a view: its JSON columns too.
+            type _row = Expect<
+              Equal<
+                typeof row,
+                { title: string; author: { name: string; balance: Decimal } }
+              >
+            >;
+            return `${row.title} (${row.author.name})`;
+          },
+        },
+      },
+    })
+  )
+);
+
+export const _keylessForms = () => {
+  // @ts-expect-error - no key names one of its rows
+  client.headlines.findUnique;
+  // @ts-expect-error - nor throws for one
+  client.headlines.findUniqueOrThrow;
+  // @ts-expect-error - nor through a chain
+  stamped.headlines.findUnique;
+  // @ts-expect-error - nor through a chain that computes fields
+  computed.headlines.findUniqueOrThrow;
+  // @ts-expect-error - nor through the cache
+  cached.$withCache().headlines.findUnique;
+  // A view that projects its source's key keeps them in every form.
+  stamped.publishedPost.findUnique({ where: { id: "p" } });
+  computed.publishedPost.findUniqueOrThrow({ where: { id: "p" } });
+  cached.$withCache().publishedPost.findUnique({ where: { id: "p" } });
+  return client.$transaction(async (tx) => {
+    await tx.headlines.findFirst();
+    // @ts-expect-error - nor in a transaction
+    tx.headlines.findUnique;
+    await tx.publishedPost.findUnique({ where: { id: "p" } });
+  });
+};
+
+// =============================================================================
+// EXTENSION METHODS THAT WRITE ARE NO VIEW'S
+// =============================================================================
+
+const tombs = client.$extends(
+  softDelete({
+    models: {
+      post: { deletedAt: "deletedAt" },
+      headlines: { deletedAt: "deletedAt" },
+    },
+  })
+);
+const ranked = client.$extends(
+  ordering({ models: { post: { key: "title" }, headlines: { key: "title" } } })
+);
+
+export const _extensionMethods = async () => {
+  // The view is read through the extensions that list it.
+  await tombs.headlines.findMany({ deleted: "with" });
+  await ranked.headlines.findMany();
+  // A table keeps every method.
+  tombs.post.restore({ where: { id: "p" } });
+  ranked.post.move({ where: { id: "p" }, after: { id: "q" } });
+  // @ts-expect-error - restore writes
+  tombs.headlines.restore;
+  // @ts-expect-error - restoreMany writes
+  tombs.headlines.restoreMany;
+  // @ts-expect-error - purge writes
+  tombs.headlines.purge;
+  // @ts-expect-error - purgeMany writes
+  tombs.headlines.purgeMany;
+  // @ts-expect-error - move writes
+  ranked.headlines.move;
+  // @ts-expect-error - rekey writes
+  ranked.headlines.rekey;
+};
+
+// =============================================================================
+// _count: A COLUMN ONLY WHERE IT COUNTS A RELATION
+// =============================================================================
+
+type RowOf<Delegate extends { findMany: (...args: never[]) => unknown }> =
+  Awaited<ReturnType<Delegate["findMany"]>> extends readonly (infer Each)[]
+    ? Each
+    : never;
+
+// `true` on a source without a to-many relation counts nothing.
+type _labels = Expect<Equal<RowOf<typeof client.labels>, { label: string }>>;
+// Nor does a `select` that names no relation.
+type _uncounted = Expect<
+  Equal<RowOf<typeof client.uncounted>, { name: string }>
+>;
+// Nor an included `_count` on such a source.
+type _tagged = Expect<
+  Equal<RowOf<typeof client.tagged>, { id: string; label: string }>
+>;
+// A `select` naming a relation is one.
+type _counted = Expect<
+  Equal<RowOf<typeof client.counted>, { id: string; _count: { posts: number } }>
+>;
+// A source view's `_count` column is kept as its other columns are.
+type _overDigest = Expect<
+  Equal<
+    RowOf<typeof client.overDigest>,
+    { name: string; _count: { posts: number } }
+  >
+>;
+// A source view without one gives none.
+type _overPopular = Expect<
+  Equal<RowOf<typeof client.overPopular>, { id: string }>
+>;
+
+export const _countColumn = async () => {
+  // Switched off as any column is.
+  const off = await client.digest.findMany({
+    select: { name: true, _count: false },
+  });
+  type _off = Expect<Equal<(typeof off)[number], { name: string }>>;
+  const omitted = await client.digest.findMany({ omit: { _count: true } });
+  type _omitted = Expect<
+    Equal<
+      (typeof omitted)[number],
+      { name: string; posts: { title: string }[] }
+    >
+  >;
+  client.labels.findMany({
+    // @ts-expect-error - a view without the column has none to omit
+    omit: { label: false, _count: true },
+  });
+};
+
+// =============================================================================
+// THE SCHEMA-ONLY TYPES CARRY A VIEW'S JSON COLUMNS
+// =============================================================================
+
+type _operationResult = Expect<
+  Equal<
+    OperationResult<"findMany", typeof publishedPost, Record<never, never>>,
+    Row[]
+  >
+>;
+type _databaseRow = Expect<
+  Equal<InferDatabase<typeof schema>["publishedPost"]["Row"], Row>
+>;

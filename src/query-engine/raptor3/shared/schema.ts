@@ -71,6 +71,26 @@ export function isReadOperation(
 ): operation is ReadOperation {
   return READ_OPERATIONS.has(operation);
 }
+
+/**
+ * What a view admits of the operations: its reads, and a unique read only
+ * when its query projects a key of its source.
+ */
+function admitViewOperation(model: AnyModel, operation: Operation): void {
+  if (!isReadOperation(operation))
+    throw new UnsupportedOperationError(
+      `'${nameOf(model)}' is a view: it is read, never written (${operation}).`,
+      { meta: { model: nameOf(model), operation } }
+    );
+  if (
+    operation === "findUnique" &&
+    getModelKeyCatalog(model).addressableKeys.length === 0
+  )
+    throw new UnsupportedOperationError(
+      `'${nameOf(model)}' is a view that projects no key of its source: no unique read names one of its rows (${operation}).`,
+      { meta: { model: nameOf(model), operation } }
+    );
+}
 /**
  * The client's already-resolved schema views. A client that composed them once
  * hands them over by identity; the candidate never re-hydrates or re-validates
@@ -250,12 +270,9 @@ export class EngineSchema {
   }
   admit(model: AnyModel, operation: Operation, raw: unknown): Arguments {
     // A view's rows are its query's: every root call is admitted here, so a
-    // write is refused before any statement, whoever made the call.
-    if (viewFacts(model) !== undefined && !isReadOperation(operation))
-      throw new UnsupportedOperationError(
-        `'${nameOf(model)}' is a view: it is read, never written (${operation}).`,
-        { meta: { model: nameOf(model), operation } }
-      );
+    // write is refused before any statement, whoever made the call, and so is
+    // a unique read of a view that has no key to name a row by.
+    if (viewFacts(model) !== undefined) admitViewOperation(model, operation);
     const admitted = this.#admitArguments(model, operation, raw);
     // What a key may be rewritten with is judged where an update is admitted;
     // an upsert's update arm is judged where it runs, on the row found.

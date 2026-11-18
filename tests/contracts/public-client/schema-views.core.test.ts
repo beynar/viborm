@@ -20,10 +20,13 @@ import {
 } from "@errors";
 import { call } from "@extensions/call";
 import { extension } from "@extensions/extension";
+import { fields } from "@extensions/fields";
 import { target, writes } from "@extensions/on";
 import { viewBody } from "@query-engine/raptor3/view-body";
 import { s } from "@schema";
 import { type Sql, sql } from "@sql";
+import { ordering } from "@src/ordering";
+import { softDelete } from "@src/soft-delete";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { describe, expect, test } from "vitest";
 
@@ -55,6 +58,7 @@ const post = s
       .fields("parentId")
       .references("id"),
     replies: s.toMany(() => post).name("thread"),
+    deletedAt: s.dateTime().nullable(),
   })
   .map("posts");
 
@@ -84,8 +88,12 @@ const popular = s
 const counted = s
   .view(() => author, { include: { _count: true } })
   .map("counted_authors");
+/** No key of its source projected. */
+const titles = s
+  .view(() => post, { select: { title: true, deletedAt: true } })
+  .map("post_titles");
 
-const views = { published, latest, popular, counted };
+const views = { published, latest, popular, counted, titles };
 const schema = { author, post, ...views };
 
 /** A declared query the body refuses, as the view that declares it. */
@@ -138,13 +146,13 @@ describe("a view's body", () => {
 
   test("is one text for every driver of a dialect, in the estate's namespace", () => {
     const pg = viewBody(
-      { schema, dialect: "postgresql", namespace: "app" },
+      { schema, dialect: "postgresql", estate: { namespace: "app" } },
       published
     );
     expect(text(pg.statement)).toContain('"app"."posts" AS "q0"');
     expect(text(pg.statement)).toContain('"app"."authors"');
     const mysql = viewBody(
-      { schema, dialect: "mysql", namespace: "shop" },
+      { schema, dialect: "mysql", estate: { namespace: "shop" } },
       counted
     );
     expect(text(mysql.statement)).toContain("`shop`.`authors` AS `q0`");
@@ -353,6 +361,88 @@ describe("a view at the client", () => {
     // What a read sends is recorded.
     await client.post.findMany();
     expect(driver.sent).toHaveLength(1);
+  });
+
+  test("refuses a unique read of a view without a key, naming it", async () => {
+    const driver = new RecordingDriver(new PostgresAdapter(), "postgresql");
+    const client = createClient({ schema, driver });
+    const refusal =
+      "'titles' is a view that projects no key of its source: no unique read names one of its rows (findUnique).";
+    await expect(
+      // @ts-expect-error - no key names one of its rows
+      client.titles.findUnique({ where: { title: "t" } })
+    ).rejects.toThrow(refusal);
+    await expect(
+      // @ts-expect-error - nor throws for one
+      client.titles.findUniqueOrThrow({ where: { title: "t" } })
+    ).rejects.toThrow(UnsupportedOperationError);
+    await expect(
+      client.$transaction(async (tx) =>
+        // @ts-expect-error - nor in a transaction
+        tx.titles.findUnique({ where: { title: "t" } })
+      )
+    ).rejects.toThrow(refusal);
+    expect(driver.sent).toEqual([]);
+    // A view that projects its source's key is read by it.
+    await client.published.findUnique({ where: { id: 1 } });
+    await client.titles.findFirst();
+    expect(driver.sent).toHaveLength(2);
+  });
+
+  test("an extension that lists a view reads it, and adds it no method that writes", async () => {
+    const driver = new RecordingDriver(new SQLiteAdapter(), "sqlite");
+    const client = createClient({ schema, driver });
+    const tombs = client.$extends(
+      softDelete({ models: { titles: { deletedAt: "deletedAt" } } })
+    );
+    await tombs.titles.findMany();
+    expect(driver.sent).toEqual([
+      'SELECT "q0"."title" AS "title", "q0"."deletedAt" AS "deletedAt" FROM "post_titles" AS "q0" WHERE "q0"."deletedAt" IS NULL',
+    ]);
+    await expect(
+      // @ts-expect-error - restore writes
+      tombs.titles.restore({ where: { title: "t" } })
+    ).rejects.toThrow(
+      "'titles' is a view: it is read, never written (update)."
+    );
+    // Ordering moves a row by its key: it lists a view that projects one.
+    const ranked = client.$extends(
+      ordering({ models: { latest: { key: "title" } } })
+    );
+    await ranked.latest.findMany();
+    expect(driver.sent.at(-1)).toContain(
+      'ORDER BY "q0"."title" ASC, "q0"."id" ASC'
+    );
+    await expect(
+      // @ts-expect-error - rekey writes
+      ranked.latest.rekey()
+    ).rejects.toThrow(
+      "'latest' is a view: it is read, never written (updateMany)."
+    );
+  });
+
+  test("switches its _count column off as any column, and computes from its columns", async () => {
+    const driver = new RecordingDriver(new SQLiteAdapter(), "sqlite");
+    const client = createClient({ schema, driver });
+    await client.counted.findMany({ select: { name: true, _count: false } });
+    expect(driver.sent).toEqual([
+      'SELECT "q0"."name" AS "name" FROM "counted_authors" AS "q0" ORDER BY "q0"."id" ASC',
+    ]);
+    const computed = client.$extends(
+      extension(
+        "byline",
+        fields({
+          published: {
+            byline: {
+              needs: { author: true },
+              compute: (row) => row.author.name,
+            },
+          },
+        })
+      )
+    );
+    await computed.published.findMany({ select: { id: true, byline: true } });
+    expect(driver.sent.at(-1)).toContain('"q0"."author" AS "author"');
   });
 });
 

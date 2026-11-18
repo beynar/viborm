@@ -83,7 +83,9 @@ function models(
     id: s.string().id(),
     users: s.toMany(() => user),
   }).map("tags");
-  return extra.liked ? { user, post, tag, like } : { user, post, tag };
+  const tables: Record<string, AnyModel> = { user, post, tag };
+  if (extra.liked) tables.like = like;
+  return { ...tables, user, post };
 }
 
 const QUERY = {
@@ -97,10 +99,8 @@ function serialized(
   extra?: Parameters<typeof models>[0]
 ) {
   const tables = models(extra);
-  return serializeModels(
-    { ...tables, ...declare(tables) },
-    { migrationDriver }
-  );
+  const schema: Record<string, AnyModel> = { ...tables, ...declare(tables) };
+  return serializeModels(schema, { migrationDriver });
 }
 
 const feed = (query: object = QUERY) =>

@@ -236,7 +236,10 @@ facts.
 - **Soft delete is not applied inside the view's query.** A view over a model
   with [soft delete](/docs/extensions/soft-delete) shows deleted rows, unless
   its query filters them: `where: { deletedAt: null }`. When the view selects
-  the marker column, you can list the view in the extension like a model.
+  the marker column, you can list the view in the extension like a model: its
+  reads are filtered, and it gains none of the methods that write (`restore`,
+  `purge`). [Ordering](/docs/extensions/ordering) reads a listed view in its
+  order the same way, and needs the view to have a key.
 - **Permissions are not applied inside the view's query.** A
   [permissions](/docs/extensions/permissions) policy applies when the view is
   read, to the view as its own model. A view the policy does not list is

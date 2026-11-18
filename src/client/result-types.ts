@@ -393,8 +393,11 @@ type GetTargetModelState<R extends AnyRelation> =
  * A view's row also carries its JSON columns, as its declared query returns
  * them.
  */
-export type InferModelOutput<S extends ModelState> =
-  S["omit"] extends Record<string, true>
+export type InferModelOutput<S extends ModelState> = S extends {
+  readonly view: object;
+}
+  ? ViewModelOutput<S>
+  : S["omit"] extends Record<string, true>
     ? Omit<
         {
           [K in keyof S["scalars"]]: S["scalars"][K] extends Scalar
@@ -409,28 +412,17 @@ export type InferModelOutput<S extends ModelState> =
           : never;
       };
 
+/** A view's row: its scalars, then its JSON columns (a view omits nothing). */
+type ViewModelOutput<S extends ModelState> = {
+  [K in keyof S["scalars"] | DocumentKeys<S>]: K extends keyof S["scalars"]
+    ? S["scalars"][K] extends Scalar
+      ? InferScalarOutput<S["scalars"][K]>
+      : never
+    : ViewDocument<S, K>;
+};
+
 /** A view's JSON columns, by name (`ViewDocumentKeys`); a table has none. */
 type DocumentKeys<S extends ModelState> = StateDocumentKeys<S>;
-
-/**
- * The arguments a view's row is typed from: the call's own where it selects,
- * else a selection of every name a view row carries by default (its scalars,
- * then its JSON columns) under the omission an unselected row takes (the
- * client's default merged with the call's). The selected world types each
- * column (`InferSelectedFields`), so a table's row types never ask for a
- * view's columns. `DefaultArgs` stands for "the call's own".
- */
-export type ViewRowArgs<
-  S extends ModelState,
-  Args,
-  DefaultOmit,
-  DefaultArgs,
-> = [NodeSelect<Args>] extends [undefined]
-  ? {
-      select: { [K in keyof S["scalars"] | DocumentKeys<S>]: true };
-      omit: MergeClientOmit<DefaultOmit, NodeOmit<Args>>;
-    }
-  : DefaultArgs;
 
 /**
  * A view's JSON column `K`: its declared query's own result for that key on
@@ -449,9 +441,7 @@ type ViewDocument<S extends ModelState, K> = S extends {
 /** One row of a view's declared query on its source, a source view's columns included. */
 type ViewSourceRow<Source extends ModelState, Query> = InferSelectInclude<
   Source,
-  Source extends { readonly view: object }
-    ? ViewRowArgs<Source, Query, undefined, Query>
-    : Query
+  Query
 >;
 
 // =============================================================================

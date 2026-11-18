@@ -21,6 +21,7 @@ import { MigrationError, VibORMErrorCode } from "../errors";
 import { viewBody } from "../query-engine/raptor3/view-body";
 import { jsonNullKindOf } from "../schema/json-null";
 import { type AnyModel, Model } from "../schema/model";
+import type { AnyRelation } from "../schema/relation";
 import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
 import { viewIsItsRead } from "../schema/validation/rules/view";
 import type { ValidationContext } from "../schema/validation/types";
@@ -123,7 +124,9 @@ function crossedRelations(
   for (const [key, member] of Object.entries(value)) {
     if (key in state.scalars) continue;
     if (key === "_count" && member === true) {
-      for (const [field, relation] of Object.entries(state.relations))
+      for (const [field, relation] of Object.entries(
+        state.relations as Record<string, AnyRelation>
+      ))
         if (relation["~"].state.cardinality === "many") cross(field, undefined);
     } else if (slots?.has(key)) cross(key, member);
     else crossedRelations(model, member, relations, crossed);

@@ -6,7 +6,6 @@ import {
 } from "@client/raw";
 import type { ClientSchema } from "@client/schema-links";
 import type {
-  CacheableOperations,
   Client,
   ClientRowsContext,
   ComputedOperation,
@@ -15,6 +14,7 @@ import type {
   Schema,
   StampedOperation,
   StampedOperations,
+  ViewOperations,
 } from "@client/types";
 import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
@@ -195,7 +195,7 @@ type ComputedModelDelegate<
           ModelName,
           X["fields"]
         >,
-        Extract<ComputedOperation, CacheableOperations>
+        Extract<ComputedOperation, ViewOperations<ClientSchema<C>[ModelName]>>
       >);
 
 /**
