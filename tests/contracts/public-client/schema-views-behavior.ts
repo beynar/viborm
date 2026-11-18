@@ -163,6 +163,20 @@ const latestQuery = {
 } as const;
 const latest = s.view(() => post, latestQuery).map("vw_latest_posts");
 
+/**
+ * Values a migration's statement must carry as written: a line break, and
+ * the word MySQL's client reads as a command when it opens a line.
+ */
+const notedQuery = {
+  where: {
+    title: {
+      notIn: ["set the delimiter here", "line\r\nbreak", "back\\slash"],
+    },
+  },
+  select: { id: true, title: true },
+} as const;
+const noted = s.view(() => post, notedQuery).map("vw_noted_posts");
+
 const tables = { author, post, comment };
 const views = {
   publishedPost,
@@ -171,6 +185,7 @@ const views = {
   popular,
   kinds,
   latest,
+  noted,
 };
 const schema = { ...tables, ...views };
 
@@ -182,6 +197,7 @@ const CREATED = [
   "popular",
   "kinds",
   "latest",
+  "noted",
 ] as const;
 
 const NAMES: Record<(typeof CREATED)[number], string> = {
@@ -191,6 +207,7 @@ const NAMES: Record<(typeof CREATED)[number], string> = {
   popular: "vw_popular_posts",
   kinds: "vw_post_kinds",
   latest: "vw_latest_posts",
+  noted: "vw_noted_posts",
 };
 
 const hex = (bytes: Uint8Array) =>
@@ -442,6 +459,16 @@ export function runSchemaViewsBehavior({
           )
         )
       );
+    });
+
+    test("a value with a line break or the word DELIMITER is written into the view as it is", async () => {
+      const rows = await client.noted.findMany();
+      expect(plain(rows)).toEqual(
+        plain(await client.post.findMany(notedQuery))
+      );
+      // "back\\slash" is a seeded title: the view leaves it out.
+      expect(rows.map(({ title }) => title)).not.toContain("back\\slash");
+      expect(rows.length).toBeGreaterThan(0);
     });
 
     test("a second push plans nothing: a view's identity is read back from the database", async () => {
