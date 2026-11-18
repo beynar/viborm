@@ -73,6 +73,28 @@ describe("a view's derived model", () => {
     expect(viewFacts(post)).toBeUndefined();
   });
 
+  it("has no column for a _count that counts no relation, as a read has no key", () => {
+    const documentsOf = (view: ReturnType<typeof s.view>) =>
+      viewFacts(view)?.documents;
+    expect(
+      documentsOf(s.view(() => post, { include: { _count: true } }))
+    ).toEqual([]);
+    expect(
+      documentsOf(s.view(() => post, { select: { id: true, _count: true } }))
+    ).toEqual([]);
+    expect(
+      documentsOf(s.view(() => user, { include: { _count: true } }))
+    ).toEqual(["_count"]);
+    const counted = s.view(() => user, {
+      select: { id: true, _count: { select: { posts: true } } },
+    });
+    expect(documentsOf(counted)).toEqual(["_count"]);
+    // A source view's `_count` is one of its columns, kept as any other.
+    expect(
+      documentsOf(s.view(() => counted, { select: { _count: true } }))
+    ).toEqual(["_count"]);
+  });
+
   it("keeps the declared query and the source it reads", () => {
     const query = { where: { published: true } };
     const view = s.view(() => post, query);

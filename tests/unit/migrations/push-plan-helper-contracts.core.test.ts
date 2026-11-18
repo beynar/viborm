@@ -34,6 +34,7 @@ describe("push plan helper contracts", () => {
     ] satisfies DiffOperation[];
     const compiled = compilePlanStatements(
       {
+        dropViews: [],
         dropForeignKeys: ["ALTER TABLE child DROP CONSTRAINT child_fk"],
         dropTables: [{ name: "legacy", sql: "DROP TABLE legacy" }],
         dropEnums: ["DROP TYPE status"],

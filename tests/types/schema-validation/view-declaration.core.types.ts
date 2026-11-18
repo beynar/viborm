@@ -88,3 +88,14 @@ s.view(() => post, { select: { author: { select: { nope: true } } } });
 s.view(() => user, { select: { secret: true } });
 // @ts-expect-error - a view filters on its own columns only
 s.view(() => publishedPost, { where: { views: 1n } });
+
+// Lists and windows are written as a client call writes them.
+const recent = s.view(() => post, {
+  where: { id: { in: ["a", "b"] }, OR: [{ published: true }, { title: "x" }] },
+  orderBy: [{ title: "asc" }, { id: "desc" }],
+  take: 10,
+  distinct: ["title"],
+});
+const _recentSelection: (typeof recent)["~"]["state"]["view"]["query"]["take"] = 10;
+// A selection's `true` is kept as written.
+const _kept: true = publishedPost["~"].state.view.query.select.id;

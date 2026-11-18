@@ -167,6 +167,19 @@ function projectedCompoundKeys<Keys extends CompoundKeys>(
   return kept.length === 0 ? undefined : (Object.fromEntries(kept) as Keys);
 }
 
+/**
+ * Whether a `_count` selection counts a relation: one it names, or, as
+ * `true`, any to-many relation of the source. A read gives a `_count` that
+ * counts none no key, so a view has no column for it.
+ */
+function countsRelation(from: ModelState, count: unknown): boolean {
+  return isRecord(count)
+    ? askedKeys(count.select).length > 0
+    : Object.values(from.relations).some(
+        (relation) => relation["~"].state.cardinality === "many"
+      );
+}
+
 function deriveViewState(source: AnyModel, declared: object): ViewModelState {
   if (!(source instanceof Model)) {
     throw new Error(
@@ -183,14 +196,21 @@ function deriveViewState(source: AnyModel, declared: object): ViewModelState {
   );
   // A selection names scalars and JSON columns alike; without one, a view
   // keeps its source's JSON columns and adds the relations it includes.
-  const documents = selected
-    ? selected.filter((name) => !projectable.includes(name))
-    : [
-        ...(viewFacts(source)?.documents ?? []).filter(
-          (name) => !omitted.has(name)
-        ),
-        ...askedKeys(query.include),
-      ];
+  const kept = viewFacts(source)?.documents ?? [];
+  const selection = isRecord(query.select) ? query.select : query.include;
+  const documents = (
+    selected
+      ? selected.filter((name) => !projectable.includes(name))
+      : [
+          ...kept.filter((name) => !omitted.has(name)),
+          ...askedKeys(query.include),
+        ]
+  ).filter(
+    (name) =>
+      name !== "_count" ||
+      kept.includes(name) ||
+      countsRelation(from, isRecord(selection) ? selection._count : undefined)
+  );
   const projected = new Set(columns);
   const scalars = emptyRecord<Scalar>();
   const uniques = emptyRecord<Scalar>();
@@ -225,8 +245,10 @@ function deriveViewState(source: AnyModel, declared: object): ViewModelState {
  *   .map("published_posts");
  * ```
  */
-export const view = <M extends AnyModel, Q extends ViewQuery<M>>(
+export const view = <M extends AnyModel, const Q extends ViewQuery<M>>(
   source: () => M,
+  // `const`: a selection's `true` stays `true`, which is what tells a selected
+  // member from one that may be absent.
   query: Q
 ): Model<ViewState<M, Q>> =>
   new Model(

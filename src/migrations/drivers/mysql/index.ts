@@ -59,6 +59,7 @@ function classifyDecimalListDescriptorChange(
   return "same";
 }
 
+import { mysqlStringLiteral } from "../../../adapters/databases/mysql/string-literal";
 import {
   RAW_INDEX_MARKER_PREFIX,
   rawIndexMarker,
@@ -96,7 +97,6 @@ import {
   getMySQLType,
   MYSQL_TYPE_DEFAULTS,
   mysqlEnumType,
-  mysqlStringLiteral,
 } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";

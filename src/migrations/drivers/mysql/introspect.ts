@@ -6,6 +6,7 @@
  */
 
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
+import { mysqlStringLiteral } from "../../../adapters/databases/mysql/string-literal";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import {
   readMysqlDecimalListMarker,
@@ -28,7 +29,6 @@ import { readViewMarker } from "../../view";
 import {
   MYSQL_PRINTED_CHARACTERS,
   mysqlEnumType,
-  mysqlStringLiteral,
   parseMySqlEnumValues,
 } from "../type-mapping";
 import { groupBy, groupByNested, mapReferentialAction } from "../utils";

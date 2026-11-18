@@ -180,7 +180,8 @@ describe("views in a schema document", () => {
     }
     expect(derived(parsed.publishedPost!, parsed)).toMatchObject({
       source: "post",
-      documents: ["author", "_count"],
+      // `_count: true` counts no relation of `post`, so it is no column.
+      documents: ["author"],
       scalars: { id: "string", title: "string", authorId: "string" },
       table: "published_posts",
     });

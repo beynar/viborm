@@ -234,8 +234,9 @@ standalone enum object, so `mysqlEnumType` (`drivers/type-mapping.ts`) is the
 ONE spelling: `getEnumColumnType` writes it, `drivers/mysql/introspect.ts`
 re-spells the catalog's `enum('a','b')` through it, and that same text is the
 enum's identity in `snapshot.enums` on both sides — a name derived only on the
-live side never equalled the desired one. The MySQL literal writer and its
-escape inverse share `drivers/type-mapping.ts`; catalog introspection and inline
+live side never equalled the desired one. The MySQL literal writer
+(`adapters/databases/mysql/string-literal.ts`, which a view's body is written
+with too) and its escape inverse (`drivers/type-mapping.ts`) read one table; catalog introspection and inline
 enum diffing consume those logical members before rendering an ALTER. SQLite's
 inline CHECK carrier keeps ordinary backslashes and decodes doubled quotes only.
 A default is reported in two
@@ -280,7 +281,7 @@ snapshot vocabulary describes — would otherwise survive every later push.
 **Addendum (repair prompt §4, 2026-09-21).** The two mechanisms the paragraph
 above calls fail-closed were two DEFECTS, and both are repaired at their
 owners. The DDL spelling of a string value is now `mysqlStringLiteral`
-(`drivers/type-mapping.ts`), beside `mysqlEnumType` and for the same reason:
+(`adapters/databases/mysql/string-literal.ts`), used by `mysqlEnumType` and for the same reason:
 ONE spelling, both snapshot producers. It escapes `\` — MySQL reads a
 backslash inside a string literal as an escape introducer, so doubling `'`
 alone silently changed the value (`DEFAULT ('a\b')` stored a BACKSPACE) and

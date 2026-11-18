@@ -28,8 +28,8 @@
 import type { SqlDialect } from "@drivers/types";
 import { UnsupportedOperationError } from "@errors";
 import { Sql } from "@sql";
-import { mysqlStringLiteral } from "../migrations/drivers/type-mapping";
 import { JsonParameter } from "../sql/json-parameter";
+import { mysqlStringLiteral } from "./databases/mysql/string-literal";
 import { arrayLiteralText } from "./databases/postgres/array-literal";
 
 const DIALECT_NAMES: Record<SqlDialect, string> = {
