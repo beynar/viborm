@@ -1394,4 +1394,3 @@ the marker; a marked view is VibORM's to drop or keep. A `tables` scope names
 a view as it names a table. Snowflake refuses both operations; SurrealDB
 refuses them until materialized views (`DEFINE TABLE … AS`) arrive. Pull
 (`viborm/schema/introspect`) still skips every database view.
-
