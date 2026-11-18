@@ -33,8 +33,9 @@ import type {
   ResolvedSlot,
   ResolvedVariantEdge,
 } from "@schema/validation/relation-resolution";
+import { type ViewFacts, viewFacts } from "@schema/view/facts";
 import { Sql, sql } from "@sql";
-import { projectableScalarNames } from "@validation/model/core/projection";
+import { defaultProjectionNames } from "@validation/model/core/projection";
 import { normalizeBinaryValue } from "@validation/primitives/binary-shapes";
 import {
   type DateTimePhysicalForm,
@@ -285,6 +286,8 @@ export type PreparedCount = {
 };
 export type PreparedProjectionField =
   | { readonly kind: "scalar"; readonly name: string }
+  /** A view's JSON column, read as it is stored: the document a read carries. */
+  | { readonly kind: "document"; readonly name: string }
   | {
       /**
        * The sentinel column of an EMPTY default projection. A model whose
@@ -1305,12 +1308,12 @@ export function admittedTemporal(
 }
 
 /**
- * The selection a query that writes no `select` asks for: every scalar the
- * default projection's one owner (`projectableScalarNames`) keeps.
+ * The selection a query that writes no `select` asks for: every name the
+ * default projection's one owner (`defaultProjectionNames`) keeps.
  */
 function defaultSelection(model: AnyModel): Record<string, true> {
   const selection: Record<string, true> = {};
-  for (const field of projectableScalarNames(model)) selection[field] = true;
+  for (const field of defaultProjectionNames(model)) selection[field] = true;
   return selection;
 }
 
@@ -1338,12 +1341,13 @@ function relationField(
 }
 
 /**
- * Does `select` name exactly the default selection: every projectable scalar,
- * `true`, in declaration order? It then prepares what no `select` prepares.
- * An inherited enumerable key fails the count, and takes the general path.
+ * Does `select` name exactly the default selection: every name of the default
+ * projection, `true`, in its order? It then prepares what no `select`
+ * prepares. An inherited enumerable key fails the count, and takes the
+ * general path.
  */
 function namesDefault(model: AnyModel, select: Input): boolean {
-  const names = projectableScalarNames(model);
+  const names = defaultProjectionNames(model);
   let at = 0;
   for (const name in select) {
     if (select[name] !== true || names[at] !== name) return false;
@@ -3417,9 +3421,17 @@ export abstract class Queries {
       fields = {};
     }
     let distanceSelected = false;
+    // A view's JSON columns come first: one may be named `_count` or
+    // `_aggregate`, as its query's selection was.
+    const view = viewFacts(model);
     for (const name of Object.keys(selected)) {
       const selection = selected[name];
       if (!selection) continue;
+      if (view?.documents.includes(name)) {
+        prepared.push({ kind: "document", name });
+        fields[name] = this.#documentShape(model, view, name);
+        continue;
+      }
       // `_count` is the relation-count key and nothing else: schema
       // validation refuses a member of that name (F010).
       if (name === "_count") {
@@ -3505,6 +3517,25 @@ export abstract class Queries {
     };
     if (shared) defaults.set(model, projection);
     return projection;
+  }
+  /**
+   * The decoder shape of a view's JSON column `name`: the shape the view's
+   * source read gives that selection of its declared query, so the column is
+   * decoded as that read decodes the document it carries. The query is
+   * admitted as the source's `findMany` and prepared by this engine's own
+   * projection under no row domain (it is the schema's read, not a call's),
+   * once per adapter and view; a view over a view answers its own columns
+   * the same way.
+   */
+  #documentShape(view: AnyModel, facts: ViewFacts, name: string): Shape | Leaf {
+    const shapes = memo(this.#views.documents, view, () => {
+      const queries = this.domain?.queries ?? this;
+      return queries.prepareProjection(
+        facts.source,
+        this.schema.admit(facts.source, "findMany", facts.query)
+      ).shape.fields;
+    });
+    return shapes[name]!;
   }
   /**
    * A relation read at its target's default projection, on a read under no

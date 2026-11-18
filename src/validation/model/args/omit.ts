@@ -32,29 +32,36 @@ import { isRecord } from "@validation/value-guards";
 import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import {
+  defaultProjectionNames,
   type ProjectableScalarKeys,
-  projectableScalarNames,
+  type ViewDocumentKeys,
 } from "../core/projection";
 import type { ScalarSchemas } from "../index";
 
 const omitFlagSchema = v.boolean({ optional: true });
+
+/** What an `omit` may name: what a projection reads when it names none. */
+type OmittableKeys<M extends AnyModel> =
+  | ProjectableScalarKeys<M>
+  | ViewDocumentKeys<M>;
 
 /**
  * Keyed on {@link ProjectableScalarKeys}: a model-level `.omit()`-ed scalar has
  * no entry, so `omit: { passwordHash: false }` cannot re-include it (it is an
  * "Unknown key" failure). Client-level `omit` is a default and IS overridable —
  * but it is merged into this same value before validation runs, so `false` here
- * always means "keep it", never "re-open the schema".
+ * always means "keep it", never "re-open the schema". A view's JSON columns
+ * are returned by default, so they are named here too.
  */
 export type OmitSchema<M extends AnyModel> = V.Object<
-  V.FromKeys<ProjectableScalarKeys<M>[], typeof omitFlagSchema>["entries"],
+  V.FromKeys<OmittableKeys<M>[], typeof omitFlagSchema>["entries"],
   { optional: true }
 >;
 
 export const getOmitSchema = <M extends AnyModel>(model: M): OmitSchema<M> =>
   v.object(
-    v.fromKeys<ProjectableScalarKeys<M>[], typeof omitFlagSchema>(
-      projectableScalarNames(model) as ProjectableScalarKeys<M>[],
+    v.fromKeys<OmittableKeys<M>[], typeof omitFlagSchema>(
+      defaultProjectionNames(model) as OmittableKeys<M>[],
       omitFlagSchema
     ).entries,
     { optional: true }
@@ -70,15 +77,16 @@ const modelLabel = (model: AnyModel): string =>
   model["~"].names.ts ?? model["~"].state.tableName ?? "model";
 
 /**
- * The projection an `omit` denotes: every projectable scalar the value did not
- * flag `true`. `undefined` means "nothing left", which the caller refuses.
+ * The projection an `omit` denotes: every name of the default projection the
+ * value did not flag `true`. `undefined` means "nothing left", which the
+ * caller refuses.
  */
 export const buildOmitSelection = (
   model: AnyModel,
   omitValue: Record<string, unknown>
 ): Record<string, true> | undefined => {
   const selection: Record<string, true> = {};
-  for (const field of projectableScalarNames(model)) {
+  for (const field of defaultProjectionNames(model)) {
     if (omitValue[field] === true) continue;
     selection[field] = true;
   }
@@ -170,7 +178,6 @@ function projectOmit(
   model: AnyModel,
   operation: string
 ) {
-
   const validated = result.value as Record<string, unknown>;
   const omitValue = validated.omit as Record<string, unknown>;
   const explicitSelection = isRecord(validated.select)

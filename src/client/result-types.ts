@@ -19,6 +19,7 @@ import type {
 import type { Scalar, ScalarState } from "@schema/scalars";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Prettify } from "@validation";
+import type { StateDocumentKeys } from "@validation/model/core/projection";
 import type { Decimal } from "@validation/primitives/decimal-value";
 import type { EnumValues } from "@validation/primitives/enum";
 import type { GeoPoint } from "@validation/primitives/geo-point-codec";
@@ -389,6 +390,8 @@ type GetTargetModelState<R extends AnyRelation> =
 /**
  * Infer the output type for a model, respecting omit settings.
  * Uses InferScalarOutput for correct DB result types (e.g., Date for datetime).
+ * A view's row also carries its JSON columns, as its declared query returns
+ * them.
  */
 export type InferModelOutput<S extends ModelState> =
   S["omit"] extends Record<string, true>
@@ -405,6 +408,51 @@ export type InferModelOutput<S extends ModelState> =
           ? InferScalarOutput<S["scalars"][K]>
           : never;
       };
+
+/** A view's JSON columns, by name (`ViewDocumentKeys`); a table has none. */
+type DocumentKeys<S extends ModelState> = StateDocumentKeys<S>;
+
+/**
+ * The arguments a view's row is typed from: the call's own where it selects,
+ * else a selection of every name a view row carries by default (its scalars,
+ * then its JSON columns) under the omission an unselected row takes (the
+ * client's default merged with the call's). The selected world types each
+ * column (`InferSelectedFields`), so a table's row types never ask for a
+ * view's columns. `DefaultArgs` stands for "the call's own".
+ */
+export type ViewRowArgs<
+  S extends ModelState,
+  Args,
+  DefaultOmit,
+  DefaultArgs,
+> = [NodeSelect<Args>] extends [undefined]
+  ? {
+      select: { [K in keyof S["scalars"] | DocumentKeys<S>]: true };
+      omit: MergeClientOmit<DefaultOmit, NodeOmit<Args>>;
+    }
+  : DefaultArgs;
+
+/**
+ * A view's JSON column `K`: its declared query's own result for that key on
+ * its source (`OperationResult` of `findMany`, one row), which is the
+ * document the source read carries and the engine decodes the column as.
+ */
+type ViewDocument<S extends ModelState, K> = S extends {
+  readonly view: {
+    readonly source: Model<infer Source extends ModelState>;
+    readonly query: infer Query;
+  };
+}
+  ? ViewSourceRow<Source, Query>[K & keyof ViewSourceRow<Source, Query>]
+  : never;
+
+/** One row of a view's declared query on its source, a source view's columns included. */
+type ViewSourceRow<Source extends ModelState, Query> = InferSelectInclude<
+  Source,
+  Source extends { readonly view: object }
+    ? ViewRowArgs<Source, Query, undefined, Query>
+    : Query
+>;
 
 // =============================================================================
 // OMIT
@@ -958,7 +1006,11 @@ type InferSelectedFields<
   Selection,
   {
     [K in keyof Selection &
-      (keyof S["shape"] | "_aggregate") as K extends keyof S["shape"]
+      (
+        | keyof S["shape"]
+        | "_aggregate"
+        | DocumentKeys<S>
+      ) as K extends keyof S["shape"]
       ? S["shape"][K] extends Scalar
         ? true extends Selection[K]
           ? K
@@ -976,9 +1028,13 @@ type InferSelectedFields<
               ClientDefaults
             >
           : never
-      : RelationAggregatesResult<S, Selection[K]>;
+      : NonShapeMember<S, K, Selection[K]>;
   }
 >;
+
+type NonShapeMember<S extends ModelState, K, Value> = K extends DocumentKeys<S>
+  ? ViewDocument<S, K>
+  : RelationAggregatesResult<S, Value>;
 
 /** One selected relation member, per target kind then per projection value. */
 type InferSelectedRelation<

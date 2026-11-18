@@ -4,6 +4,7 @@ import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
 import type { ScalarState } from "@schema/scalars";
+import { viewFacts } from "@schema/view/facts";
 import { polymorphicAggregateRefusal } from "@validation/relations/aggregate";
 import v, { type V } from "../../primitives/v";
 import type { VibSchema } from "../../types";
@@ -12,6 +13,7 @@ import type { ScalarSchemas } from "../index";
 import {
   type ProjectableScalarKeys,
   projectableScalarNames,
+  type ViewDocumentKeys,
 } from "./projection";
 
 // =============================================================================
@@ -273,8 +275,9 @@ const requireSelectedField = (
   select: Record<string, unknown>
 ): string | undefined =>
   Object.entries(select).some(([key, value]) =>
-    key === "_count"
-      ? isRecord(value) && Object.values(new Object(value.select)).some(selects)
+    // A view's `_count` column is selected with a boolean, as a scalar is.
+    key === "_count" && isRecord(value)
+      ? Object.values(new Object(value.select)).some(selects)
       : selects(value)
   )
     ? undefined
@@ -294,7 +297,7 @@ export type SelectSchema<
     V.FromObject<F["polymorphic"], "select">["entries"] & {
       _count: CountSchema<F>;
       _aggregate: RelationAggregatesSchema<F>;
-    },
+    } & V.FromKeys<ViewDocumentKeys<M>[], typeof scalarSelectSchema>["entries"],
   SelectRefusal
 >;
 
@@ -463,6 +466,12 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
       // { select: { <relation>: true | { where } } } object.
       _count: getCountSchema(model, fieldSchemas),
       _aggregate: getRelationAggregatesSchema(fieldSchemas),
+      // A view's JSON columns, each whole, by a boolean: frozen documents
+      // take no nested arguments. Last, so a column named `_count` is one.
+      ...v.fromKeys<ViewDocumentKeys<M>[], typeof scalarSelectSchema>(
+        (viewFacts(model)?.documents ?? []) as ViewDocumentKeys<M>[],
+        scalarSelectSchema
+      ).entries,
     },
     selectOptions(model)
   );
