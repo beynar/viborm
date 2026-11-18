@@ -1,11 +1,14 @@
 /**
  * `view` at the schema: the model a view derives from its source and its
  * query (scalars, keys, JSON columns), and what definition validation refuses
- * on one (W001-W003). The read that defines it is compiled by the migration
- * layer and read back by the client; neither is this layer's.
+ * on one (W001-W004), with the census that keeps that list closed. The read
+ * that defines it is compiled by the migration layer and read back by the
+ * client; neither is this layer's.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import { s } from "@src/schema";
+import { type AnyModel, Model } from "@src/schema/model";
 import { getModelKeyCatalog } from "@src/schema/model/keys";
 import { resolveSchemaOrThrow, validateSchema } from "@src/schema/validation";
 import { viewFacts } from "@src/schema/view/facts";
@@ -165,6 +168,110 @@ describe("a view's derived model", () => {
   });
 });
 
+/**
+ * Everything a model can be told, with its answer for a view: admitted, or
+ * refused by the rule named. W002 (`rules/view.ts`) owns the refusals and
+ * reads each refused fact by name, so this list is what keeps it closed: a
+ * method or a fact added to `Model` fails below until it is classified here,
+ * and a refusal claimed here is proven by declaring it on a view.
+ */
+type Verdict = "admitted" | "W002";
+const DECLARED_ON_A_VIEW: Record<
+  string,
+  { declare: (model: AnyModel) => AnyModel; verdict: Verdict }
+> = {
+  map: { declare: (model) => model.map("titles"), verdict: "admitted" },
+  extends: {
+    declare: (model) => model.extends({ extra: s.string() }),
+    verdict: "W002",
+  },
+  id: { declare: (model) => model.id(["title", "published"]), verdict: "W002" },
+  unique: {
+    declare: (model) => model.unique(["title", "published"]),
+    verdict: "W002",
+  },
+  index: { declare: (model) => model.index(["title"]), verdict: "W002" },
+  rawIndex: {
+    declare: (model) =>
+      model.rawIndex("by_title", {
+        pg: "CREATE INDEX {name} ON {table} ({title})",
+      }),
+    verdict: "W002",
+  },
+  withoutRowid: { declare: (model) => model.withoutRowid(), verdict: "W002" },
+  omit: { declare: (model) => model.omit({ title: true }), verdict: "W002" },
+};
+
+/**
+ * What `model["~"]` answers. `state` is a view's derived state, whose keys
+ * `view.ts` closes by type; the names and the two caches follow hydration and
+ * the state, and declare nothing.
+ */
+const FACTS_OF_A_MODEL: Record<string, Verdict> = {
+  state: "admitted",
+  names: "admitted",
+  nameRegistry: "admitted",
+  getFieldName: "admitted",
+  scalarFieldNames: "admitted",
+  relationNames: "admitted",
+  rawIndexes: "W002",
+  withoutRowid: "W002",
+};
+
+/** A view without a key, so that a key declared on it is the one thing refused. */
+const censused = s.view(() => post, {
+  select: { title: true, published: true },
+});
+
+describe("what a model can be told, classified for a view", () => {
+  const subject = censused;
+  const refusedFacts = Object.keys(FACTS_OF_A_MODEL).filter(
+    (fact) => FACTS_OF_A_MODEL[fact] !== "admitted"
+  );
+
+  it("classifies every method of Model", () => {
+    expect(
+      Object.getOwnPropertyNames(Model.prototype)
+        .filter((name) => name !== "constructor" && name !== "~")
+        .sort()
+    ).toEqual(Object.keys(DECLARED_ON_A_VIEW).sort());
+  });
+
+  it("classifies every fact a model answers", () => {
+    expect(Object.keys(subject["~"]).sort()).toEqual(
+      Object.keys(FACTS_OF_A_MODEL).sort()
+    );
+  });
+
+  it("a table's state holds nothing a view neither derives nor is refused", () => {
+    // Every method on one table: what its state can carry.
+    const told = Object.values(DECLARED_ON_A_VIEW).reduce<AnyModel>(
+      (model, { declare }) => declare(model),
+      post
+    );
+    const derived = new Set(Object.keys(subject["~"].state));
+    expect(
+      Object.keys(told["~"].state)
+        .filter((key) => !derived.has(key))
+        .sort()
+    ).toEqual(refusedFacts.sort());
+  });
+
+  it.each(
+    refusedFacts
+  )("a refused fact, %s, is one a refused method states", (fact) => {
+    const stated = Object.values(DECLARED_ON_A_VIEW).filter(
+      ({ declare }) =>
+        !isDeepStrictEqual(
+          Reflect.get(declare(subject)["~"], fact),
+          Reflect.get(subject["~"], fact)
+        )
+    );
+    expect(stated.length).toBeGreaterThan(0);
+    expect(stated.map(({ verdict }) => verdict)).not.toContain("admitted");
+  });
+});
+
 describe("definition validation of a view", () => {
   const subject = s.view(() => post, { select: { id: true, title: true } });
 
@@ -185,21 +292,13 @@ describe("definition validation of a view", () => {
     expect(() => resolveSchemaOrThrow({ orphan })).not.toThrow();
   });
 
-  it("refuses what a view cannot hold beside its query (W002)", () => {
-    const refused = [
-      subject.extends({ extra: s.string() }),
-      subject.id(["id", "title"]),
-      subject.unique(["id", "title"]),
-      subject.index(["title"]),
-      subject.rawIndex("by_title", {
-        pg: "CREATE INDEX {name} ON {table} ({title})",
-      }),
-      subject.withoutRowid(),
-      subject.omit({ title: true }),
-    ];
-    for (const declared of refused) {
-      expect(codes(validateSchema({ user, post, declared }))).toContain("W002");
-    }
+  it.each(
+    Object.entries(DECLARED_ON_A_VIEW)
+  )("%s on a view is what the census says", (_, { declare, verdict }) => {
+    const declared = declare(censused);
+    expect(codes(validateSchema({ user, post, declared }))).toEqual(
+      verdict === "admitted" ? [] : [verdict]
+    );
   });
 
   it("refuses a relation on a view (W003)", () => {

@@ -336,6 +336,19 @@ not the views': it is reported to the maintainer apart from this work.
   be read back into a query.
 - CLI model discovery, Studio (listed, always read-only), type renderer.
 
+A view is a `Model`, so whatever a model can be told can be told to a view.
+What a view cannot hold is refused by one owner, W002, which reads each such
+fact by name; the list is kept closed in two places, neither of them a guard:
+
+- `STATE_KEYS` (`src/schema/view/view.ts`) is exhaustive by type. A key added
+  to `ModelState`, optional or not, fails the build until a view derives it.
+- A census (`tests/unit/schema-validation/view-declaration.core.test.ts`)
+  lists every method of `Model` and every fact of `model["~"]` with its answer
+  for a view, admitted or refused by a named rule. A method or a fact added
+  to `Model` fails it until classified; a refusal it claims is proven by
+  declaring it on a view; and a key a table's state can carry that a view
+  neither derives nor is refused fails it too.
+
 ### 3.8 Type and size cost
 
 - A schema without a view must cost nothing: the read-only surface is chosen

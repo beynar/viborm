@@ -115,12 +115,25 @@ const STATE_KEYS = [
 ] as const satisfies readonly (keyof ViewModelState)[];
 
 /**
+ * The keys of a model's state that {@link STATE_KEYS} leaves out: none. A key
+ * added to `ModelState`, optional or not, makes this a name, and
+ * `deferredState` then asks for a state no model has: the build fails until
+ * the key is listed and `deriveViewState` answers it for a view.
+ */
+type UnderivedStateKeys = Exclude<
+  keyof ViewModelState,
+  (typeof STATE_KEYS)[number]
+>;
+
+/**
  * A state whose members are derived on the first read of any of them, and are
  * plain data from then on, as a table's state is: every later read finds a
  * value, not an accessor. A view that reads itself through its sources asks
  * again while the first answer is being made, and is refused there.
  */
-function deferredState(derive: () => ViewModelState): ViewModelState {
+function deferredState(
+  derive: () => ViewModelState & Record<UnderivedStateKeys, never>
+): ViewModelState {
   let deriving = false;
   const state = {} as ViewModelState;
   const settle = (): ViewModelState => {

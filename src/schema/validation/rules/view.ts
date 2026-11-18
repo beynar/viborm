@@ -28,6 +28,11 @@ function sameMembers(
  * query does not project). W003: a view declares no relation. W004: a JSON
  * column takes its selection's name, which no scalar's column may share.
  *
+ * W002 is the one owner of what a view cannot hold, and it reads each such
+ * fact by name. `view-declaration.core.test.ts` lists every method and every
+ * fact of a model with its answer for a view, so one added to `Model` is
+ * classified, and read here if refused, before it can be declared on a view.
+ *
  * Advice like every model rule, and the one rule a migration of a view always
  * runs (`viewDefinition`): a view exists only where a migration created it,
  * so a client is built without it.
