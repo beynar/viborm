@@ -10,9 +10,11 @@ import type {
   ClientRowsContext,
   ComputedOperation,
   ComputedOperations,
+  DeclaredTable,
   Schema,
   StampedOperation,
   StampedOperations,
+  ViewOperations,
 } from "@client/types";
 import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
@@ -126,13 +128,16 @@ export type ExtensionModelDelegate<
       Client<C, ClientRowsContext<C, X["filtered"]>, X["args"]>[ModelName],
       StampedOperation
     > &
-      StampedOperations<
-        C,
-        ClientRowsContext<C, X["filtered"]>,
-        X["args"],
-        X["defaults"],
-        ModelName
-      >) &
+      // A view is never written, so a chain's create data gives it no write.
+      (ClientSchema<C>[ModelName] extends DeclaredTable
+        ? StampedOperations<
+            C,
+            ClientRowsContext<C, X["filtered"]>,
+            X["args"],
+            X["defaults"],
+            ModelName
+          >
+        : unknown)) &
   MethodsForModel<X, ModelName> &
   DelegateLink<C, X, ModelName> &
   ModelRows;
@@ -172,14 +177,26 @@ type ComputedModelDelegate<
   X extends ExtensionStateConstraint,
   ModelName extends keyof ClientSchema<C>,
 > = Omit<ExtensionModelDelegate<C, X, ModelName>, ComputedOperation> &
-  ComputedOperations<
-    C,
-    ClientRowsContext<C, X["filtered"]>,
-    X["args"],
-    X["defaults"],
-    ModelName,
-    X["fields"]
-  >;
+  (ClientSchema<C>[ModelName] extends DeclaredTable
+    ? ComputedOperations<
+        C,
+        ClientRowsContext<C, X["filtered"]>,
+        X["args"],
+        X["defaults"],
+        ModelName,
+        X["fields"]
+      >
+    : Pick<
+        ComputedOperations<
+          C,
+          ClientRowsContext<C, X["filtered"]>,
+          X["args"],
+          X["defaults"],
+          ModelName,
+          X["fields"]
+        >,
+        Extract<ComputedOperation, ViewOperations<ClientSchema<C>[ModelName]>>
+      >);
 
 /**
  * Model delegates after the methods contributed by the current chain. The

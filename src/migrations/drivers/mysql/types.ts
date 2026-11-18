@@ -70,3 +70,9 @@ export interface MySQLUniqueConstraint {
   COLUMN_NAME: string;
   ORDINAL_POSITION: number;
 }
+
+/** A view of the database, with the definition MySQL rewrote it to. */
+export interface MySQLView {
+  TABLE_NAME: string;
+  VIEW_DEFINITION: string | null;
+}

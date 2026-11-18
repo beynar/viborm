@@ -6,7 +6,7 @@
  */
 
 import type { Dialect } from "@drivers/types";
-import { UnsupportedOperationError } from "@errors";
+import { FeatureNotSupportedError, UnsupportedOperationError } from "@errors";
 import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import {
   type PreparedDomain,
@@ -25,6 +25,7 @@ import type {
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Arguments, Input } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
+import { viewFacts } from "@schema/view/facts";
 import { Sql, sql } from "@sql";
 import { SurrealReadBackend } from "./read-backend";
 
@@ -36,7 +37,28 @@ function refuse(what: string): never {
   );
 }
 
+/** What this driver reads once the feature it waits for arrives. */
+function refuseUntil(feature: string, reason: string): never {
+  throw new FeatureNotSupportedError("surrealdb", feature, reason);
+}
+
 export class SurrealQueries extends Queries {
+  /**
+   * The engine makes its own view, under no domain, once per schema, adapter
+   * and driver parser, as a client is created: a schema holding a view
+   * (`s.view`) is refused there, whichever factory built the client.
+   */
+  constructor(...args: ConstructorParameters<typeof Queries>) {
+    super(...args);
+    if (this.domain === undefined)
+      for (const [name, model] of Object.entries(this.schema.schema))
+        if (viewFacts(model))
+          refuseUntil(
+            "view",
+            `The schema declares '${name}' as a view; views arrive on SurrealDB with materialized views.`
+          );
+  }
+
   /** `id` is the record's: a field of that name beside a key of another lives apart. */
   override columnName(model: AnyModel, field: string): string {
     const column = super.columnName(model, field);

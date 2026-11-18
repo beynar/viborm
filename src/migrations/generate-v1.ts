@@ -255,6 +255,7 @@ export async function generateV1(
       const staged = prepareSchemaProgram(
         adoption.operations,
         adoption.current,
+        desired,
         driver
       );
       reported.push(...staged);
@@ -525,7 +526,7 @@ function sameSchema(a: SchemaSnapshot, b: SchemaSnapshot): boolean {
   );
 }
 
-/** A snapshot with its tables, columns, keys and enums sorted by name. */
+/** A snapshot with its tables, columns, keys, enums and views sorted by name. */
 function orderFree(snapshot: SchemaSnapshot): SchemaSnapshot {
   const byName = (a: { name: string }, b: { name: string }) =>
     a.name < b.name ? -1 : Number(a.name > b.name);
@@ -541,6 +542,7 @@ function orderFree(snapshot: SchemaSnapshot): SchemaSnapshot {
       }))
       .sort(byName),
     enums: snapshot.enums && [...snapshot.enums].sort(byName),
+    views: snapshot.views && [...snapshot.views].sort(byName),
   };
 }
 

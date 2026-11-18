@@ -9,6 +9,7 @@ export default defineMeta({
     "model",
     "scalars",
     "relations",
+    "views",
     "json",
     "introspect",
     "native-types",

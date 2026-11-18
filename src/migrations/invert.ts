@@ -244,6 +244,24 @@ function invertOperation(
       ];
     }
 
+    case "createView":
+      return [{ type: "dropView", viewName: op.view.name }];
+
+    case "dropView": {
+      // A view holds no rows: dropping one loses nothing its creation does
+      // not give back, so this is no warning.
+      const view = previousSnapshot.views?.find(
+        (item) => item.name === op.viewName
+      );
+      if (!view) {
+        warnings.push(
+          `Cannot invert dropView "${op.viewName}": view not found in previous snapshot.`
+        );
+        return null;
+      }
+      return [{ type: "createView", view }];
+    }
+
     case "createEnum":
       return [{ type: "dropEnum", enumName: op.enumDef.name }];
 

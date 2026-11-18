@@ -23,6 +23,7 @@ import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { type AnyModel, getTableName, type ModelState } from "../schema/model";
 import { sqliteDateTimePhysicalForm } from "../schema/scalars/datetime/physical";
+import { viewFacts } from "../schema/view/facts";
 import { createIdentifierQuoter } from "../sql/identifiers";
 import type { DecimalDescriptor } from "../validation/primitives/decimal-codec";
 import { sqliteColumnNullable } from "./drivers/sqlite/introspect";
@@ -71,6 +72,8 @@ const quote = createIdentifierQuoter('"');
 function storageColumns(models: Record<string, AnyModel>): StorageColumn[] {
   const columns: StorageColumn[] = [];
   for (const [name, model] of Object.entries(models)) {
+    // A view stores nothing: its columns are its source's, audited there.
+    if (viewFacts(model)) continue;
     const table = getTableName(model, name);
     const state: ModelState = model["~"].state;
     for (const [field, scalar] of Object.entries(state.scalars)) {

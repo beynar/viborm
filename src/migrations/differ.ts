@@ -944,6 +944,24 @@ export async function diff(
     }
   }
 
+  // A view is its hash: a changed one is dropped and created again, one side
+  // only is created or dropped. What the program does under a view that keeps
+  // its hash is `withViewReplacements`, once the program is resolved.
+  const currentViews = new Map(
+    (current.views ?? []).map((view) => [view.name, view])
+  );
+  const desiredViews = new Map(
+    (desired.views ?? []).map((view) => [view.name, view])
+  );
+  for (const [name, view] of currentViews) {
+    if (desiredViews.get(name)?.hash !== view.hash)
+      operations.push({ type: "dropView", viewName: name });
+  }
+  for (const [name, view] of desiredViews) {
+    if (currentViews.get(name)?.hash !== view.hash)
+      operations.push({ type: "createView", view });
+  }
+
   // Sort operations for proper execution order
   return {
     operations: sortOperations(

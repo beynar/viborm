@@ -107,8 +107,8 @@ describe("docs acceptance corpus", () => {
       [...accepted, ...REFUSED_FENCE_IDS].sort()
     );
     // The counts, recorded rather than left to the reader.
-    expect(declared).toHaveLength(42);
-    expect(accepted).toHaveLength(39);
+    expect(declared).toHaveLength(43);
+    expect(accepted).toHaveLength(40);
     expect(REFUSED_FENCE_IDS).toHaveLength(3);
   });
 
@@ -118,9 +118,9 @@ describe("docs acceptance corpus", () => {
       byLanguage[fence.language] = (byLanguage[fence.language] ?? 0) + 1;
     }
     expect(byLanguage).toEqual({
-      ts: 176,
+      ts: 181,
       sql: 7,
-      json: 5,
+      json: 6,
       text: 3,
       mermaid: 1,
       bash: 1,
@@ -178,6 +178,7 @@ describe("documented JSON documents", () => {
       "json.mdx#4",
       "json.mdx#5",
       "json.mdx#6",
+      "json.mdx#7",
     ]);
   });
 

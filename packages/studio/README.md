@@ -37,7 +37,8 @@ the studio on `http://127.0.0.1:5577` and opens it.
   foreign key is picked from the rows it can point to; a relation links and
   unlinks rows through nested writes, polymorphic ones included. Select rows to
   set one field across them, or duplicate one row into the new-row drawer
-  without copying generated, primary-key or unique values.
+  without copying generated, primary-key or unique values. A database view
+  (`s.view`) is listed with a "View" badge and is never edited.
 - **Stacked changes:** nothing is written as you edit. A bar counts the
   changes; review, drop, or save them (⌘S), every one in one transaction of
   your client. Undo/redo works per editing action, including an entire paste,

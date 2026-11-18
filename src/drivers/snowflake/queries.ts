@@ -41,7 +41,7 @@
 
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import type { SnowflakeAdapter } from "@adapters/databases/snowflake/snowflake-adapter";
-import { UnsupportedOperationError } from "@errors";
+import { FeatureNotSupportedError, UnsupportedOperationError } from "@errors";
 import type {
   Leaf,
   PreparedDomain,
@@ -60,6 +60,7 @@ import type {
 import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { physicalField } from "@query-engine/raptor3/shared/storage";
 import type { AnyModel } from "@schema/model";
+import { viewFacts } from "@schema/view/facts";
 import { type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 
@@ -84,6 +85,23 @@ const RANK = "$rn";
 
 export class SnowflakeQueries extends SqlQueries {
   declare readonly adapter: SnowflakeAdapter;
+
+  /**
+   * The engine makes its own view, under no domain, once per schema, adapter
+   * and driver parser, as a client is created: a schema holding a view
+   * (`s.view`) is refused there, whichever factory built the client.
+   */
+  constructor(...args: ConstructorParameters<typeof SqlQueries>) {
+    super(...args);
+    if (this.domain === undefined)
+      for (const [name, model] of Object.entries(this.schema.schema))
+        if (viewFacts(model))
+          throw new FeatureNotSupportedError(
+            "snowflake",
+            "view",
+            `The schema declares '${name}' as a view, which VibORM neither creates nor reads on Snowflake. Read its query on its source model.`
+          );
+  }
 
   /**
    * Under a domain (an extension's rows, order or permissions) the reads stay

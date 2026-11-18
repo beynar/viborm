@@ -50,11 +50,12 @@ import {
   isTaggedNativeType,
   type NativeTypeMap,
 } from "@schema/scalars/native-types";
+import { type ViewFacts, viewFacts } from "@schema/view/facts";
 import type { JsonValue } from "@validation/primitives/json";
 import type { ObjectSchema } from "@validation/primitives/object";
 import { isFunction } from "@validation/value-guards";
 import { toError } from "../../errors/diagnostic-safety";
-import { encodeDefault } from "./default-codec";
+import { encodeDefault, encodeValueRecord } from "./default-codec";
 import type {
   CompoundKeyDocument,
   EnumDocument,
@@ -70,6 +71,7 @@ import type {
   SchemaDocument,
   VariantJunctionDocument,
   VariantTargetDocument,
+  ViewDocument,
 } from "./document";
 import { SCHEMA_DOCUMENT_VERSION } from "./document";
 import { builderMethod } from "./factories";
@@ -118,8 +120,25 @@ export function serializeSchema<
   const issues: DocumentIssues = [];
   const enums: EnumRegistry = { refs: new Map(), definitions: emptyRecord() };
   const models = emptyRecord<ModelDocument>();
+  const views = emptyRecord<ViewDocument>();
   const modelsPath = pointer(documentRoot, "models");
+  const viewsPath = pointer(documentRoot, "views");
   for (const [modelKey, model] of Object.entries(schema)) {
+    const facts = readViewFacts(model, pointer(viewsPath, modelKey));
+    if (facts !== undefined) {
+      put(
+        views,
+        modelKey,
+        serializeView(
+          model,
+          facts,
+          schema,
+          pointer(viewsPath, modelKey),
+          issues
+        )
+      );
+      continue;
+    }
     put(
       models,
       modelKey,
@@ -143,6 +162,66 @@ export function serializeSchema<
   };
   if (Object.keys(enums.definitions).length > 0) {
     document.enums = enums.definitions;
+  }
+  if (Object.keys(views).length > 0) document.views = views;
+  return document;
+}
+
+/**
+ * Whether a schema member is a view, and what makes it one. A view's facts are
+ * derived from its source on first read, so its source getter runs here; one
+ * that throws is a schema the document cannot describe.
+ */
+function readViewFacts(model: AnyModel, path: string): ViewFacts | undefined {
+  try {
+    return viewFacts(model);
+  } catch (thrown) {
+    const issue: DocumentIssues = [];
+    addIssue(
+      issue,
+      path,
+      "J006",
+      "This view's source could not be read; the schema cannot be serialized"
+    );
+    throw refuseDocument(issue, toError(thrown));
+  }
+}
+
+/**
+ * A view as `s.view` declared it: its source's schema key, its query, its
+ * name. Its columns and keys are derived from those two, so they are not
+ * written. An index, `.withoutRowid()` or `.omit()` chained on a view has no
+ * spelling in a view document, so it is named rather than dropped.
+ */
+function serializeView(
+  model: AnyModel,
+  facts: ViewFacts,
+  schema: Schema,
+  path: string,
+  issues: DocumentIssues
+): ViewDocument {
+  const state = model["~"].state;
+  const document: ViewDocument = {
+    source: schemaKeyOf(facts.source, schema, pointer(path, "source"), issues),
+    // A refused value leaves the issue that names it; nothing is returned then.
+    query:
+      encodeValueRecord(facts.query, pointer(path, "query"), issues, "query") ??
+      {},
+  };
+  if (state.tableName !== undefined) document.table = state.tableName;
+  const chained = [
+    state.indexes.length > 0 && "an index",
+    model["~"].rawIndexes.length > 0 && "a raw index",
+    model["~"].withoutRowid && "`.withoutRowid()`",
+    state.omit !== undefined && "`.omit()`",
+  ].filter((declared) => declared !== false);
+  if (chained.length > 0) {
+    addIssue(
+      issues,
+      path,
+      "J009",
+      `This view declares ${chained.join(", ")} beside its query; a view document states its source, its query and its name`
+    );
   }
   return document;
 }
@@ -672,15 +751,27 @@ function resolveTargetKey(
   path: string,
   issues: DocumentIssues
 ): string {
-  const target = readTarget(getter, path);
+  return schemaKeyOf(readTarget(getter, path), schema, path, issues);
+}
+
+/**
+ * The key under which `schema` holds `member`, by identity: the identity the
+ * resolution gate requires.
+ */
+function schemaKeyOf(
+  member: unknown,
+  schema: Schema,
+  path: string,
+  issues: DocumentIssues
+): string {
   for (const [modelKey, model] of Object.entries(schema)) {
-    if (model === target) return modelKey;
+    if (model === member) return modelKey;
   }
   addIssue(
     issues,
     path,
     "J006",
-    "This relation targets a model that is not a member of the schema record being serialized"
+    "This names a model that is not a member of the schema record being serialized"
   );
   return "";
 }

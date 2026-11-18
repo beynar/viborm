@@ -10,6 +10,7 @@
  * Plan §3.3, §4.1, falsifier §11.1.11.
  */
 
+// biome-ignore lint/performance/noNamespaceImport: these tests pin the module's whole surface
 import * as relationModule from "@schema/relation";
 import { s } from "@src/schema";
 import { describe, expect, it } from "vitest";
@@ -45,6 +46,7 @@ const SCHEMA_BUILDER_KEYS = [
   "toMany",
   "toOne",
   "vector",
+  "view",
 ] as const;
 
 /**

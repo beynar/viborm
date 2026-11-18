@@ -28,6 +28,7 @@ import {
   DecimalScalar,
   withValidatedDecimalDefault,
 } from "@schema/scalars/decimal/scalar";
+import { view as viewFactory } from "@schema/view/view";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { JsonValue } from "@validation/primitives/json";
 import { toError } from "../../errors/diagnostic-safety";
@@ -42,6 +43,7 @@ import type {
   ScalarFieldDocument,
   SchemaDocument,
   VariantTargetDocument,
+  ViewDocument,
 } from "./document";
 import { isRelationField } from "./document";
 import { builderMethod, SCALAR_FACTORIES } from "./factories";
@@ -71,6 +73,10 @@ export type FieldSchemaMap = Record<string, StandardSchemaV1<any, any>>;
  * relation target is `() => registry[key]`, and nothing invokes a getter before
  * the resolution gate, which runs after the registry is complete. The getter
  * returns the registered object BY IDENTITY, which is what the gate requires.
+ *
+ * Pass 2 creates the views, each after the view it reads: a view's source is a
+ * getter too, but `.map()` derives the view at once, so its source must already
+ * be built. They join the registry in the document's order.
  */
 export function interpret(
   document: SchemaDocument,
@@ -90,6 +96,23 @@ export function interpret(
     );
     registry[modelKey] = model;
     if (document.light) lightModels.add(model);
+  }
+  const views = document.views ?? {};
+  const viewsPath = pointer(documentRoot, "views");
+  const built = new Map<string, AnyModel>();
+  const member = (key: string) => registry[key] ?? built.get(key);
+  const build = (viewKey: string, view: ViewDocument): AnyModel => {
+    const done = built.get(viewKey);
+    if (done !== undefined) return done;
+    const source = views[view.source];
+    if (source !== undefined) build(view.source, source);
+    const model = buildView(view, member, pointer(viewsPath, viewKey));
+    built.set(viewKey, model);
+    if (document.light) lightModels.add(model);
+    return model;
+  };
+  for (const [viewKey, view] of Object.entries(views)) {
+    registry[viewKey] = build(viewKey, view);
   }
   return registry;
 }
@@ -190,6 +213,28 @@ function buildModel(
 
 function options(name: string | undefined): { name?: string } {
   return name === undefined ? {} : { name };
+}
+
+/**
+ * One view, through `s.view`: its query with every tag decoded, as the
+ * factory takes it from a human.
+ */
+function buildView(
+  document: ViewDocument,
+  member: (key: string) => AnyModel | undefined,
+  path: string
+): AnyModel {
+  const source = document.source;
+  const getter: Getter = () => member(source);
+  const query = decodeDefault(document.query, pointer(path, "query"));
+  let model: AnyModel = call(path, () =>
+    Reflect.apply(viewFactory, undefined, [getter, query])
+  );
+  if (document.table !== undefined) {
+    const table = document.table;
+    model = call(pointer(path, "table"), () => model.map(table));
+  }
+  return model;
 }
 
 // =============================================================================

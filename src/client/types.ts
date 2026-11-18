@@ -115,6 +115,40 @@ export type CacheableOperations =
   | "exist";
 
 /**
+ * What a table's model is and a view's (`s.view`) is not: a view is read and
+ * never written, so its delegate has the reads alone. A delegate asks it once
+ * per schema key, in its value: a key set that depends on it (`[O in …]`), or
+ * a delegate alias around it, makes every generic client signature compare
+ * the whole delegate (TS2589 in `createClient`'s own body). Asked as "is a
+ * table", a model of `any` state (a loose schema's) keeps every operation.
+ */
+export interface DeclaredTable {
+  readonly "~": {
+    readonly state: { readonly shape: unknown; readonly view?: undefined };
+  };
+}
+
+/** A view whose query projects no key of its source: no key names a row. */
+interface KeylessView {
+  readonly "~": {
+    readonly state: {
+      readonly uniques: Record<string, never>;
+      readonly compoundId: Record<string, never> | undefined;
+      readonly compoundUniques: Record<string, never> | undefined;
+    };
+  };
+}
+
+/**
+ * A view's operations: its reads, the unique ones only where it has a key.
+ * The key set of a view's delegate, asked in the view arm of the per-key
+ * {@link DeclaredTable} test, so a table never asks it.
+ */
+export type ViewOperations<M> = M extends KeylessView
+  ? Exclude<CacheableOperations, "findUnique" | "findUniqueOrThrow">
+  : CacheableOperations;
+
+/**
  * Operations that mutate data (not cacheable)
  */
 export type MutationOperations =
@@ -516,15 +550,25 @@ export type Client<
   ClientDefaults = ClientRelationOmitContext<C>,
   Arguments extends object = NoArguments,
 > = {
-  [K in keyof ClientSchema<C>]: {
-    [O in Operations]: Operation<
-      O,
-      ClientSchema<C>[K],
-      ClientDefaultOmit<C, K>,
-      ClientDefaults,
-      PlacedOperationArguments<Arguments, K, O>
-    >;
-  };
+  [K in keyof ClientSchema<C>]: ClientSchema<C>[K] extends DeclaredTable
+    ? {
+        [O in Operations]: Operation<
+          O,
+          ClientSchema<C>[K],
+          ClientDefaultOmit<C, K>,
+          ClientDefaults,
+          PlacedOperationArguments<Arguments, K, O>
+        >;
+      }
+    : {
+        [O in ViewOperations<ClientSchema<C>[K]>]: Operation<
+          O,
+          ClientSchema<C>[K],
+          ClientDefaultOmit<C, K>,
+          ClientDefaults,
+          PlacedOperationArguments<Arguments, K, O>
+        >;
+      };
 };
 
 /**
@@ -2417,19 +2461,30 @@ export type CachedClient<
   Arguments extends object = NoArguments,
   Models extends object = Record<never, never>,
 > = {
-  [K in keyof ClientSchema<C>]: {
-    [O in CacheableOperations]: CachedOperation<
-      O,
-      ClientSchema<C>[K],
-      ClientDefaultOmit<C, K>,
+  [K in keyof ClientSchema<C>]: (ClientSchema<C>[K] extends DeclaredTable
+    ? {
+        [O in CacheableOperations]: CachedOperation<
+          O,
+          ClientSchema<C>[K],
+          ClientDefaultOmit<C, K>,
+          ClientDefaults,
+          PlacedOperationArguments<Arguments, K, O>
+        >;
+      }
+    : {
+        [O in ViewOperations<ClientSchema<C>[K]>]: CachedOperation<
+          O,
+          ClientSchema<C>[K],
+          ClientDefaultOmit<C, K>,
+          ClientDefaults,
+          PlacedOperationArguments<Arguments, K, O>
+        >;
+      }) &
+    CachedProjectedOperations<
+      C,
+      K,
       ClientDefaults,
-      PlacedOperationArguments<Arguments, K, O>
+      Arguments,
+      K extends keyof Models ? Models[K] : Record<never, never>
     >;
-  } & CachedProjectedOperations<
-    C,
-    K,
-    ClientDefaults,
-    Arguments,
-    K extends keyof Models ? Models[K] : Record<never, never>
-  >;
 };

@@ -62,6 +62,12 @@ export function selectManagedSnapshot(
       "The schema declares a physical table outside the authenticated managed-table list",
       VibORMErrorCode.MIGRATION_INVALID_STATE
     );
+  // A view is named in the list as a table is.
+  if (desired && snapshot.views?.some((view) => !names.includes(view.name)))
+    throw new MigrationError(
+      "The schema declares a view outside the authenticated managed-table list",
+      VibORMErrorCode.MIGRATION_INVALID_STATE
+    );
   // A control-only selection (the control-table read) draws no user
   // boundary: a user table's keys must not make the control plane unreadable,
   // whatever scope the command selects.
@@ -104,7 +110,15 @@ export function selectManagedSnapshot(
         VibORMErrorCode.MIGRATION_INVALID_STATE
       );
   }
-  return { ...snapshot, tables, ...(enums === undefined ? {} : { enums }) };
+  const views = snapshot.views?.filter((view) => selected(view.name));
+  return {
+    ...snapshot,
+    tables,
+    ...(enums === undefined ? {} : { enums }),
+    ...(views === undefined
+      ? {}
+      : { views: views.length > 0 ? views : undefined }),
+  };
 }
 
 /**
@@ -335,7 +349,7 @@ export function assertEstateTargetMatches(
 
 /**
  * The tables a history command manages: the estate's frozen list, every table
- * of `snapshots`, less `unmanaged` (a table adopted by a transition, on the
+ * and view of `snapshots`, less `unmanaged` (a table adopted by a transition, on the
  * side where it is not yet managed). Undefined for an estate without a list,
  * which manages the whole database. Never the client's list: a name only the
  * client lists is a table nothing adopted yet, and it stays the user's.
@@ -347,8 +361,10 @@ export function managedTables(
 ): readonly string[] | undefined {
   if (listed === undefined) return;
   const names = new Set(listed);
-  for (const snapshot of snapshots)
+  for (const snapshot of snapshots) {
     for (const table of snapshot.tables) names.add(table.name);
+    for (const view of snapshot.views ?? []) names.add(view.name);
+  }
   for (const name of unmanaged) names.delete(name);
   return Object.freeze([...names].sort());
 }

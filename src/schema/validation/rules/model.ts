@@ -6,8 +6,10 @@ import { jsonNullKindOf } from "../../json-null";
 import type { Model, ModelState } from "../../model";
 import { getAmbiguousPublicSelectorNames } from "../../model/keys";
 import { isGeneratorDefault } from "../../scalars/common";
+import { viewFacts } from "../../view/facts";
 import type { Schema, SchemaValidationIssue } from "../types";
 import { getScalars } from "./model-members";
+import { viewIsItsRead } from "./view";
 
 /**
  * A string field's literal string default under its own validator
@@ -276,8 +278,9 @@ export function validateFieldsSinglePass(
   const compoundIdCount = Object.keys(model["~"].state.compoundId ?? {}).length;
   const hasCompoundId = compoundIdCount > 0;
 
-  // M001: No ID field (allow if compound ID exists)
-  if (idCount === 0 && !hasCompoundId) {
+  // M001: No ID field (allow if compound ID exists; a view has the keys its
+  // query projects, which may be none)
+  if (idCount === 0 && !hasCompoundId && !viewFacts(model)) {
     errors.push({
       code: "M001",
       message: `'${name}' must have an ID field (or use .id() for compound key)`,
@@ -621,4 +624,5 @@ export const modelRules = [
   memberNamesAreNotReserved,
   decimalListsAreNotKeyMembers,
   geoPointRolesArePortable,
+  viewIsItsRead,
 ];

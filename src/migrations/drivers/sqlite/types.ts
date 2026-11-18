@@ -6,6 +6,8 @@
 
 export interface SqliteTable {
   name: string;
+  /** `table`, or `view`: one read of `sqlite_master` lists both. */
+  type: string;
   /**
    * The `CREATE TABLE` statement SQLite stored, verbatim.
    *
@@ -13,7 +15,8 @@ export interface SqliteTable {
    * a column's declared precision and scale survive on a dialect whose type
    * name carries neither and whose `PRAGMA table_info` reports no constraint.
    * `null` for a table with no stored statement (SQLite's own internal ones,
-   * which this query already excludes).
+   * which this query already excludes). A view's is its `CREATE VIEW`, which
+   * ends with VibORM's marker when VibORM created it.
    */
   sql: string | null;
 }

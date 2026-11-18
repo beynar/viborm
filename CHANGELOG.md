@@ -7,6 +7,37 @@ Versioning.
 
 ### Added
 
+- **Database views declared in the schema: `s.view(() => model, query)`.** A
+  view is what `findMany(query)` reads on a model, or on another view. `push`
+  and `migrate` create it, replace it and drop it; the client reads it like a
+  model that cannot be written (`findMany`, `findFirst`, `count`,
+  `aggregate`, `groupBy`, `exist`, and `findUnique` and cursors when the view
+  projects a key of its source). On PostgreSQL, MySQL and the SQLite family
+  (SQLite, D1, libSQL, Durable Objects). Prisma reads views it does not
+  create; Drizzle creates views written in its query builder or in SQL. See
+  [Views](https://viborm.dev/docs/schema/views).
+  - **Columns.** Each selected scalar is a column stored as the table stores
+    it. Each selected relation, `_count` or `_aggregate` is one JSON column,
+    which the client decodes like the read that carries it; it takes `select`
+    and `omit`, and no filter or order.
+  - **Migrations.** A view is replaced by a drop and a create when its query
+    changes, or when the same migration changes a table it reads in a way it
+    does not survive (on PostgreSQL and MySQL: a rename, a drop, a column's
+    type, a primary key; on SQLite: anything but an index). The SQL is not compared: an
+    upgrade that writes the same read differently replaces no view. A
+    replacement loses what was attached to the view by hand, a `GRANT` on
+    PostgreSQL among them.
+  - **What a view's query may not say** at its root: `cursor`, a negative
+    `take`, `orderBy` or `skip` without `take`, an SQL fragment as an
+    operand, a recursive or polymorphic relation, a distance. `viborm
+    check` reports it (`W005`).
+  - **Extensions** act when a view is read, on the view as its own model: a
+    view over a soft-deleted model shows deleted rows unless its query filters
+    them, and a permissions policy that does not list the view refuses it.
+  - **Not yet:** materialized views, relations between a view and a model,
+    aggregated views, SurrealDB. Snowflake refuses a schema that holds a view.
+  - **`viborm/schema/json`** documents state a view in a `views` section, and
+    Studio lists views as read-only.
 - **Aggregates of a relation's rows: `_aggregate`, and an `orderBy` by
   `_sum`, `_avg`, `_min` or `_max` of a to-many relation.** `select` and
   `include` take `_aggregate: { orders: { where, _count, _sum, _avg, _min,

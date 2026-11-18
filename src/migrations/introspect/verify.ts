@@ -141,6 +141,18 @@ function describe(operation: DiffOperation): IntrospectionWarning {
         undefined,
         `rename table "${operation.from}" to "${operation.to}"`
       );
+    case "createView":
+      return push(
+        undefined,
+        operation.view.name,
+        `create view "${operation.view.name}"`
+      );
+    case "dropView":
+      return push(
+        undefined,
+        operation.viewName,
+        `drop view "${operation.viewName}"`
+      );
     case "renameColumn":
       return push(
         operation.tableName,

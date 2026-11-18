@@ -34,7 +34,12 @@ import {
   type NativeType,
   type NativeTypeMap,
 } from "@schema/scalars/native-types";
-import { readDefaultValue } from "./default-codec";
+import type { JsonValue } from "@validation/primitives/json";
+import {
+  readDefaultValue,
+  readValueRecord,
+  reservedKey,
+} from "./default-codec";
 import type {
   CompoundKeyDocument,
   EnumDocument,
@@ -51,6 +56,7 @@ import type {
   SchemaDocument,
   VariantJunctionDocument,
   VariantTargetDocument,
+  ViewDocument,
 } from "./document";
 import { isRelationField, SCHEMA_DOCUMENT_VERSION } from "./document";
 import { SCALAR_TYPE_NAMES } from "./factories";
@@ -134,7 +140,7 @@ const isScalarTypeName = (value: unknown): value is ScalarType =>
 // NODE KEY SETS
 // =============================================================================
 
-const DOCUMENT_KEYS = ["version", "light", "enums", "models"];
+const DOCUMENT_KEYS = ["version", "light", "enums", "models", "views"];
 const ENUM_KEYS = ["values", "name"];
 const MODEL_KEYS = [
   "table",
@@ -147,6 +153,7 @@ const MODEL_KEYS = [
 ];
 const INDEX_KEYS = ["fields", "name", "unique", "type", "where"];
 const COMPOUND_KEYS = ["fields", "name"];
+const VIEW_KEYS = ["source", "query", "table"];
 const NATIVE_KEYS = ["db", "type"];
 const GENERATE_KEYS = ["kind", "prefix", "length", "implicit", "generate"];
 const JUNCTION_KEYS = [
@@ -428,6 +435,8 @@ export function readDocument(input: string | object): SchemaDocument {
     document.light = true;
   const enums = readEnums(node, issues);
   if (enums !== undefined) document.enums = enums;
+  const views = readViews(node, issues);
+  if (views !== undefined) document.views = views;
   resolveReferences(document, issues);
   throwIfRefused(issues);
   return document;
@@ -520,6 +529,87 @@ function readModels(
     if (model !== undefined) models[key] = model;
   }
   return models;
+}
+
+function readViews(
+  node: Record<string, unknown>,
+  issues: DocumentIssues
+): Record<string, ViewDocument> | undefined {
+  const path = pointer(documentRoot, "views");
+  const raw = member(node, "views", documentRoot, issues);
+  if (raw === undefined) return;
+  const record = asRecord(raw, path, issues, "`views`");
+  if (record === undefined) return;
+  const views: Record<string, ViewDocument> = {};
+  for (const key of inspectKeys(record, path, issues, "J004")) {
+    const viewPath = pointer(path, key);
+    if (!refuseInvalidKey(key, viewPath, issues, "View key")) continue;
+    const view = readViewNode(
+      member(record, key, path, issues),
+      viewPath,
+      issues
+    );
+    if (view !== undefined) views[key] = view;
+  }
+  return views;
+}
+
+function readViewNode(
+  value: unknown,
+  path: string,
+  issues: DocumentIssues
+): ViewDocument | undefined {
+  const node = asRecord(value, path, issues, "A view");
+  if (node === undefined) return;
+  refuseUnknownKeys(node, VIEW_KEYS, path, issues);
+  const source = asString(
+    member(node, "source", path, issues),
+    pointer(path, "source"),
+    issues,
+    "`source`"
+  );
+  const query = readViewQuery(node, path, issues);
+  if (source === undefined || query === undefined) return;
+  const view: ViewDocument = { source, query };
+  const table = member(node, "table", path, issues);
+  if (table !== undefined) {
+    const text = asString(table, pointer(path, "table"), issues, "`table`");
+    if (text !== undefined) view.table = text;
+  }
+  return view;
+}
+
+/**
+ * A view's query: an object of `findMany` arguments whose values are JSON,
+ * tagged as a default's are.
+ *
+ * The object itself is never a tag. Decoded, a tag at the top would hand
+ * `s.view` a `Date` or a `bigint`, whose spread is an empty query: a view of
+ * every column, which nobody wrote.
+ */
+function readViewQuery(
+  node: Record<string, unknown>,
+  viewPath: string,
+  issues: DocumentIssues
+): Record<string, JsonValue> | undefined {
+  const path = pointer(viewPath, "query");
+  const record = asRecord(
+    member(node, "query", viewPath, issues),
+    path,
+    issues,
+    "`query`"
+  );
+  if (record === undefined) return;
+  if (reservedKey(inspectKeys(record, path, issues, "J004")) !== undefined) {
+    addIssue(
+      issues,
+      path,
+      "J004",
+      "`query` is an object of findMany arguments, not a tagged value"
+    );
+    return;
+  }
+  return readValueRecord(record, path, issues, "query");
 }
 
 // =============================================================================
@@ -1549,8 +1639,8 @@ function readJunctionAction(
 // =============================================================================
 
 /**
- * The two references a document alone can resolve: a relation's target model
- * key, and an `omit` entry.
+ * The references a document alone can resolve: a relation's target model key,
+ * an `omit` entry, and a view's source.
  *
  * A missing model key would otherwise reach the resolution gate as
  * `R006`/`P001` over a getter that answered `undefined`, with no document
@@ -1577,6 +1667,71 @@ function resolveReferences(
     }
     resolveOmitReferences(model, modelPath, issues);
   }
+  resolveViewReferences(document, issues);
+}
+
+/**
+ * A view's source names a model or a view of this document, and views do not
+ * read each other in a cycle: `s.view` derives a view from its source, so a
+ * cycle has no first view to derive. A view key is not also a model key,
+ * since both name one member of the schema record.
+ */
+function resolveViewReferences(
+  document: SchemaDocument,
+  issues: DocumentIssues
+): void {
+  const views = document.views ?? {};
+  const viewsPath = pointer(documentRoot, "views");
+  for (const [viewKey, view] of Object.entries(views)) {
+    const viewPath = pointer(viewsPath, viewKey);
+    if (Object.hasOwn(document.models, viewKey)) {
+      addIssue(
+        issues,
+        viewPath,
+        "J013",
+        `'${viewKey}' is declared in \`models\` and in \`views\`; a schema key names one model or one view`
+      );
+    }
+    const sourcePath = pointer(viewPath, "source");
+    if (
+      !(
+        Object.hasOwn(document.models, view.source) ||
+        Object.hasOwn(views, view.source)
+      )
+    ) {
+      addIssue(
+        issues,
+        sourcePath,
+        "J006",
+        `\`source\` names '${view.source}', which neither \`models\` nor \`views\` declares`
+      );
+      continue;
+    }
+    if (readsItself(views, viewKey)) {
+      addIssue(
+        issues,
+        sourcePath,
+        "J012",
+        `View '${viewKey}' reads itself through its sources; a view reads a model, or a view that does not read it`
+      );
+    }
+  }
+}
+
+/** Whether following `viewKey`'s sources through `views` comes back to it. */
+function readsItself(
+  views: Readonly<Record<string, ViewDocument>>,
+  viewKey: string
+): boolean {
+  const followed = new Set<string>();
+  let key = views[viewKey]?.source;
+  while (key !== undefined && Object.hasOwn(views, key)) {
+    if (key === viewKey) return true;
+    if (followed.has(key)) return false;
+    followed.add(key);
+    key = views[key]?.source;
+  }
+  return false;
 }
 
 function resolveTargetReferences(

@@ -13,6 +13,7 @@ import {
   junctionOnDelete,
   type ResolvedSlot,
 } from "@schema/validation/relation-resolution";
+import { viewFacts } from "@schema/view/facts";
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import type { GroupByMember } from "@validation/model/args/time-step";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
@@ -33,7 +34,7 @@ import {
   type Membership,
   type PhysicalField,
 } from "./storage";
-import { scalarsOf } from "./terms";
+import { nameOf, scalarsOf } from "./terms";
 
 export type Input = Record<string, unknown>;
 export type ReadOperation =
@@ -69,6 +70,26 @@ export function isReadOperation(
   operation: Operation
 ): operation is ReadOperation {
   return READ_OPERATIONS.has(operation);
+}
+
+/**
+ * What a view admits of the operations: its reads, and a unique read only
+ * when its query projects a key of its source.
+ */
+function admitViewOperation(model: AnyModel, operation: Operation): void {
+  if (!isReadOperation(operation))
+    throw new UnsupportedOperationError(
+      `'${nameOf(model)}' is a view: it is read, never written (${operation}).`,
+      { meta: { model: nameOf(model), operation } }
+    );
+  if (
+    operation === "findUnique" &&
+    getModelKeyCatalog(model).addressableKeys.length === 0
+  )
+    throw new UnsupportedOperationError(
+      `'${nameOf(model)}' is a view that projects no key of its source: no unique read names one of its rows (${operation}).`,
+      { meta: { model: nameOf(model), operation } }
+    );
 }
 /**
  * The client's already-resolved schema views. A client that composed them once
@@ -188,6 +209,12 @@ export type QueryViews = {
    * default projection, all facts of the schema and the dialect.
    */
   readonly defaultRelations: WeakMap<AnyModel, Map<string, DefaultRelation>>;
+  /**
+   * A view's JSON columns, by name: the decoder shape its source read gives
+   * each selection of its declared query, a fact of the schema and the
+   * dialect.
+   */
+  readonly documents: WeakMap<AnyModel, Readonly<Record<string, Shape | Leaf>>>;
 };
 
 /** A relation member at its default projection, and its decoded shape. */
@@ -200,6 +227,7 @@ const createQueryViews = (): QueryViews => ({
   leaves: new WeakMap(),
   defaultProjections: new WeakMap(),
   defaultRelations: new WeakMap(),
+  documents: new WeakMap(),
 });
 
 const NO_KEY: readonly string[] = [];
@@ -241,6 +269,10 @@ export class EngineSchema {
     this.registry = createResolvedSchemaRegistry(schema, this.index);
   }
   admit(model: AnyModel, operation: Operation, raw: unknown): Arguments {
+    // A view's rows are its query's: every root call is admitted here, so a
+    // write is refused before any statement, whoever made the call, and so is
+    // a unique read of a view that has no key to name a row by.
+    if (viewFacts(model) !== undefined) admitViewOperation(model, operation);
     const admitted = this.#admitArguments(model, operation, raw);
     // What a key may be rewritten with is judged where an update is admitted;
     // an upsert's update arm is judged where it runs, on the row found.

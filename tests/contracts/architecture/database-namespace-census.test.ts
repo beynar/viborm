@@ -177,7 +177,7 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // #85 (1.6.0): an enum recreation reads the CHECK constraints on the
   // columns it converts, one catalog query on the handed producer (the
   // pinned session under the lock), so it can drop and re-add them.
-  "src/migrations/push-plan.ts executeRaw 4",
+  "src/migrations/push-plan.ts executeRaw 5",
   "src/migrations/push/planner.ts executeRaw 2",
   // The added catalog probe uses the pinned producer and bound probe parameters.
   "src/migrations/reset-v1.ts executeRaw 3",

@@ -27,6 +27,7 @@ export const HASH_DOMAIN = {
   resetPlan: "viborm.migration.reset-plan.v1",
   event: "viborm.migration.event.v1",
   rawIndex: "viborm.migration.raw-index.v1",
+  view: "viborm.migration.view.v1",
 } as const;
 
 export type HashDomain = (typeof HASH_DOMAIN)[keyof typeof HASH_DOMAIN];

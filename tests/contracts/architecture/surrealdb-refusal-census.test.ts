@@ -49,6 +49,10 @@ const CENSUS: Readonly<Record<string, string>> = {
   // Migrations: a snapshot that does not hold together, which the differ never plans.
   "a field of type '…'": NEVER_ASKED,
   "a native enum": "NEVER: supportsNativeEnums is false",
+  "a view":
+    "NOT YET: views on SurrealDB arrive with materialized views (DEFINE TABLE … AS)",
+  // The client: a schema holding a view, refused as the client is created.
+  view: "NOT YET: views on SurrealDB arrive with materialized views (DEFINE TABLE … AS)",
   "the junction '…'": NEVER_ASKED,
   "a junction over anything but a record's own key":
     "a generated junction is over each record's key; a declared one is a model",
@@ -90,7 +94,7 @@ const SOURCES = [
   "src/drivers/surrealdb/read-backend.ts",
   "src/migrations/drivers/surrealql/index.ts",
 ];
-const REFUSAL = /\brefuse\(\s*(`[^`]*`|"[^"]*")/g;
+const REFUSAL = /\brefuse(?:Until)?\(\s*(`[^`]*`|"[^"]*")/g;
 const INTERPOLATION = /\$\{(?:[^{}]|\{[^{}]*\})*\}/g;
 
 const stated = () =>

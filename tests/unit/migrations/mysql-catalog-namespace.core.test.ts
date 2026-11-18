@@ -212,7 +212,7 @@ describe("MySQL introspection binds the resolved database", () => {
         inFlight -= 1;
       }
     });
-    expect(server.calls).toHaveLength(6);
+    expect(server.calls).toHaveLength(7);
     expect(peak).toBe(1);
   });
 
@@ -220,7 +220,7 @@ describe("MySQL introspection binds the resolved database", () => {
     const server = emptyDatabase("billing");
     await BILLING.introspect(server.read);
 
-    expect(server.calls).toHaveLength(6);
+    expect(server.calls).toHaveLength(7);
     for (const call of server.calls) {
       expect(call.sql).not.toContain("DATABASE()");
       expect(call.sql).not.toContain("'billing'");
@@ -595,7 +595,18 @@ it("refuses only desired view collisions using the catalog-proven MySQL namespac
     sql.includes("information_schema.SCHEMATA")
       ? [{ SCHEMA_NAME: "billing" }]
       : sql.includes("information_schema.VIEWS")
-        ? [{ TABLE_NAME: "mapped_view" }, { TABLE_NAME: "unrelated" }]
+        ? [
+            {
+              TABLE_NAME: "mapped_view",
+              TABLE_TYPE: "VIEW",
+              VIEW_DEFINITION: "select 1 AS `c`",
+            },
+            {
+              TABLE_NAME: "unrelated",
+              TABLE_TYPE: "VIEW",
+              VIEW_DEFINITION: "select 1 AS `c`",
+            },
+          ]
         : []
   );
   const table = {

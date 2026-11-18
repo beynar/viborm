@@ -855,6 +855,9 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
   <span class="inline-flex items-center gap-2">
     <span class="inline-flex text-neutral/60" aria-hidden="true">{@render MODEL_ICON[model.icon]({ size: 16 })}</span>
     {model.name}
+    {#if model.kind === 'view'}
+      <Chip size="small" variant="soft">Database view</Chip>
+    {/if}
     {#if view}
       <Chip size="small" variant="soft">{view.name}</Chip>
     {/if}

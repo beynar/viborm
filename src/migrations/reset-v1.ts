@@ -6,7 +6,7 @@
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { canonicalizeJson } from "./canonical-json";
-import { tableExistsProbe } from "./catalog-probes";
+import { tableExistsProbe, viewExistsProbe } from "./catalog-probes";
 import {
   assertTransactionalBoundaryHonored,
   classifyStoredAtomicity,
@@ -630,26 +630,31 @@ async function executeResetClear(
       );
     }
   };
+  // A table or a view is dropped once, proven gone, and confirmed.
+  const dropProven = async (
+    drop: { readonly name: string; readonly sql: string },
+    kind: "table" | "view"
+  ) => {
+    const probe = kind === "view" ? viewExistsProbe : tableExistsProbe;
+    if (!(await evaluateProbe(pinned, probe(command, drop.name, true)))) {
+      await confirmResetStep(pinned, command, graph, attemptId, drop.sql);
+      return;
+    }
+    await runClearStatement(drop.sql);
+    if (!(await evaluateProbe(pinned, probe(command, drop.name, false)))) {
+      throw new MigrationError(
+        `Reset clear did not drop ${kind} ${drop.name}`,
+        VibORMErrorCode.MIGRATION_PARTIAL_EFFECT
+      );
+    }
+    await confirmResetStep(pinned, command, graph, attemptId, drop.sql);
+  };
+  for (const view of livePlan.dropViews) await dropProven(view, "view");
   for (const sql of livePlan.dropForeignKeys) {
     await runClearStatement(sql);
     await confirmResetStep(pinned, command, graph, attemptId, sql);
   }
-  for (const table of livePlan.dropTables) {
-    const pre = tableExistsProbe(command, table.name, true);
-    const post = tableExistsProbe(command, table.name, false);
-    if (!(await evaluateProbe(pinned, pre))) {
-      await confirmResetStep(pinned, command, graph, attemptId, table.sql);
-      continue;
-    }
-    await runClearStatement(table.sql);
-    if (!(await evaluateProbe(pinned, post))) {
-      throw new MigrationError(
-        `Reset clear did not drop table ${table.name}`,
-        VibORMErrorCode.MIGRATION_PARTIAL_EFFECT
-      );
-    }
-    await confirmResetStep(pinned, command, graph, attemptId, table.sql);
-  }
+  for (const table of livePlan.dropTables) await dropProven(table, "table");
   for (const sql of livePlan.dropEnums) {
     await runClearStatement(sql);
     await confirmResetStep(pinned, command, graph, attemptId, sql);

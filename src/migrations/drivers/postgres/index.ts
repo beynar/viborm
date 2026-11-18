@@ -53,6 +53,7 @@ import type {
   TableDef,
 } from "../../types";
 import { derivedMigrationName } from "../../utils";
+import { type LiveRelation, refuseRelationCollision } from "../../view";
 import type { BoundMigrationDriver } from "..";
 import type {
   AddColumnOperation,
@@ -318,6 +319,11 @@ function readsAddedValue(
         break;
       case "createIndex":
         if (predicateNamesEnum(operation.index)) return true;
+        break;
+      // A view's body may compare a column of the type with an added label.
+      case "createView":
+        if ([...names].some((name) => mayName(operation.view.sql ?? "", name)))
+          return true;
         break;
       default:
         break;
@@ -698,27 +704,39 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
           { meta: { dialect: this.dialect, feature: "GeoPoint" } }
         );
       }
-      const desiredNames = [
+      const declaredNames = [
         ...new Set(
-          snapshots.flatMap((snapshot) =>
-            snapshot.tables.map((table) => table.name)
-          )
+          snapshots.flatMap((snapshot) => [
+            ...snapshot.tables.map((table) => table.name),
+            ...(snapshot.views ?? []).map((view) => view.name),
+          ])
         ),
       ];
-      if (desiredNames.length > 0) {
-        const views = await executeRaw<{ name: string }>(
-          `SELECT relation.relname AS name FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname=$1 AND relation.relkind IN ('v','m') AND relation.relname=ANY($2::text[])`,
-          [this.requireEstateNamespace(), arrayLiteralText(desiredNames)]
+      if (declaredNames.length > 0) {
+        const relations = await executeRaw<{
+          name: string;
+          kind: string;
+          definition: string | null;
+        }>(
+          `SELECT relation.relname AS name, relation.relkind AS kind, CASE WHEN relation.relkind = 'v' THEN pg_catalog.pg_get_viewdef(relation.oid) END AS definition FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname=$1 AND relation.relkind IN ('r','p','f','v','m') AND relation.relname=ANY($2::text[])`,
+          [this.requireEstateNamespace(), arrayLiteralText(declaredNames)]
         );
-        const collision = views.rows.find((row) =>
-          desiredNames.includes(row.name)
+        refuseRelationCollision(
+          "PostgreSQL",
+          snapshots,
+          relations.rows.map(
+            (row): LiveRelation => ({
+              name: row.name,
+              kind:
+                row.kind === "v"
+                  ? "view"
+                  : row.kind === "m"
+                    ? "other"
+                    : "table",
+              definition: row.definition,
+            })
+          )
         );
-        if (collision)
-          throw new MigrationError(
-            `PostgreSQL relation "${collision.name}" is a view or materialized view, but this schema declares a table. Synchronization refuses before effects and preserves the view.`,
-            VibORMErrorCode.MIGRATION_INVALID_STATE,
-            { meta: { table: collision.name, feature: "view" } }
-          );
       }
       if (vectors.size > 0) {
         const proof = await executeRaw<{ ready: boolean }>(

@@ -34,6 +34,7 @@ import type { ResolvedJunctionSide } from "@schema/relation/junction-topology";
 import type { Scalar } from "@schema/scalars/base";
 import type { ScalarState } from "@schema/scalars/common";
 import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
+import { viewFacts } from "@schema/view/facts";
 import { Sql, sql } from "@sql";
 import {
   type GroupedColumn,
@@ -1218,7 +1219,8 @@ export class SqlQueries extends Queries {
         row,
         domain && this.lowerSelector(domain, row),
         alias,
-        !model["~"].withoutRowid
+        // A view keeps no rowid of its own.
+        !model["~"].withoutRowid && viewFacts(model) === undefined
       );
     } finally {
       this.#pinned = undefined;
@@ -4672,7 +4674,15 @@ export class SqlQueries extends Queries {
     projection: PreparedProjection,
     field: Exclude<
       PreparedProjectionField,
-      { kind: "scalar" | "sentinel" | "relation" | "evidence" | "gate" }
+      {
+        kind:
+          | "scalar"
+          | "document"
+          | "sentinel"
+          | "relation"
+          | "evidence"
+          | "gate";
+      }
     >,
     alias?: string
   ): Sql {
@@ -4802,6 +4812,11 @@ export class SqlQueries extends Queries {
     let expression: Sql;
     if (field.kind === "scalar") {
       expression = this.projectedColumn(projection.model, field.name, alias);
+    } else if (field.kind === "document") {
+      // Stored as the document a read carries: read as it is.
+      expression = alias
+        ? this.#at(alias, field.name)
+        : this.#escaped(field.name);
     } else if (field.kind === "sentinel") {
       expression = this.#cast(this.#literal(1), "integer");
     } else if (field.kind === "evidence" || field.kind === "gate") {

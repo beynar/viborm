@@ -453,6 +453,12 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
   generateDropPrimaryKey(): never {
     throw refusal("drop a primary key");
   }
+  generateCreateView(): never {
+    throw refusal("create a view");
+  }
+  generateDropView(): never {
+    throw refusal("drop a view");
+  }
   generateCreateEnum(): never {
     throw refusal("create an enum");
   }

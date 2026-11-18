@@ -6,6 +6,7 @@
  */
 
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
+import { mysqlStringLiteral } from "../../../adapters/databases/mysql/string-literal";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import {
   readMysqlDecimalListMarker,
@@ -22,11 +23,12 @@ import type {
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
+  ViewDef,
 } from "../../types";
+import { readViewMarker } from "../../view";
 import {
   MYSQL_PRINTED_CHARACTERS,
   mysqlEnumType,
-  mysqlStringLiteral,
   parseMySqlEnumValues,
 } from "../type-mapping";
 import { groupBy, groupByNested, mapReferentialAction } from "../utils";
@@ -37,6 +39,7 @@ import type {
   MySQLIndex,
   MySQLPrimaryKey,
   MySQLTable,
+  MySQLView,
 } from "./types";
 
 // =============================================================================
@@ -51,6 +54,13 @@ SELECT TABLE_NAME
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = ?
   AND TABLE_TYPE = 'BASE TABLE'
+ORDER BY TABLE_NAME
+`;
+
+const VIEWS_QUERY = `
+SELECT TABLE_NAME, VIEW_DEFINITION
+FROM information_schema.VIEWS
+WHERE TABLE_SCHEMA = ?
 ORDER BY TABLE_NAME
 `;
 
@@ -537,6 +547,7 @@ export async function introspect(
     FOREIGN_KEYS_QUERY,
     [catalogNamespace, catalogNamespace]
   );
+  const viewsResult = await executeRaw<MySQLView>(VIEWS_QUERY, scope);
 
   admitContainedForeignKeys(
     foreignKeysResult.rows,
@@ -721,9 +732,20 @@ export async function introspect(
     });
   }
 
+  // A view is VibORM's when its definition ends with the marker. MySQL does
+  // not check what a view reads when one is dropped, so its reads are not
+  // read here: push takes a declared view's from its declaration.
+  const views: ViewDef[] = viewsResult.rows.flatMap((row) => {
+    const hash = readViewMarker(row.VIEW_DEFINITION);
+    return hash === undefined
+      ? []
+      : [{ name: row.TABLE_NAME, hash, dependsOn: [] }];
+  });
+
   // MySQL doesn't have standalone enum types, but we track them for compatibility
   return {
     tables,
     enums: enumDefs.length > 0 ? enumDefs : undefined,
+    ...(views.length > 0 ? { views } : {}),
   };
 }

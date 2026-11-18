@@ -34,7 +34,7 @@ const filter = $derived.by(() => {
     <p class="m-0 p-6 text-neutral/60">{filter.error}</p>
   {:else}
     {#key `${route.pathname}?${searchParams.toString()}#${studio.revision}`}
-      <RowsView {model} models={studio.schema.models} readonly={studio.schema.readonly} scope={opened?.scope ?? filter.scope} view={opened} views={studio.views} changes={studio.changes} {openView} navigate={navigateModel} />
+      <RowsView {model} models={studio.schema.models} readonly={studio.schema.readonly || model.kind === "view"} scope={opened?.scope ?? filter.scope} view={opened} views={studio.views} changes={studio.changes} {openView} navigate={navigateModel} />
     {/key}
   {/if}
 {/if}

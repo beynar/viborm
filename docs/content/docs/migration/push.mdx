@@ -482,6 +482,16 @@ await migrations.push({ consent: preview.consent });
 
 See the [ResolveChange interface](#resolvechange-interface) above for the full `EnumValueRemovalChange` contract.
 
+## Views
+
+A [view](/docs/schema/views) declared in the schema is created by `push`,
+replaced by a drop and a create when its query changes or when the same push
+changes a table it reads in a way the view does not survive (the
+[Views](/docs/schema/views#migrations) page lists what, per database), and
+dropped when the schema no longer declares it. A table under a declared
+view's name is dropped like any table the schema no longer declares, with the
+consent a drop takes. Dropping a view loses no data, so it asks no consent.
+
 ## Next Steps
 
 <CardGroup>

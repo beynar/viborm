@@ -26,6 +26,8 @@
 
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
+import type { Cardinality } from "@schema/relation/static-membership";
+import { viewFacts } from "@schema/view/facts";
 
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
 
@@ -68,3 +70,111 @@ export const projectableScalarNames = (model: AnyModel): readonly string[] => {
 };
 /** The names, once per model state: a default projection reads them per call. */
 const projectable = new WeakMap<object, readonly string[]>();
+
+/** The keys of a selection its value does not switch off. */
+type AskedKeys<Selection> = {
+  [K in keyof Selection]: Selection[K] extends false | undefined ? never : K;
+}[keyof Selection];
+
+/**
+ * A view's JSON columns, by name (`ViewFacts.documents`): each non-scalar
+ * selection of its declared query, a `_count` where it counts a relation;
+ * without a selection, the columns of a source view the query does not omit,
+ * then what it includes. A table's state declares no view, so it has none,
+ * and neither has `Model<any>`: read while `M` is still at its constraint, a
+ * source of `any` state would have no end (TS2589).
+ */
+export type ViewDocumentKeys<M extends AnyModel> = StateDocumentKeys<
+  ModelStateOf<M>
+>;
+
+/** {@link ViewDocumentKeys}, read off a model's state. */
+export type StateDocumentKeys<State> = 0 extends 1 & State
+  ? never
+  : State extends {
+        readonly view: {
+          readonly source: infer Source extends AnyModel;
+          readonly query: infer Query;
+        };
+      }
+    ? DeclaredDocumentKeys<Source, Query>
+    : never;
+
+type DeclaredDocumentKeys<Source extends AnyModel, Query> = Exclude<
+  Query extends { select: infer Selection extends object }
+    ? CountedKeys<
+        Source,
+        Exclude<AskedKeys<Selection>, ProjectableScalarKeys<Source>> & string,
+        Selection
+      >
+    :
+        | ViewDocumentKeys<Source>
+        | (Query extends { include: infer Included extends object }
+            ? CountedKeys<Source, AskedKeys<Included> & string, Included>
+            : never),
+  Query extends { omit: infer Omitted extends object }
+    ? AskedKeys<Omitted>
+    : never
+>;
+
+/**
+ * A projection's non-scalar keys, `_count` only where it is a column: a read
+ * gives a `_count` that counts no relation no key, so a view has no column
+ * for it (`countsRelation` in `s.view`).
+ */
+type CountedKeys<
+  Source extends AnyModel,
+  Keys,
+  Projection,
+> = "_count" extends Keys
+  ? CountsRelation<
+      Source,
+      Projection extends { readonly _count: infer Count } ? Count : never
+    > extends true
+    ? Keys
+    : Exclude<Keys, "_count">
+  : Keys;
+
+/**
+ * Whether a `_count` selection is a column of a view on `Source`: a source
+ * view's own `_count` column; else a `select` naming a relation it does not
+ * switch off; else, as `true`, a to-many relation of the source to count.
+ */
+type CountsRelation<
+  Source extends AnyModel,
+  Count,
+> = "_count" extends ViewDocumentKeys<Source>
+  ? true
+  : Count extends { readonly select: infer Counted }
+    ? [AskedKeys<Counted>] extends [never]
+      ? false
+      : true
+    : Count extends object
+      ? false
+      : "many" extends RelationCardinalities<ModelStateOf<Source>["relations"]>
+        ? true
+        : false;
+
+/** The cardinality of each relation of a relation map. */
+type RelationCardinalities<Relations> = {
+  [K in keyof Relations]: Cardinality<Relations[K]>;
+}[keyof Relations];
+
+/**
+ * The names a projection that names none reads: every projectable scalar,
+ * then a view's JSON columns, which a view row returns by default as its
+ * declared query returns them. A table's are its projectable scalars.
+ */
+export const defaultProjectionNames = (model: AnyModel): readonly string[] => {
+  const documents = viewFacts(model)?.documents;
+  if (documents === undefined) return projectableScalarNames(model);
+  const state = model["~"].state;
+  let names = viewNames.get(state);
+  if (names === undefined) {
+    names = Object.freeze([...projectableScalarNames(model), ...documents]);
+    viewNames.set(state, names);
+  }
+  return names;
+};
+/** A view's default names, once per view state. */
+const viewNames = new WeakMap<object, readonly string[]>();

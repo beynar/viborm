@@ -17,9 +17,12 @@ import {
 import { stringifyJson } from "../../adapters/shared/standard-sql";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type { ColumnDef, ReferentialAction } from "../types";
+import { wrappedViewBody } from "../view";
 import {
   type AlterEnumOperation,
+  type CreateViewOperation,
   type DDLContext,
+  type DropViewOperation,
   MigrationDriver,
 } from "./base";
 
@@ -433,6 +436,19 @@ export abstract class SqlMigrationDriver extends MigrationDriver {
    * @param tableName - The table name
    * @returns SQL DROP TABLE statement
    */
+  /**
+   * A view is created at its table position, the marker alias spelled as the
+   * dialect quotes an identifier. Its drop keeps the database's default
+   * RESTRICT: what still reads it is dropped first by the program.
+   */
+  generateCreateView(op: CreateViewOperation, context: DDLContext): string {
+    return `CREATE VIEW ${this.tableRef(op.view.name, context.destination)} AS ${wrappedViewBody(op.view, (name) => this.escapeIdentifier(name))}`;
+  }
+
+  generateDropView(op: DropViewOperation, context: DDLContext): string {
+    return `DROP VIEW ${this.tableRef(op.viewName, context.destination)}`;
+  }
+
   override generateDropTableSQL(tableName: string): string {
     return `DROP TABLE IF EXISTS ${this.tableRef(tableName, "live")}`;
   }

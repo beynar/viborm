@@ -120,8 +120,12 @@ export async function buildPushPlan(
     planningDriver,
     relations
   );
+  // The declared views wait for the live tables: a table this push manages
+  // is its to replace by a view of the same name, which only the managed
+  // snapshot says (below).
+  const { views: declaredViews, ...declaredTables } = desired;
   await command.preflightSchemaRequirements(
-    [desired],
+    [declaredTables],
     (sql, params) => producer._executeRaw(sql, params),
     []
   );
@@ -154,6 +158,25 @@ export async function buildPushPlan(
       planned.operations
     );
   }
+  if (declaredViews !== undefined)
+    await command.preflightSchemaRequirements(
+      [
+        desired,
+        // Its tables by name alone: a requirement is the declared schema's.
+        {
+          ...emptyManagedSnapshot(),
+          tables: current.tables.map(({ name }) => ({
+            name,
+            columns: [],
+            indexes: [],
+            foreignKeys: [],
+            uniqueConstraints: [],
+          })),
+        },
+      ],
+      (sql, params) => producer._executeRaw(sql, params),
+      []
+    );
   if (!options.forceReset)
     for (const operation of operations) {
       if (

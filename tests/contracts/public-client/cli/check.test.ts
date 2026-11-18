@@ -86,6 +86,15 @@ async function run(configPath: string, args: string[]) {
   return out.join("");
 }
 
+const withView = (query: string) => `
+  const user = s.model({ id: s.string().id(), name: s.string(), active: s.boolean() }).map("users");
+  const activeUser = s.view(() => user, ${query});
+  const schema = { user, activeUser };
+`;
+const WITH_VIEW = withView(
+  "{ where: { active: true }, select: { id: true, name: true } }"
+);
+
 const PRICED = `
   const item = s.model({
     id: s.int().id(),
@@ -112,6 +121,24 @@ describe("viborm check", () => {
   it("accepts a valid schema", async () => {
     expect(await check()).toContain("Schema valid (1 models).");
     expect(process.exitCode).toBeUndefined();
+  });
+
+  it("counts a database view as a view", async () => {
+    expect(await check(WITH_VIEW)).toContain(
+      "Schema valid (1 models, 1 view)."
+    );
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("refuses a view whose query a view cannot hold, or its source does not take (W005)", async () => {
+    const unordered = await check(withView('{ orderBy: { name: "asc" } }'));
+    expect(unordered).toContain("[W005] View 'activeUser'");
+    expect(unordered).toContain("orders its rows without a take");
+    expect(unordered).toContain("Schema invalid: 1 error(s).");
+    expect(process.exitCode).toBe(1);
+    const unknown = await check(withView("{ where: { nope: 1 } }"));
+    expect(unknown).toContain("[W005] View 'activeUser'");
+    expect(unknown).toContain("its source does not take");
   });
 
   it("reports what a client created with skipSchemaValidation did not check", async () => {

@@ -381,6 +381,9 @@ describe("where Neki needs a commit inside one transaction", () => {
       "DO $$ BEGIN PERFORM 1; END $$",
       "CALL p()",
       'CREATE TABLE "c" AS SELECT * FROM "a"',
+      // A view's creation resolves its body's names (plan: schema views §3.3).
+      'CREATE VIEW "v" AS SELECT "z" FROM "a"',
+      'CREATE OR REPLACE VIEW "v" AS SELECT * FROM (SELECT 1) AS "m"',
       "VACUUM a",
     ];
     for (const change of unseen) {
@@ -395,7 +398,6 @@ describe("where Neki needs a commit inside one transaction", () => {
       "GRANT SELECT ON a TO PUBLIC",
       "SET LOCAL lock_timeout = '5s'",
       "TRUNCATE a",
-      'CREATE VIEW "v" AS SELECT "z" FROM "a"',
       'CREATE INDEX "i" ON "a" ("nickname")',
     ]) {
       expect(at([ADD, statement]), statement).toEqual([]);

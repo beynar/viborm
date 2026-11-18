@@ -1,0 +1,279 @@
+---
+title: Views
+description: "Declare a database view as a read of a model, read it like a model, and let migrations keep it"
+icon: eye
+---
+
+A view is declared as what `findMany` reads on a model. VibORM's migrations
+create it in the database and keep it current. The client reads it like a
+model that cannot be written.
+
+```ts
+import { s } from "viborm";
+
+const user = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  posts: s.toMany(() => post),
+});
+
+const post = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  published: s.boolean(),
+  createdAt: s.dateTime(),
+  authorId: s.string(),
+  author: s.toOne(() => user).fields("authorId").references("id"),
+  comments: s.toMany(() => comment),
+});
+
+const comment = s.model({
+  id: s.string().id(),
+  body: s.string(),
+  createdAt: s.dateTime(),
+  postId: s.string(),
+  post: s.toOne(() => post).fields("postId").references("id"),
+});
+
+const publishedPost = s
+  .view(() => post, {
+    where: { published: true },
+    select: {
+      id: true,
+      title: true,
+      authorId: true,
+      author: { select: { name: true } },
+      comments: { orderBy: { createdAt: "desc" }, take: 3 },
+      _count: { select: { comments: true } },
+    },
+  })
+  .map("published_posts");
+```
+
+`s.view(source, query)` takes a thunk to its source and a query. The source
+is a model or another view. The query is what `findMany` takes on that
+source, and it is typed like a `findMany` call.
+
+A view goes into the schema beside the models:
+
+```ts
+const db = createClient({
+  schema: { user, post, comment, publishedPost },
+  driver,
+});
+```
+
+`.map(name)` names the view in the database, as it names a table. Without it,
+the view takes its schema key.
+
+## Columns
+
+A view's columns come from its query. Nothing else is declared.
+
+- Each selected scalar of the source is a column, stored as the table stores
+  it, under the same column name. A filter, an order or an aggregate on the
+  view means what it means on the table.
+- Each non-scalar selection is one JSON column, named by its key: a selected or
+  included relation, `_count`, or `_aggregate`. The column holds the document a
+  `findMany` returns for that key.
+
+`publishedPost` above has three scalar columns (`id`, `title`, `authorId`) and
+three JSON columns (`author`, `comments`, `_count`).
+
+A `_count` that counts no relation is no column, as it is no key of a read:
+`_count: true` on a source without a to-many relation, for instance.
+
+A query without `select` keeps every scalar of the source, minus its `omit`,
+and adds a JSON column for each relation in its `include`.
+
+## What a query may say
+
+Everything `findMany` reads, with these refusals at the root of the query:
+
+| Refused at the root | Why |
+| --- | --- |
+| `cursor`, a negative `take` | a paging anchor and a reversed result, not a row set |
+| `orderBy` or `skip` without `take` | a view has no order; order when you read it |
+| a caller `Sql` fragment as an operand, written or returned by a callback | there is no value to write into the view's SQL, and nothing to compare it by |
+| recursive projections, polymorphic variant slots | not supported in a view yet |
+| an order or a selection by a distance (`_distance`) | it binds a query value on each call |
+
+A [field reference](/docs/client/filtering/field-references) is allowed:
+`where: { updatedAt: { gt: (ctx) => ctx.fields.createdAt } }` compares two
+columns of the row.
+
+`omit` beside `select` takes from the selection, as in a read: what it names
+is no column of the view.
+
+Inside a relation, everything stays allowed: `where`, `orderBy`, `take`,
+`skip`, `cursor` and nested relations. They shape the document, not the rows.
+
+A view declares nothing beside its query. `.id()`, `.unique()`, `.index()`,
+`.rawIndex()`, `.withoutRowid()`, `.omit()`, `.extends()` and relations are
+refused (`W002`, `W003`), and so are a view whose source is not in the schema
+(`W001`) and a selection named like the column of a selected field (`W004`).
+`viborm check`, `push` and `migrate` run these rules; creating a client does
+not, since a view exists only where a migration created it. To keep a column
+out of a view, leave it out of the query.
+
+## The key
+
+A view returns rows of its source. So a key of the source whose fields the
+view selects is a key of the view, and nothing has to be declared.
+
+```ts
+const postTitle = s.view(() => post, { select: { id: true, title: true } });
+// key: id, so findUnique and cursors work
+
+const titleOnly = s.view(() => post, { select: { title: true } });
+// no key: findMany, findFirst, count, aggregate, groupBy and exist only
+```
+
+## A view over a view
+
+A view can read another view. Its query is a `findMany` on that view.
+
+```ts
+const recentTitle = s.view(() => publishedPost, {
+  select: { id: true, title: true, author: true },
+});
+```
+
+`author` stays a JSON column: it is the JSON column of `publishedPost`.
+
+## Reading a view
+
+```ts
+await db.publishedPost.findMany({
+  where: { title: { contains: "orm" } },
+  orderBy: { title: "asc" },
+  take: 20,
+});
+// { id, title, authorId, author: { name }, comments: Comment[], _count: { comments: number } }[]
+
+await db.publishedPost.findUnique({ where: { id } });
+await db.publishedPost.count({ where: { authorId } });
+```
+
+A view has the read operations: `findMany`, `findFirst`, `count`,
+`aggregate`, `groupBy` and `exist`, plus `findUnique` and cursors when it has
+a key. `create`, `update`, `delete` and the other writes are absent from its
+type and refused at run time.
+
+A JSON column is returned by default, and `select` and `omit` take it. Nothing
+else does: it is not in `where`, `orderBy`, `by`, `cursor` or `distinct`, and it
+takes no nested arguments. The document is fixed when the view is read, and a
+comparison on it would mean a different thing on each database.
+
+## Migrations
+
+`push` and `migrate` own a view like a table.
+
+- A declared view is created.
+- It is replaced, by a drop and a create, when its query changes.
+- It is also replaced when the same migration changes a table it reads in a
+  way the view does not survive:
+
+  | Database | A view is replaced around |
+  | --- | --- |
+  | PostgreSQL, MySQL | a table renamed or dropped; a column dropped, renamed or given another type; a primary key changed (a view orders its rows by it) |
+  | SQLite, D1, libSQL, Durable Objects | any change to the table except an index, because SQLite rebuilds the table |
+
+- A view the schema no longer declares is dropped.
+
+Dropping a view loses no data, so it asks no confirmation. Views are dropped
+before the tables they read and created after them. On MySQL, where a
+migration is not one transaction, a replaced view is missing from its drop to
+the end of the migration.
+
+A push that finds a table under a declared view's name treats it like any
+table the schema no longer declares: it is dropped, with the confirmation a
+drop takes, and the view is created.
+
+The SQL of a view is written from its query by the same compiler as a read,
+with every value written as a literal: a view's SQL holds no parameter. The
+migration does not compare that SQL. It compares what was declared: the
+source, the query, the shape of the JSON columns, and the relations the query
+crosses. An upgrade of VibORM that writes the same read differently does not
+replace your views.
+
+`viborm check` compiles each view's query and reports one a view cannot hold
+(`W005`).
+
+### What the database keeps beside a view
+
+A replacement is a `DROP VIEW` and a `CREATE VIEW`, so what you attached to
+the view by hand goes with it:
+
+- On PostgreSQL, its `GRANT`s, its owner and its comment. Grant again after a
+  migration that replaces the view, or grant on a role's default privileges.
+- A view of your own that reads a VibORM view blocks the drop on PostgreSQL:
+  the migration fails until you drop yours.
+
+A view under a declared name that VibORM did not create is refused. VibORM
+knows its own views by a marker in their definition, so a second application
+that shares the database should name its own tables and views in
+[`tables`](/docs/migration/push): a push without it drops the marked views it
+does not declare.
+
+### Privileges
+
+A view is a database object with its own rules, which VibORM leaves at each
+database's default:
+
+- **PostgreSQL** reads the tables with the rights of the view's owner. Row
+  level security on those tables does not apply to a reader of the view,
+  unless you set `security_invoker` on it.
+- **MySQL** creates a view with `SQL SECURITY DEFINER`: it runs as the user
+  that created it, and fails (error 1449) if that user is removed. MySQL also
+  shows a view's definition only to its definer and to users granted
+  `SHOW VIEW`. The user that runs migrations needs it, or VibORM cannot tell
+  its own views and refuses them.
+
+## Extensions
+
+A view is written into the database once, from the schema. An extension acts
+on each call of a client. So the only extension facts inside a view are schema
+facts.
+
+- **A schema `.omit()` field is not a column of a view.** It cannot be
+  selected, in the view's root or in a relation it selects. An aggregate can
+  still read it, as in any read: `_aggregate: { sessions: { _max: { token: true } } }`
+  puts the largest `token` in the view.
+- **Soft delete is not applied inside the view's query.** A view over a model
+  with [soft delete](/docs/extensions/soft-delete) shows deleted rows, unless
+  its query filters them: `where: { deletedAt: null }`. When the view selects
+  the marker column, you can list the view in the extension like a model: its
+  reads are filtered, and it gains none of the methods that write (`restore`,
+  `purge`). [Ordering](/docs/extensions/ordering) reads a listed view in its
+  order the same way, and needs the view to have a key.
+- **Permissions are not applied inside the view's query.** A
+  [permissions](/docs/extensions/permissions) policy applies when the view is
+  read, to the view as its own model. A view the policy does not list is
+  closed, like a model, and the source model's policy does not carry over.
+
+## Databases
+
+| Database | Views |
+| --- | --- |
+| PostgreSQL | ✅ JSON columns are `json` |
+| MySQL | ✅ JSON columns are `JSON` |
+| SQLite | ✅ JSON columns are text |
+| libSQL, D1, Durable Objects | The SQL is SQLite's. Not run with views in VibORM's test suite yet; D1 takes them through `migrate`, since it refuses a live `push` |
+| Snowflake | A schema holding a view is refused |
+| SurrealDB | Not supported yet |
+
+Not supported yet, on any database: materialized views, relations between a
+view and a model, and aggregated views (a view over a `groupBy`).
+
+### MySQL string values
+
+A string value of a view's query is written with MySQL's backslash escapes. A
+server running with `NO_BACKSLASH_ESCAPES` reads a backslash or a line break
+in such a value differently: run migrations without that mode, as for every
+other VibORM migration on MySQL.
+
+## In a JSON document
+
+A [JSON schema document](/docs/schema/json#views) states a view by its source,
+its query and its name.

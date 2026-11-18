@@ -349,6 +349,7 @@ const sidebar = $derived<AppShellSidebarProps>({
         label: model.name,
         href: modelHref(model.name),
         icon: MODEL_ICON[model.icon],
+        ...(model.kind === "view" ? { badge: "View" } : {}),
         isActive:
           isActive("/data/:model", { model: model.name }) &&
           !searchParams.has("view"),

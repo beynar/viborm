@@ -344,6 +344,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "VectorSchema",
       "VariantToManyRelation",
       "VariantToOneRelation",
+      "ViewState",
       "ChainedExtensionState",
       "ClientExtensionState",
       "EmptyClientExtensionState",
@@ -487,6 +488,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "VectorSchema",
       "VariantToManyRelation",
       "VariantToOneRelation",
+      "ViewState",
     ],
     []
   ),
@@ -515,6 +517,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "SchemaJsonOptions",
       "UntypedClient",
       "VariantJunctionDocument",
+      "ViewDocument",
     ],
     []
   ),
@@ -975,6 +978,7 @@ export const SCHEMA_BUILDER_KEYS = Object.freeze([
   "toMany",
   "toOne",
   "vector",
+  "view",
 ]);
 
 export const ABSENT_EXPORT_SUBPATHS = Object.freeze([

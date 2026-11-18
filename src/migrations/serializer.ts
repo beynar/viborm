@@ -42,6 +42,7 @@ import {
   resolvedEdges,
 } from "../schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "../schema/validation/validator";
+import { viewFacts } from "../schema/view/facts";
 import type { MigrationDriver } from "./drivers";
 import { declaredRawIndex, RAW_INDEX_TEMPLATE_KEY } from "./raw-index";
 import type {
@@ -57,7 +58,9 @@ import type {
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
+  ViewDef,
 } from "./types";
+import { viewDefinition } from "./view-definition";
 
 // =============================================================================
 // SERIALIZER
@@ -183,6 +186,8 @@ export function serializeResolvedModels(
   // by the walk that follows) — so the "one table name, one definition"
   // invariant covers both routes through the same map.
   const junctionTables = new Map<string, { def: TableDef; pairKey: string }>();
+  // A view holds no table, column, key or index: only its definition.
+  const views: ViewDef[] = [];
 
   for (const [modelName, model] of Object.entries(models)) {
     // Every migration path states its schema here, so this is the one refusal.
@@ -194,6 +199,20 @@ export function serializeResolvedModels(
     const modelState = model["~"].state;
     const tableName =
       model["~"].names.sql || modelState.tableName || modelName.toLowerCase();
+    if (viewFacts(model) !== undefined) {
+      const definition = viewDefinition(model, {
+        models,
+        relations: index,
+        migrationDriver,
+      });
+      views.push({
+        name: tableName,
+        hash: definition.hash,
+        sql: definition.sql,
+        dependsOn: [...definition.dependsOn],
+      });
+      continue;
+    }
 
     const columns: ColumnDef[] = [];
     const indexes: IndexDef[] = [];
@@ -877,6 +896,14 @@ export function serializeResolvedModels(
     tables: tables.map((table) => migrationDriver.finalizeTable(table)),
     enums: enums.length > 0 ? enums : undefined,
     ...(polymorphicStorage.length > 0 ? { polymorphicStorage } : {}),
+    // Absent without a view, so such a snapshot keeps its bytes and hash.
+    ...(views.length > 0
+      ? {
+          views: views.sort((a, b) =>
+            a.name < b.name ? -1 : Number(a.name > b.name)
+          ),
+        }
+      : {}),
   };
   return migrationDriver.target
     ? selectManagedSnapshot(snapshot, migrationDriver.target, true)

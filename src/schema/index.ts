@@ -19,6 +19,7 @@ import {
   time,
   vector,
 } from "./scalars";
+import { view } from "./view/view";
 
 // =============================================================================
 // SCHEMA BUILDER API
@@ -80,6 +81,9 @@ export const s = {
   // Relation factories: slot cardinality here, target domain in the argument
   toOne,
   toMany,
+
+  // A database view: a read of a model, kept by the migrations
+  view,
 };
 
 // =============================================================================
@@ -128,6 +132,8 @@ export {
 } from "./scalars";
 export * as TYPES from "./scalars/native-types";
 export * from "./validation";
+export { type ViewFacts, viewFacts } from "./view/facts";
+export type { ViewDeclaration, ViewQuery, ViewState } from "./view/view";
 
 // =============================================================================
 // TYPE INFERENCE EXPORTS

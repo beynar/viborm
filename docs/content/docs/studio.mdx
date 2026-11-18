@@ -113,7 +113,8 @@ directory can corrupt it.
 Every read and write goes through your client, so its validation, defaults,
 generators and relation semantics apply exactly as in your application, and a
 refused value shows the client's own message. A model without a primary key is
-read-only.
+read-only. A [database view](/docs/schema/views) is always read-only: it is
+listed with a "View" badge, and its JSON columns are shown with its rows.
 
 ## Live schema
 

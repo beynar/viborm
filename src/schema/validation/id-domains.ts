@@ -47,6 +47,7 @@ import {
   idDomainOfState,
   idStorageOf,
 } from "../scalars/string/id-domain";
+import { viewFacts } from "../view/facts";
 import type { ResolvedRelationIndex } from "./relation-resolution";
 import { resolvedEdges } from "./relation-resolution";
 import type { SchemaValidationIssue, ValidationContext } from "./types";
@@ -276,6 +277,17 @@ function deriveDeclaredIdDomains(
 
   for (const [model, byField] of graph) {
     for (const field of byField.keys()) resolve(model, field);
+  }
+
+  // A view's column is its source's: the same scalar under the same name, and
+  // the same stored value. A view has no foreign key to inherit through, so
+  // it takes what its source's fields inherit, through every view between.
+  for (const model of index.keys()) {
+    let source = model;
+    for (let facts = viewFacts(source); facts; facts = viewFacts(source))
+      source = facts.source;
+    const inherited = source === model ? undefined : domains.get(source);
+    if (inherited !== undefined) domains.set(model, inherited);
   }
 
   // The same question asked of the COLUMN rather than the values: a foreign

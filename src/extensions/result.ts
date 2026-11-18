@@ -26,7 +26,10 @@ import {
 } from "@client/omit";
 import type { AnyModel } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
-import { projectableScalarNames } from "@validation/model/core/projection";
+import {
+  defaultProjectionNames,
+  projectableScalarNames,
+} from "@validation/model/core/projection";
 import { isRecord } from "@validation/value-guards";
 import type { ExtensionPart } from "./chain";
 import { extensionError } from "./chain";
@@ -307,10 +310,10 @@ export interface ResultFields {
  * `fields`: fields computed from each row a call returns. Joined, the
  * chain's computed fields with this extension's appended: per model,
  * `$allModels` first, then the model's own, so a model's field can replace
- * or need an `$allModels` one. Every need is resolved here, against the
- * model's readable scalars and the fields before it; a model the schema
- * does not hold is refused, as a field computed on no row would otherwise
- * be.
+ * or need an `$allModels` one. Every need is resolved here, against what a
+ * row of the model reads by default (its scalars, a view's JSON columns) and
+ * the fields before it; a model the schema does not hold is refused, as a
+ * field computed on no row would otherwise be.
  */
 export function fieldsPart(
   declared: Readonly<
@@ -331,7 +334,7 @@ export function fieldsPart(
       for (const modelName of Object.keys(schema)) {
         const model = schema[modelName]!;
         const resolved = [...(fields[modelName] ?? [])];
-        const readable = new Set(projectableScalarNames(model));
+        const readable = new Set(defaultProjectionNames(model));
         for (const key of [ALL_MODELS, modelName]) {
           for (const [name, { needs = {}, compute }] of Object.entries(
             declared[key] ?? {}

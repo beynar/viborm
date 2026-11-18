@@ -141,6 +141,7 @@ export type {
   VariantToOneRelation,
   VectorScalar,
   VectorSchema,
+  ViewState,
 } from "./schema/exports.js";
 // Field references (`{ gt: (ctx) => ctx.fields.likes }`) — column-to-column filters.
 // `createModelFieldRefs` is the token factory the callback uses internally, and with

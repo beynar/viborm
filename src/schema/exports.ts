@@ -83,3 +83,5 @@ export {
   PG,
   SQLITE,
 } from "./scalars/native-types";
+// A view exported from a module is declared as `Model<ViewState<…>>`.
+export type { ViewState } from "./view/view";

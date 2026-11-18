@@ -2,8 +2,8 @@
  * Schema check CLI.
  *
  * Runs every check a client runs when it is created (identifiers, model
- * identity, relation resolution, selector names), plus the advisory rules,
- * against the schema of the configured client. Run it in a build or CI step to
+ * identity, relation resolution, selector names), plus the advisory rules and
+ * the query of every view, against the schema of the configured client. Run it in a build or CI step to
  * create clients with `skipSchemaValidation: true` at runtime.
  */
 
@@ -12,10 +12,17 @@ import {
   auditStorage,
   type StorageColumnAudit,
 } from "../../migrations/sqlite-storage-audit";
+import { viewBody } from "../../query-engine/raptor3/view-body";
 import { hydrateSchemaNames } from "../../schema/hydration";
-import type { SchemaValidationIssue } from "../../schema/validation/types";
+import type {
+  SchemaValidationIssue,
+  ValidationResult,
+} from "../../schema/validation/types";
 import { validateSchema } from "../../schema/validation/validator";
-import { runCli } from "../utils";
+import { viewFacts } from "../../schema/view/facts";
+import { type LoadedConfig, runCli } from "../utils";
+
+type LoadedModels = LoadedConfig["models"];
 
 interface CheckCliOptions {
   readonly config?: string;
@@ -39,11 +46,53 @@ const describeAudit = (audit: StorageColumnAudit): string => {
   return `${column}: ${audit.noncanonical} row(s) of noncanonical ${kind} text compare and sort wrongly.\n    ${repair}: https://viborm.dev/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text`;
 };
 
+/** How many models and how many database views a valid schema holds. */
+const summarize = (models: LoadedModels): string => {
+  const views = Object.values(models).filter(
+    (model) => viewFacts(model) !== undefined
+  ).length;
+  const tables = `${Object.keys(models).length - views} models`;
+  if (views === 0) return tables;
+  return `${tables}, ${views} ${views === 1 ? "view" : "views"}`;
+};
+
 // The repair hint, when the issue has one, goes on its own indented line.
 const describe = (issue: SchemaValidationIssue): string =>
   [`[${issue.code}] ${issue.message}`, issue.repair]
     .filter(Boolean)
     .join("\n    ");
+
+/**
+ * What a view's query is refused for (W005), found by compiling its body as
+ * a migration would: a clause a view cannot hold, or a query its source does
+ * not take. Asked of a schema whose relations resolve, on a dialect VibORM
+ * creates views on.
+ */
+function withViewQueries(
+  result: ValidationResult,
+  { models, driver: { dialect } }: LoadedConfig
+): ValidationResult {
+  if (
+    !result.valid ||
+    (dialect !== "postgresql" && dialect !== "mysql" && dialect !== "sqlite")
+  )
+    return result;
+  const errors = [...result.errors];
+  for (const [model, view] of Object.entries(models)) {
+    if (viewFacts(view) === undefined) continue;
+    try {
+      viewBody({ schema: models, dialect }, view);
+    } catch (cause) {
+      errors.push({
+        code: "W005",
+        message: cause instanceof Error ? cause.message : String(cause),
+        severity: "error",
+        model,
+      });
+    }
+  }
+  return { ...result, errors, valid: errors.length === 0 };
+}
 
 async function runCheck(options: CheckCliOptions): Promise<void> {
   const load = { config: options.config, skipValidation: true };
@@ -52,7 +101,7 @@ async function runCheck(options: CheckCliOptions): Promise<void> {
     // The identifier and identity checks hydration runs, whatever the
     // configured client skipped.
     hydrateSchemaNames(models);
-    const result = validateSchema(models);
+    const result = withViewQueries(validateSchema(models), config);
     const storage = options.db
       ? await auditStorage({ $driver: config.driver, $schema: models })
       : undefined;
@@ -70,7 +119,7 @@ async function runCheck(options: CheckCliOptions): Promise<void> {
         process.stderr.write(`error   ${describeAudit(audit)}\n`);
       process.stdout.write(
         result.valid
-          ? `Schema valid (${Object.keys(models).length} models).\n`
+          ? `Schema valid (${summarize(models)}).\n`
           : `Schema invalid: ${result.errors.length} error(s).\n`
       );
       if (storage)

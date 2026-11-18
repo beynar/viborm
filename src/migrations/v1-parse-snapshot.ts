@@ -34,6 +34,7 @@ import type {
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
+  ViewDef,
 } from "./types";
 import {
   exactObject,
@@ -44,8 +45,14 @@ import {
   parseStringArray,
   refuse,
 } from "./v1-parse-shared";
+import { isViewHash } from "./view";
 
-const SNAPSHOT_KEYS = ["enums", "polymorphicStorage", "tables"] as const;
+const SNAPSHOT_KEYS = [
+  "enums",
+  "polymorphicStorage",
+  "tables",
+  "views",
+] as const;
 const TABLE_KEYS = [
   "columns",
   "foreignKeys",
@@ -94,6 +101,7 @@ const FOREIGN_KEY_KEYS = [
 ] as const;
 const UNIQUE_CONSTRAINT_KEYS = ["columns", "name"] as const;
 const ENUM_KEYS = ["name", "values"] as const;
+const VIEW_KEYS = ["dependsOn", "hash", "name", "sql"] as const;
 const RELATION_STORAGE_KEYS = [
   "idColumn",
   "index",
@@ -426,6 +434,29 @@ function parseEnum(value: unknown, label: string): EnumDef {
   };
 }
 
+/** Strictly ascending: each once, in the one order a snapshot writes them. */
+function ascending(names: readonly string[]): boolean {
+  return names.every((name, index) => index === 0 || names[index - 1]! < name);
+}
+
+function parseView(value: unknown, label: string): ViewDef {
+  const record = exactObject(value, VIEW_KEYS, VIEW_KEYS, label);
+  if (!isViewHash(record.hash))
+    refuse(`${label}.hash must be 40 lowercase hex characters`);
+  const dependsOn = parseIdentifierArray(
+    record.dependsOn,
+    `${label}.dependsOn`
+  );
+  if (!ascending(dependsOn))
+    refuse(`${label}.dependsOn must be sorted, each name once`);
+  return {
+    name: parseRequiredString(record.name, `${label}.name`),
+    hash: record.hash,
+    sql: parseRequiredString(record.sql, `${label}.sql`),
+    dependsOn,
+  };
+}
+
 function parseToOneMember(
   value: unknown,
   label: string
@@ -549,6 +580,14 @@ export function parseSnapshotDocument(
           `snapshot.polymorphicStorage[${index}]`
         )
     );
+  }
+  if ("views" in record) {
+    if (!Array.isArray(record.views) || record.views.length === 0)
+      refuse("snapshot.views must be a non-empty array when present");
+    const views = parseItems(record.views, "snapshot.views", parseView);
+    if (!ascending(views.map(({ name }) => name)))
+      refuse("snapshot.views must be sorted by name, each name once");
+    snapshot.views = views;
   }
   assertCanonicalBytes(bytes, snapshot, `snapshots/${expectedHash}.json`);
   const actual = domainHash(HASH_DOMAIN.snapshot, bytes);

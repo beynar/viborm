@@ -19,6 +19,7 @@ import type {
 } from "@src/schema/validation/relation-resolution";
 import { resolvedEdges } from "@src/schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "@src/schema/validation/validator";
+import { viewFacts } from "@src/schema/view/facts";
 import { isCompactIdFormat } from "@src/validation/primitives/id-codec";
 import { guessIcon, type ModelIcon } from "./icons";
 
@@ -43,6 +44,12 @@ export interface StudioField {
   /** The generator that fills it (`increment`, `uuid`, `now`, `updatedAt`, …). */
   readonly generated?: string;
   readonly enumValues?: readonly string[];
+  /**
+   * A view's JSON column: a relation, `_count` or `_aggregate` its query
+   * reads, as one document. A row selects it; nothing filters, orders or
+   * writes it.
+   */
+  readonly document?: true;
 }
 
 export interface StudioRelation {
@@ -78,6 +85,8 @@ export interface StudioVariant {
 
 export interface StudioModel {
   readonly name: string;
+  /** A database view (`s.view`): listed and read, never written. Absent for a table. */
+  readonly kind?: "view";
   readonly table: string;
   /** The icon the studio shows it with, guessed from its names and its shape (`guessIcon`). */
   readonly icon: ModelIcon;
@@ -192,8 +201,25 @@ function describeModel(
     // A resolved schema resolves every slot of every model.
     return [describeRelation(field, model, slots!.get(field)!, named)];
   });
+  const view = viewFacts(model);
+  const documents = (view?.documents ?? []).map(
+    (document): StudioField => ({
+      name: document,
+      column: document,
+      type: "json",
+      nullable: false,
+      list: false,
+      id: false,
+      unique: false,
+      searchable: false,
+      optional: true,
+      updatable: false,
+      document: true,
+    })
+  );
   const described = {
     name,
+    ...(view ? { kind: "view" as const } : {}),
     table: getModelSqlName(model),
     ...(key
       ? {
@@ -203,7 +229,7 @@ function describeModel(
           },
         }
       : {}),
-    fields,
+    fields: [...fields, ...documents],
     relations,
   };
   return { ...described, icon: guessIcon(described) };

@@ -55,6 +55,7 @@ import type {
   SchemaSnapshot,
   TableDef,
 } from "../../types";
+import { type LiveRelation, refuseRelationCollision } from "../../view";
 import type {
   AddColumnOperation,
   AddForeignKeyOperation,
@@ -496,27 +497,29 @@ export class SQLite3MigrationDriver extends SqlMigrationDriver {
     executeRaw: Parameters<typeof introspect>[0],
     program: readonly string[]
   ): Promise<boolean> {
-    const names = [
-      ...new Set(
-        snapshots.flatMap((snapshot) =>
-          snapshot.tables.map((table) => table.name)
-        )
-      ),
-    ];
-    if (names.length === 0 && program.length === 0) return false;
+    const names = new Set(
+      snapshots.flatMap((snapshot) => [
+        ...snapshot.tables.map((table) => table.name),
+        ...(snapshot.views ?? []).map((view) => view.name),
+      ])
+    );
+    if (names.size === 0 && program.length === 0) return false;
     const objects = await executeRaw<SqliteDependent>(
-      "SELECT type, name, sql, lower(tbl_name) AS \"table\" FROM sqlite_master WHERE type IN ('view', 'trigger')"
+      "SELECT type, name, sql, lower(tbl_name) AS \"table\" FROM sqlite_master WHERE type IN ('table', 'view', 'trigger')"
     );
-    const collision = objects.rows.find(
-      (row) => row.type === "view" && names.includes(row.name)
+    refuseRelationCollision(
+      "SQLite",
+      snapshots,
+      objects.rows.flatMap((row): LiveRelation[] =>
+        names.has(row.name) && (row.type === "table" || row.type === "view")
+          ? [{ name: row.name, kind: row.type, definition: row.sql }]
+          : []
+      )
     );
-    if (collision)
-      throw new MigrationError(
-        `SQLite relation "${collision.name}" is a view, but this schema declares a table. Synchronization refuses before effects and preserves the view.`,
-        VibORMErrorCode.MIGRATION_INVALID_STATE,
-        { meta: { table: collision.name, feature: "view" } }
-      );
-    const lost = lostDependents(program, objects.rows);
+    const lost = lostDependents(
+      program,
+      objects.rows.filter((row) => row.type !== "table")
+    );
     if (lost.length > 0)
       throw new MigrationError(
         `This migration rebuilds SQLite ${lost.map(({ table, dependent }) => `table "${table}", which ${dependent.type} "${dependent.name}" depends on`).join("; ")}. ` +
