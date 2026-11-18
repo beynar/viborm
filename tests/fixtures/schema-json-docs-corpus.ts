@@ -1731,4 +1731,109 @@ export const docsFenceCorpus: DocsFenceCase[] = [
       },
     },
   },
+  {
+    id: "views.mdx#0",
+    coded: () => {
+      const user = s.model({
+        id: s.string().id(),
+        name: s.string(),
+        posts: s.toMany(() => post),
+      });
+      const post = s.model({
+        id: s.string().id(),
+        title: s.string(),
+        published: s.boolean(),
+        createdAt: s.dateTime(),
+        authorId: s.string(),
+        author: s
+          .toOne(() => user)
+          .fields("authorId")
+          .references("id"),
+        comments: s.toMany(() => comment),
+      });
+      const comment = s.model({
+        id: s.string().id(),
+        body: s.string(),
+        createdAt: s.dateTime(),
+        postId: s.string(),
+        post: s
+          .toOne(() => post)
+          .fields("postId")
+          .references("id"),
+      });
+      const publishedPost = s
+        .view(() => post, {
+          where: { published: true },
+          select: {
+            id: true,
+            title: true,
+            authorId: true,
+            author: { select: { name: true } },
+            comments: { orderBy: { createdAt: "desc" }, take: 3 },
+            _count: { select: { comments: true } },
+          },
+        })
+        .map("published_posts");
+      return { user, post, comment, publishedPost };
+    },
+    document: {
+      version: 1,
+      models: {
+        user: {
+          fields: {
+            id: ID,
+            name: STRING,
+            posts: { type: "toMany", target: "post" },
+          },
+        },
+        post: {
+          fields: {
+            id: ID,
+            title: STRING,
+            published: { type: "boolean" },
+            createdAt: { type: "datetime" },
+            authorId: STRING,
+            author: {
+              type: "toOne",
+              target: "user",
+              fields: ["authorId"],
+              references: ["id"],
+            },
+            comments: { type: "toMany", target: "comment" },
+          },
+        },
+        comment: {
+          fields: {
+            id: ID,
+            body: STRING,
+            createdAt: { type: "datetime" },
+            postId: STRING,
+            post: {
+              type: "toOne",
+              target: "post",
+              fields: ["postId"],
+              references: ["id"],
+            },
+          },
+        },
+      },
+      views: {
+        publishedPost: {
+          source: "post",
+          query: {
+            where: { published: true },
+            select: {
+              id: true,
+              title: true,
+              authorId: true,
+              author: { select: { name: true } },
+              comments: { orderBy: { createdAt: "desc" }, take: 3 },
+              _count: { select: { comments: true } },
+            },
+          },
+          table: "published_posts",
+        },
+      },
+    },
+  },
 ];

@@ -49,6 +49,9 @@ export type TableData = {
   <header>
     <span class="icon" aria-hidden="true">{@render MODEL_ICON[data.model.icon]({ size: 16 })}</span>
     <a class="name nodrag" href={modelHref(data.model.name)}>{data.model.name}</a>
+    {#if data.model.kind === 'view'}
+      <span class="kind" {@attach tooltip({ content: 'A database view: read, never written' })}>view</span>
+    {/if}
     {#if data.model.table !== data.model.name}
       <span class="table" {@attach tooltip({ content: 'The table in the database' })}>{data.model.table}</span>
     {/if}
@@ -121,6 +124,7 @@ export type TableData = {
   .name { font-size: 15px; font-weight: 600; color: inherit; text-decoration: none; }
   .name:hover { text-decoration: underline; }
   .table { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: color-mix(in oklab, var(--color-neutral) 45%, transparent); }
+  .kind { font-size: 11px; color: color-mix(in oklab, var(--color-neutral) 45%, transparent); }
   ul { list-style: none; margin: 0; padding: 4px 0; }
   ul.relations { border-top: 1px dashed color-mix(in oklab, var(--color-neutral) 12%, transparent); }
   li { position: relative; display: flex; align-items: center; gap: 6px; height: var(--row); padding: 0 12px; }

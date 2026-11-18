@@ -21,6 +21,7 @@ import {
 } from "@schema/relation";
 import type { Scalar, ScalarType } from "@schema/scalars";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
+import { type ViewFacts, viewFacts } from "@schema/view/facts";
 import type { Operations, Schema } from "./types";
 
 type TypeNode =
@@ -541,9 +542,53 @@ function schemaRelationType(
   return slotMayBeEmpty(resolved) ? unionOf(target, NULL_TYPE) : target;
 }
 
+/** A `findMany` payload on `model`, admitted as the client admits it. */
+export type AdmitRead = (
+  model: AnyModel,
+  args: Readonly<Record<string, unknown>>
+) => Record<string, unknown>;
+
+/**
+ * A view's JSON columns, each typed as the row its query reads on its source
+ * types that key. A view over a view reads its source's JSON columns as they
+ * are, so it types them as its source does.
+ */
+function documentFields(
+  facts: ViewFacts,
+  admit: AdmitRead,
+  index: ResolvedRelationIndex,
+  declarations: AliasDeclaration[]
+): TypeField[] {
+  const sourceFacts = viewFacts(facts.source);
+  const read = sourceFacts
+    ? documentFields(sourceFacts, admit, index, declarations)
+    : rowFields(
+        facts.source,
+        requiredShape(
+          buildExpectedResultShape(
+            facts.source,
+            "findMany",
+            admit(facts.source, facts.query),
+            index
+          )
+        ),
+        declarations
+      );
+  return read.filter((field) => facts.documents.includes(field.name));
+}
+
+function requiredShape(
+  shape: ExpectedResultShape | undefined
+): ExpectedResultShape {
+  if (shape) return shape;
+  throw new QueryEngineError("A view's query has no renderable result shape.");
+}
+
 function schemaModelType(
   model: AnyModel,
-  index: ResolvedRelationIndex
+  index: ResolvedRelationIndex,
+  admit: AdmitRead,
+  declarations: AliasDeclaration[]
 ): TypeNode {
   const state = model["~"].state;
   const fields: TypeField[] = [];
@@ -570,16 +615,26 @@ function schemaModelType(
       `Model '${modelName}' has unknown field '${fieldName}'.`
     );
   }
+  const facts = viewFacts(model);
+  if (facts) fields.push(...documentFields(facts, admit, index, declarations));
   return objectOf(fields);
 }
 
+/**
+ * The schema graph as one `VibORMSchema` declaration, followed by one alias per
+ * recursive slot a view's JSON column reads (format: `operationResultType`).
+ */
 export function schemaType(
   schema: Schema,
-  index: ResolvedRelationIndex
+  index: ResolvedRelationIndex,
+  admit: AdmitRead
 ): string {
+  const declarations: AliasDeclaration[] = [];
   const models = Object.entries(schema).map(([modelName, model]) => ({
     name: modelName,
-    type: schemaModelType(model, index),
+    type: schemaModelType(model, index, admit, declarations),
   }));
-  return `type VibORMSchema = ${renderType(objectOf(models), 0)};`;
+  return [{ name: "VibORMSchema", type: objectOf(models) }, ...declarations]
+    .map(({ name, type }) => `type ${name} = ${renderType(type, 0)};`)
+    .join("\n");
 }

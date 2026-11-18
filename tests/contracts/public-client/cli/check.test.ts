@@ -86,6 +86,12 @@ async function run(configPath: string, args: string[]) {
   return out.join("");
 }
 
+const WITH_VIEW = `
+  const user = s.model({ id: s.string().id(), name: s.string(), active: s.boolean() }).map("users");
+  const activeUser = s.view(() => user, { where: { active: true }, select: { id: true, name: true } });
+  const schema = { user, activeUser };
+`;
+
 const PRICED = `
   const item = s.model({
     id: s.int().id(),
@@ -111,6 +117,13 @@ const TEMPORAL = `
 describe("viborm check", () => {
   it("accepts a valid schema", async () => {
     expect(await check()).toContain("Schema valid (1 models).");
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("counts a database view as a view", async () => {
+    expect(await check(WITH_VIEW)).toContain(
+      "Schema valid (1 models, 1 view)."
+    );
     expect(process.exitCode).toBeUndefined();
   });
 

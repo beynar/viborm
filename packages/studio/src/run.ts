@@ -21,6 +21,7 @@ import {
   loadProject,
   watchFiles,
 } from "./config";
+import type { StudioSchema } from "./schema";
 import { type StudioServer, startStudioServer } from "./server";
 import { defaultStoreDir, projectStore } from "./store";
 import { type RecordingTracer, recordingTracer } from "./trace";
@@ -97,7 +98,7 @@ export async function runStudio(options: RunStudioOptions): Promise<void> {
   let api = serving(project);
   const server = await listen(options, (request) => api.handle(request));
   print(
-    `VibORM Studio is running on ${server.url} (${api.schema.dialect}, ${api.schema.models.length} models${api.schema.readonly ? ", read-only" : ""})`
+    `VibORM Studio is running on ${server.url} (${api.schema.dialect}, ${counted(api.schema)}${api.schema.readonly ? ", read-only" : ""})`
   );
 
   let stopWatching = (): void => undefined;
@@ -116,7 +117,7 @@ export async function runStudio(options: RunStudioOptions): Promise<void> {
       api = nextApi;
       revision += 1;
       await previous.config.client.$disconnect().catch(() => undefined);
-      print(`Reloaded ${shown}: ${nextApi.schema.models.length} models`);
+      print(`Reloaded ${shown}: ${counted(nextApi.schema)}`);
       server.broadcast("schema", { revision });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -140,6 +141,14 @@ export async function runStudio(options: RunStudioOptions): Promise<void> {
   stopWatching();
   await server.close();
   await project.config.client.$disconnect();
+}
+
+/** How many models and database views the studio serves, for the lines it prints. */
+function counted(schema: StudioSchema): string {
+  const views = schema.models.filter((model) => model.kind === "view").length;
+  const tables = `${schema.models.length - views} models`;
+  if (views === 0) return tables;
+  return `${tables}, ${views} ${views === 1 ? "view" : "views"}`;
 }
 
 const studioApiOf = (

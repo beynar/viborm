@@ -5,7 +5,7 @@
  *
  * The API owns four things only: which model a path names, the paging bound,
  * that an update or delete addresses exactly one row by its key, and whether
- * the studio writes at all (`--readonly`). What a `where`, `orderBy` or `data`
+ * the studio writes at all (`--readonly`, and never to a database view). What a `where`, `orderBy` or `data`
  * may contain is the client's to decide, and its refusal comes back as a 400
  * with the client's own message.
  */
@@ -406,6 +406,15 @@ export function createStudioApi(options: StudioApiOptions) {
         404,
         "unknown_model",
         `Unknown model "${String(change.model)}"`
+      );
+    }
+    // Every change is planned before the transaction opens, so a save that
+    // names a view writes nothing at all.
+    if (model.kind === "view") {
+      throw new Refusal(
+        403,
+        "read_only_view",
+        `"${model.name}" is a database view: the studio reads it and never writes it`
       );
     }
     switch (change.action) {

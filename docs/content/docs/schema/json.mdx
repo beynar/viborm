@@ -31,7 +31,8 @@ client](#the-untyped-client).
 
 ## The document
 
-`version` and `models` are required. Every other key is optional.
+`version` and `models` are required. Every other key is optional, `views`
+included.
 
 ```json
 {
@@ -330,6 +331,64 @@ A `decimal` default is a string, `"default": "1.5"`: a JSON number is a double,
 and the decimal domain refuses `"default": 1.5` the same way it refuses one in
 a query.
 
+### Views
+
+A [view](/docs/schema/views) is stated in `views`, beside `models`, by what
+`s.view` takes: its source and its query.
+
+```json
+{
+  "version": 1,
+  "models": {
+    "post": {
+      "fields": {
+        "id":        { "type": "string", "id": true },
+        "title":     { "type": "string" },
+        "published": { "type": "boolean" },
+        "createdAt": { "type": "datetime" }
+      }
+    }
+  },
+  "views": {
+    "recentPost": {
+      "source": "post",
+      "query": {
+        "where": {
+          "published": true,
+          "createdAt": { "gt": { "$date": "2026-01-01T00:00:00.000Z" } }
+        },
+        "select": { "id": true, "title": true }
+      },
+      "table": "recent_posts"
+    },
+    "recentTitle": {
+      "source": "recentPost",
+      "query": { "select": { "title": true } }
+    }
+  }
+}
+```
+
+| Key | Means |
+| --- | --- |
+| `source` | the model key or view key the view reads |
+| `query` | what `findMany` takes on the source |
+| `table` | `.map(viewName)` |
+
+A view's columns and key are not written. `s.view` derives them from the source
+and the query, so the parser calls `s.view` and gets them back.
+
+A value in `query` that JSON cannot spell takes the same tag as a
+[default](#defaults): `{ "$date": … }`, `{ "$bigint": … }`, `{ "$bytes": … }`,
+`{ "$jsonNull": … }`. A one-key object whose key starts with `$` is a tag, so a
+`$through` filter on its own is written `{ "$raw": { "$through": … } }`. The
+query itself is an object of `findMany` arguments, never a tag.
+
+A view key and a model key name one member of the schema, so no key is both
+(`J013`). A `source` names a model or a view of the document (`J006`), and
+views do not read each other in a cycle (`J012`). A view may be listed before
+the view it reads.
+
 ## What the format refuses
 
 Three things, each with a named alternative.
@@ -375,6 +434,10 @@ then a partial index stays in TypeScript.
 Each refusal happens in **both** directions — `serializeSchema` names the field
 carrying a function default, a validator or a `where` rather than dropping it,
 so a round trip can never silently produce a different schema.
+
+A view's query is refused the same way when it holds a function or a caller
+`Sql` operand (`J009`). So is an index, `.withoutRowid()` or `.omit()` chained
+on a view: a view document states its source, its query and its name.
 
 ## The canonical form
 
@@ -459,10 +522,12 @@ Validation failed for schema-json: 2 validation errors
 | `J005` | a key that must be a schema identifier is not one |
 | `J006` | a reference names something the document does not declare |
 | `J007` | the scalar type has no such modifier |
-| `J008` | a default is outside the field's own domain |
+| `J008` | a default is outside the field's own domain, or a tag is malformed |
 | `J009` | the document spells a surface v1 refuses |
 | `J010` | a builder refused the declaration this node denotes |
 | `J011` | a `native.type` (or a `nativeByDialect` entry's `type`) is not in the declared dialect's native type catalog |
+| `J012` | views read each other in a cycle |
+| `J013` | a key names both a model and a view |
 
 Anything the document itself can be wrong about is reported **all at once**.
 Anything semantic — a foreign key that does not pair, a graph that does not

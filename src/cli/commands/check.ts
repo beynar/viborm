@@ -15,7 +15,10 @@ import {
 import { hydrateSchemaNames } from "../../schema/hydration";
 import type { SchemaValidationIssue } from "../../schema/validation/types";
 import { validateSchema } from "../../schema/validation/validator";
-import { runCli } from "../utils";
+import { viewFacts } from "../../schema/view/facts";
+import { type LoadedConfig, runCli } from "../utils";
+
+type LoadedModels = LoadedConfig["models"];
 
 interface CheckCliOptions {
   readonly config?: string;
@@ -37,6 +40,16 @@ const describeAudit = (audit: StorageColumnAudit): string => {
     ? "Rewrite each row through the typed client (`update`), which stores canonical members"
     : `Repair with sqliteCanonical${kind}Expression from viborm/migrations`;
   return `${column}: ${audit.noncanonical} row(s) of noncanonical ${kind} text compare and sort wrongly.\n    ${repair}: https://viborm.dev/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text`;
+};
+
+/** How many models and how many database views a valid schema holds. */
+const summarize = (models: LoadedModels): string => {
+  const views = Object.values(models).filter(
+    (model) => viewFacts(model) !== undefined
+  ).length;
+  const tables = `${Object.keys(models).length - views} models`;
+  if (views === 0) return tables;
+  return `${tables}, ${views} ${views === 1 ? "view" : "views"}`;
 };
 
 // The repair hint, when the issue has one, goes on its own indented line.
@@ -70,7 +83,7 @@ async function runCheck(options: CheckCliOptions): Promise<void> {
         process.stderr.write(`error   ${describeAudit(audit)}\n`);
       process.stdout.write(
         result.valid
-          ? `Schema valid (${Object.keys(models).length} models).\n`
+          ? `Schema valid (${summarize(models)}).\n`
           : `Schema invalid: ${result.errors.length} error(s).\n`
       );
       if (storage)

@@ -45,6 +45,7 @@ export type {
   ScalarFieldDocument,
   SchemaDocument,
   VariantJunctionDocument,
+  ViewDocument,
 } from "./document";
 export { SCHEMA_DOCUMENT_VERSION } from "./document";
 export type { FieldSchemaMap } from "./interpret";

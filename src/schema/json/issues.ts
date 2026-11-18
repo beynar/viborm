@@ -25,6 +25,8 @@ import { toError } from "../../errors/diagnostic-safety";
  * - `J009` the document spells a surface v1 refuses
  * - `J010` a builder refused the declaration this node denotes
  * - `J011` a native type is not in the declared dialect's catalog
+ * - `J012` views read each other in a cycle
+ * - `J013` a key names both a model and a view
  */
 export type DocumentIssueCode =
   | "J001"
@@ -37,7 +39,9 @@ export type DocumentIssueCode =
   | "J008"
   | "J009"
   | "J010"
-  | "J011";
+  | "J011"
+  | "J012"
+  | "J013";
 
 /** The document root pointer, and the source path every refusal carries. */
 const DOCUMENT_ROOT = "";

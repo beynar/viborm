@@ -1,8 +1,10 @@
 // The default codec: the one conversion between a declaration's default value
-// and the JSON that states it, in both directions.
+// and the JSON that states it, in both directions. A view's query holds values
+// from the same domains (a `Date` or a `bigint` in a filter), so it is written
+// by the same codec and the same tags.
 //
-// A default is the only place a document holds a value from a domain the FIELD
-// chose rather than the format. `.default(...)` takes the scalar's own input
+// A default holds a value from a domain the FIELD chose rather than the
+// format. `.default(...)` takes the scalar's own input
 // domain, and three members of those domains have no JSON spelling — `bigint`,
 // `Date`, `Uint8Array` — while a `json` field's domain is an arbitrarily deep
 // structure that may contain them at any position.
@@ -70,9 +72,51 @@ const TAGS = `'${BIGINT_TAG}' (a decimal integer string), '${DATE_TAG}' (an ISO 
  * Exactly one own key, beginning with `$`. Two keys is an ordinary object that
  * merely mentions a tag name, and is left alone in both directions.
  */
-function reservedKey(keys: readonly string[]): string | undefined {
+export function reservedKey(keys: readonly string[]): string | undefined {
   const only = keys.length === 1 ? keys[0] : undefined;
   return only?.startsWith(RESERVED_PREFIX) === true ? only : undefined;
+}
+
+/**
+ * Whose value a walk reads or writes: a field's default, or a view's query.
+ * The tags and the rules are the same; only what the messages call it, and
+ * what they offer instead of a function, differ.
+ */
+export type ValueRole = "default" | "query";
+
+const ROLE_WORDS: Readonly<
+  Record<
+    ValueRole,
+    {
+      readonly value: string;
+      readonly whole: string;
+      readonly function: string;
+      readonly admitted: string;
+    }
+  >
+> = {
+  default: {
+    value: "A default",
+    whole: "This default",
+    function:
+      "A function default has no document spelling — use `generate`, a literal, or a database default through `native`",
+    admitted:
+      "a JSON value, a bigint, a Date or a byte string is what a default may be",
+  },
+  query: {
+    value: "A view query value",
+    whole: "This view query",
+    function:
+      "A function has no document spelling; a view query holds plain values",
+    admitted:
+      "a JSON value, a bigint, a Date, a byte string or a JSON null sentinel is what a view query may hold, never a caller `Sql` operand or a function",
+  },
+};
+
+/** One walk: the containers on the path being walked, and whose value it is. */
+interface Walk {
+  readonly seen: Set<object>;
+  readonly role: ValueRole;
 }
 
 // =============================================================================
@@ -90,35 +134,51 @@ function reservedKey(keys: readonly string[]): string | undefined {
 export function readDefaultValue(
   value: unknown,
   path: string,
-  issues: DocumentIssues
+  issues: DocumentIssues,
+  role: ValueRole = "default"
 ): JsonValue | undefined {
-  return readValue(value, path, issues, new Set());
+  return readValue(value, path, issues, { seen: new Set(), role });
+}
+
+/** A plain record's members, each read as {@link readDefaultValue} reads a value. */
+export function readValueRecord(
+  value: Record<string, unknown>,
+  path: string,
+  issues: DocumentIssues,
+  role: ValueRole
+): Record<string, JsonValue> | undefined {
+  return readRecord(value, path, issues, { seen: new Set(), role });
 }
 
 function readValue(
   value: unknown,
   path: string,
   issues: DocumentIssues,
-  seen: Set<object>
+  walk: Walk
 ): JsonValue | undefined {
   if (value === null || typeof value === "string") return value;
   if (typeof value === "boolean") return value;
   if (typeof value === "number") {
     if (Number.isFinite(value)) return value;
-    addIssue(issues, path, "J004", "A default must be a finite number");
+    addIssue(
+      issues,
+      path,
+      "J004",
+      `${ROLE_WORDS[walk.role].value} must be a finite number`
+    );
     return;
   }
-  if (Array.isArray(value)) return readArray(value, path, issues, seen);
+  if (Array.isArray(value)) return readArray(value, path, issues, walk);
   if (inspectPlainRecord(value, path, issues, "J004")) {
-    return readRecord(value, path, issues, seen);
+    return readRecord(value, path, issues, walk);
   }
   addIssue(
     issues,
     path,
     "J004",
     isFunction(value)
-      ? "A function default has no document spelling — use `generate`, a literal, or a database default through `native`"
-      : `A default must be a JSON value; a value outside JSON takes a tag — ${TAGS}`
+      ? ROLE_WORDS[walk.role].function
+      : `${ROLE_WORDS[walk.role].value} must be a JSON value; a value outside JSON takes a tag — ${TAGS}`
   );
   return;
 }
@@ -127,9 +187,9 @@ function readArray(
   value: readonly unknown[],
   path: string,
   issues: DocumentIssues,
-  seen: Set<object>
+  walk: Walk
 ): JsonValue[] | undefined {
-  if (enterCycle(value, path, issues, seen, "J004")) return;
+  if (enterCycle(value, path, issues, walk, "J004")) return;
   const items: JsonValue[] = [];
   for (let index = 0; index < value.length; index += 1) {
     const entryPath = pointer(path, String(index));
@@ -137,12 +197,12 @@ function readArray(
       member(value, String(index), path, issues),
       entryPath,
       issues,
-      seen
+      walk
     );
     if (item === undefined) return;
     items.push(item);
   }
-  seen.delete(value);
+  walk.seen.delete(value);
   return items;
 }
 
@@ -150,9 +210,9 @@ function readRecord(
   value: Record<string, unknown>,
   path: string,
   issues: DocumentIssues,
-  seen: Set<object>
+  walk: Walk
 ): Record<string, JsonValue> | undefined {
-  if (enterCycle(value, path, issues, seen, "J004")) return;
+  if (enterCycle(value, path, issues, walk, "J004")) return;
   const keys = inspectKeys(value, path, issues, "J004");
   const tag = reservedKey(keys);
   if (tag !== undefined && !KNOWN_TAGS.has(tag)) {
@@ -174,12 +234,12 @@ function readRecord(
       member(value, key, path, issues),
       pointer(path, key),
       issues,
-      seen
+      walk
     );
     if (entry === undefined) return;
     put(record, key, entry);
   }
-  seen.delete(value);
+  walk.seen.delete(value);
   return record;
 }
 
@@ -195,18 +255,18 @@ function enterCycle(
   value: object,
   path: string,
   issues: DocumentIssues,
-  seen: Set<object>,
+  walk: Walk,
   code: "J004" | "J009"
 ): boolean {
-  if (!seen.has(value)) {
-    seen.add(value);
+  if (!walk.seen.has(value)) {
+    walk.seen.add(value);
     return false;
   }
   addIssue(
     issues,
     path,
     code,
-    "This default contains a cycle; a document holds a finite value"
+    `${ROLE_WORDS[walk.role].whole} contains a cycle; a document holds a finite value`
   );
   return true;
 }
@@ -326,16 +386,27 @@ function decodeBase64(text: string): Uint8Array {
 export function encodeDefault(
   value: unknown,
   path: string,
-  issues: DocumentIssues
+  issues: DocumentIssues,
+  role: ValueRole = "default"
 ): JsonValue | undefined {
-  return encodeValue(value, path, issues, new Set());
+  return encodeValue(value, path, issues, { seen: new Set(), role });
+}
+
+/** A plain record's members, each written as {@link encodeDefault} writes a value. */
+export function encodeValueRecord(
+  value: Readonly<Record<string, unknown>>,
+  path: string,
+  issues: DocumentIssues,
+  role: ValueRole
+): Record<string, JsonValue> | undefined {
+  return encodeRecord(value, path, issues, { seen: new Set(), role });
 }
 
 function encodeValue(
   value: unknown,
   path: string,
   issues: DocumentIssues,
-  seen: Set<object>
+  walk: Walk
 ): JsonValue | undefined {
   const nullKind = jsonNullKindOf(value);
   if (nullKind === "JsonNull" || nullKind === "DbNull")
@@ -368,14 +439,14 @@ function encodeValue(
     }
     return tagged(DATE_TAG, Date.prototype.toISOString.call(value));
   }
-  if (Array.isArray(value)) return encodeArray(value, path, issues, seen);
+  if (Array.isArray(value)) return encodeArray(value, path, issues, walk);
   if (inspectPlainRecord(value, path, issues, "J009")) {
-    return encodeRecord(value, path, issues, seen);
+    return encodeRecord(value, path, issues, walk);
   }
   return refuseValue(
     issues,
     path,
-    "This default holds a value the document cannot state — a JSON value, a bigint, a Date or a byte string is what a default may be"
+    `${ROLE_WORDS[walk.role].whole} holds a value the document cannot state — ${ROLE_WORDS[walk.role].admitted}`
   );
 }
 
@@ -389,9 +460,9 @@ function encodeArray(
   value: readonly unknown[],
   path: string,
   issues: DocumentIssues,
-  seen: Set<object>
+  walk: Walk
 ): JsonValue[] | undefined {
-  if (enterCycle(value, path, issues, seen, "J009")) return;
+  if (enterCycle(value, path, issues, walk, "J009")) return;
   const items: JsonValue[] = [];
   // An array INDEX is an ordinary property, so a coded default's element is read
   // through the same guarded accessor an inbound one is — a throwing index
@@ -402,12 +473,12 @@ function encodeArray(
       guardedValue(value, at, path, issues, "J009"),
       pointer(path, at),
       issues,
-      seen
+      walk
     );
     if (item === undefined) return;
     items.push(item);
   }
-  seen.delete(value);
+  walk.seen.delete(value);
   return items;
 }
 
@@ -422,9 +493,9 @@ function encodeRecord(
   value: Record<string, unknown>,
   path: string,
   issues: DocumentIssues,
-  seen: Set<object>
+  walk: Walk
 ): Record<string, JsonValue> | undefined {
-  if (enterCycle(value, path, issues, seen, "J009")) return;
+  if (enterCycle(value, path, issues, walk, "J009")) return;
   const record = emptyRecord<JsonValue>();
   // A coded default's own keys and values are read through the same guarded
   // owner an inbound record is: a hostile `ownKeys` trap or a throwing accessor
@@ -434,12 +505,12 @@ function encodeRecord(
       guardedValue(value, key, path, issues, "J009"),
       pointer(path, key),
       issues,
-      seen
+      walk
     );
     if (entry === undefined) return;
     put(record, key, entry);
   }
-  seen.delete(value);
+  walk.seen.delete(value);
   if (reservedKey(Object.keys(record)) === undefined) return record;
   const escaped = emptyRecord<JsonValue>();
   put(escaped, RAW_TAG, record);

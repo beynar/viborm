@@ -171,8 +171,13 @@ export function renderOperationResultType(
 /**
  * Render the complete schema graph as a recursive `VibORMSchema` declaration.
  * Custom JSON schema output is `unknown` because Standard Schema erases it at runtime.
+ * A view's JSON columns are typed as the rows its query reads on its source.
  */
 export function renderSchemaType<const S extends Schema>(schema: S): string {
   hydrateSchemaNames(schema);
-  return schemaType(schema, resolveSchemaOrThrow(schema));
+  const index = resolveSchemaOrThrow(schema);
+  const registry = createResolvedSchemaRegistry(schema, index);
+  return schemaType(schema, index, (model, args) =>
+    registry.validate(model["~"].names.ts ?? "", "findMany", args)
+  );
 }

@@ -45,6 +45,32 @@ export interface SchemaDocument {
    */
   enums?: Record<string, EnumDocument>;
   models: Record<string, ModelDocument>;
+  /**
+   * Database views, `s.view(() => source, query)`, by schema key. A view key
+   * and a model key share the schema's one namespace, so no key is both.
+   */
+  views?: Record<string, ViewDocument>;
+}
+
+/**
+ * One view: the rows `findMany(query)` reads on `source`.
+ *
+ * Its columns, keys and JSON columns are not written: `s.view` derives them
+ * from the source and the query, so stating them would be a second copy.
+ */
+export interface ViewDocument {
+  /** The model key or view key the view reads. */
+  source: string;
+  /**
+   * What `findMany` takes on the source, as JSON. A value JSON cannot spell
+   * takes the tag a default takes: `{"$date": "<iso>"}`, `{"$bigint": "5"}`,
+   * `{"$bytes": "AQID"}`, `{"$jsonNull": "JsonNull"}`, and `{"$raw": <value>}`
+   * for a literal whose own shape is a tag (a `$through` filter, say). A
+   * function or a caller `Sql` operand has no spelling.
+   */
+  query: Record<string, JsonValue>;
+  /** `.map(viewName)`. */
+  table?: string;
 }
 
 export interface EnumDocument {
