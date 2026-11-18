@@ -181,8 +181,8 @@ export function viewDefinition(
       schema: models,
       resolved: { index: relations, registry: schema.registry },
       dialect,
-      ...(dialect === "postgresql" && migrationDriver.namespace !== undefined
-        ? { namespace: migrationDriver.namespace }
+      ...(dialect === "postgresql" && migrationDriver.executionDriver
+        ? { estate: migrationDriver.executionDriver.adapter }
         : {}),
     },
     view

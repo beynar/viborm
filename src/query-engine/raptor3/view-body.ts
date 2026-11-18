@@ -40,8 +40,11 @@ export interface ViewBodyContext {
   readonly resolved?: ResolvedSchemaViews;
   /** The dialect the body is written in: one text for every driver of it. */
   readonly dialect: SqlDialect;
-  /** The estate's namespace: a PostgreSQL schema, a MySQL database. */
-  readonly namespace?: string;
+  /**
+   * The estate's adapter, where the body names its tables in the estate's
+   * PostgreSQL schema or MySQL database: the adapter is the one owner of it.
+   */
+  readonly estate?: Pick<DatabaseAdapter, "namespace">;
 }
 
 export interface ViewBody {
@@ -214,7 +217,7 @@ function asData(this: unknown, key: string, value: unknown): unknown {
 export function viewBody(context: ViewBodyContext, view: AnyModel): ViewBody {
   const { source, query } = viewFacts(view)!;
   const schema = new EngineSchema(context.schema, context.resolved);
-  const adapter = fixedAdapter(context.dialect, context.namespace);
+  const adapter = fixedAdapter(context.dialect, context.estate?.namespace);
   // Every persistent table a lowering names goes through this one renderer.
   const reads = new Set<string>([tableOf(source)]);
   const { identifiers } = adapter;
