@@ -22,7 +22,9 @@
  * the stored rows as they are.
  */
 
+import { inlineLiterals } from "../adapters/inline-literals";
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { viewBody } from "../query-engine/raptor3/view-body";
 import { fieldRefPayload, isFieldRef } from "../schema/field-ref";
 import { jsonNullKindOf } from "../schema/json-null";
 import { type AnyModel, Model } from "../schema/model";
@@ -34,7 +36,12 @@ import type { ValidationContext } from "../schema/validation/types";
 import { viewFacts } from "../schema/view/facts";
 import { createResolvedSchemaRegistry } from "../validation/builder";
 import { isRecord } from "../validation/value-guards";
-import type { MigrationDriver } from "./drivers/base";
+import type {
+  MigrationDriver,
+  ViewWriteContext,
+  ViewWriter,
+  WrittenView,
+} from "./drivers/base";
 import { domainHash, HASH_DOMAIN, utf8Bytes } from "./identity";
 
 export interface ViewDefinition {
@@ -205,6 +212,26 @@ function crossedRelations(
 }
 
 /**
+ * The body of `view` as `writer`'s database takes it: a SQL dialect's is the
+ * view's declared read compiled by the read compiler itself on the writer's
+ * adapter (`viewBody`), then written without parameters (`inlineLiterals`);
+ * another driver writes its own.
+ */
+export function writeView(
+  writer: ViewWriter,
+  context: ViewWriteContext,
+  view: AnyModel
+): WrittenView {
+  if ("write" in writer) return writer.write(context, view);
+  const body = viewBody({ ...context, adapter: writer.adapter }, view);
+  return {
+    sql: inlineLiterals(writer.dialect, body.statement),
+    shape: body.shape,
+    reads: body.reads,
+  };
+}
+
+/**
  * The definition of `view` for `context.migrationDriver`'s dialect: its body
  * written without parameters, what it reads, and its identity.
  */
@@ -248,7 +275,8 @@ export function viewDefinition(
       VibORMErrorCode.INVALID_INPUT,
       { meta: { feature: "view", model: view["~"].names.ts } }
     );
-  const body = writer.write(
+  const body = writeView(
+    writer,
     {
       schema: models,
       resolved: { index: relations, registry: schema.registry },

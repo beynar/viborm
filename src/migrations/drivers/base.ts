@@ -5,6 +5,8 @@
  * Each driver implements DDL generation and introspection for its database.
  */
 
+import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { SqlDialect } from "@drivers/types";
 import type { Schema } from "@schema/hydration";
 import { jsonNullKindOf } from "@schema/json-null";
 import type { AnyModel } from "@schema/model";
@@ -192,14 +194,29 @@ export interface WrittenView {
   readonly reads: readonly string[];
 }
 
-/** See {@link MigrationDriver.viewWriter}. */
-export interface ViewWriter {
+/**
+ * A SQL dialect's view writer, as data: the read compiler writes the body on
+ * `adapter`, and its values as `dialect`'s literals (`writeView`,
+ * `view-definition.ts`). Data and not a function, so that a migration driver
+ * imports no compiler: whatever registers a driver would load the engine.
+ */
+export interface SqlViewWriter {
+  readonly dialect: SqlDialect;
+  /** Made for one body: its table renderer is wrapped to note what the body reads. */
+  readonly adapter: DatabaseAdapter;
+}
+
+/** A driver that writes a view's body in its own language (SurrealDB). */
+export interface ViewBodyWriter {
   /**
    * The body of `view`, a view of `context.schema`: refused, with the view
    * named, where its query says what a view cannot hold on this database.
    */
   write(context: ViewWriteContext, view: AnyModel): WrittenView;
 }
+
+/** See {@link MigrationDriver.viewWriter}. */
+export type ViewWriter = SqlViewWriter | ViewBodyWriter;
 
 export abstract class MigrationDriver {
   /**
@@ -272,13 +289,13 @@ export abstract class MigrationDriver {
 
   /**
    * Who writes a view's body, made for one body, or nothing where VibORM
-   * creates no view. Each driver answers with its own writer, so a bundle of
-   * one database's migrations carries one compiler: the SQL dialects compile
-   * the read with their own adapter (`sqlViewWriter`, `sql.ts`), under one
-   * fixed configuration of the dialect, so that two drivers of it write one
-   * text (no shared relation bodies, no bound a transport puts on a
-   * statement: D1's expression depth and compound terms, Neki's relations;
-   * every tier a column of the schema may need).
+   * creates no view. A SQL dialect answers with its own adapter, so a bundle
+   * of one dialect's migrations carries one, under one fixed configuration
+   * of the dialect, so that two drivers of it write one text (no shared
+   * relation bodies, no bound a transport puts on a statement: D1's
+   * expression depth and compound terms, Neki's relations; every tier a
+   * column of the schema may need). SurrealDB answers with a writer of its
+   * own language.
    */
   viewWriter(): ViewWriter | undefined {
     return;

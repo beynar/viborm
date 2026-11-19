@@ -79,8 +79,9 @@ import type {
   DropUniqueConstraintOperation,
   RenameColumnOperation,
   RenameTableOperation,
+  SqlViewWriter,
 } from "../base";
-import { SqlMigrationDriver, type SqlViewWriter, sqlViewWriter } from "../sql";
+import { SqlMigrationDriver } from "../sql";
 import { getPostgresType, PG_TYPE_DEFAULTS } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import {
@@ -403,7 +404,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
   override viewWriter(): SqlViewWriter {
     const adapter = new PostgresAdapter(this.namespace, true);
     adapter.capabilities.supportsVector = true;
-    return sqlViewWriter(this.dialect, adapter);
+    return { dialect: this.dialect, adapter };
   }
 
   /** `CREATE MATERIALIZED VIEW`, on PostgreSQL and every server of its dialect. */

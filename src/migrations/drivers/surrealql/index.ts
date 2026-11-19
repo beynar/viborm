@@ -64,7 +64,7 @@ import {
   MigrationDriver,
   type RenameColumnOperation,
   type RenameTableOperation,
-  type ViewWriter,
+  type ViewBodyWriter,
 } from "../base";
 import type { MigrationCapabilities } from "../types";
 import { surrealViewWriter } from "./view";
@@ -450,7 +450,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
    * migration is bound to (`./view`), which no import brings here: every
    * dialect's migrations load this driver, and the SDK is an optional peer.
    */
-  override viewWriter(): ViewWriter {
+  override viewWriter(): ViewBodyWriter {
     return surrealViewWriter(this.executionDriver, (name) =>
       this.escapeIdentifier(name)
     );

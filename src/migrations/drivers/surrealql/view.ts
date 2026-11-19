@@ -41,7 +41,7 @@ import { nameOf, tableOf } from "@query-engine/raptor3/shared/terms";
 import { viewFacts } from "@schema/view/facts";
 import { Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
-import type { ViewWriter } from "../base";
+import type { ViewBodyWriter } from "../base";
 
 /** Why a view here reads its source's own fields and nothing else. */
 const STALE =
@@ -254,7 +254,7 @@ const lowers = (queries: Queries): queries is SurrealQueries =>
 export function surrealViewWriter(
   driver: AnyDriver | undefined,
   identifier: (name: string) => string
-): ViewWriter {
+): ViewBodyWriter {
   return {
     write(context, view) {
       const { source, query, columns, documents } = viewFacts(view)!;

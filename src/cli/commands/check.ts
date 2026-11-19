@@ -19,6 +19,7 @@ import {
   auditStorage,
   type StorageColumnAudit,
 } from "../../migrations/sqlite-storage-audit";
+import { writeView } from "../../migrations/view-definition";
 import { hydrateSchemaNames } from "../../schema/hydration";
 import type {
   SchemaValidationIssue,
@@ -97,7 +98,8 @@ function withViewQueries(
   for (const [model, view] of Object.entries(models)) {
     if (viewFacts(view) === undefined) continue;
     try {
-      writer(driver)?.write({ schema: models }, view);
+      const written = writer(driver);
+      if (written) writeView(written, { schema: models }, view);
     } catch (cause) {
       errors.push({
         code: "W005",
