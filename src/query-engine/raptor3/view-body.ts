@@ -8,7 +8,7 @@
  * projected as a read carries them, so the client decodes a view's JSON
  * column with the decoder of the read that carried it. An aggregated view's
  * body is the read compiler's `groupBy`, its root projected as flat columns:
- * each grouped field as stored, each aggregate cast to its column's scalar.
+ * each grouped field as stored, each aggregate a column of its scalar.
  *
  * Only the migrations import this module: nothing the client or the engine
  * imports reaches it, so no application bundle carries it.
@@ -42,7 +42,11 @@ import { nameOf, scalarsOf, tableOf } from "./shared/terms";
  * its migration driver states, as it states each scalar's column type.
  */
 export interface ViewColumnSql {
-  /** `expression` cast to the type the dialect stores a column of `scalar` in. */
+  /**
+   * `expression`, an aggregate, as a column of `scalar`: cast to the type
+   * the dialect stores that scalar's column in, wherever the cast keeps its
+   * value.
+   */
   viewCast(expression: Sql, scalar: Scalar): Sql;
   /**
    * A time step's period, a date, as the `YYYY-MM-DD` text `groupBy`
@@ -238,11 +242,11 @@ class ViewBodyQueries extends SqlQueries {
   }
 
   /**
-   * One aggregate as a column of its scalar. The provider's own `SUM`, cast:
-   * where a read splits a sum into parts its provider cannot overflow, the
-   * view's column holds the sum its scalar holds. `MIN` and `MAX` answer
-   * their column's type: a compact identifier is picked in the text it
-   * travels in and stored back as its column stores it.
+   * One aggregate as a column of its scalar (`viewCast`). The provider's own
+   * `SUM`: where a read splits a sum into parts its provider cannot
+   * overflow, the view's column holds the sum its scalar holds. `MIN` and
+   * `MAX` answer their column's type: a compact identifier is picked in the
+   * text it travels in and stored back as its column stores it.
    */
   #aggregate(
     model: AnyModel,
