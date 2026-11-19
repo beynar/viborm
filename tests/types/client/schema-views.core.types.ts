@@ -1014,6 +1014,48 @@ export const _aggregatedReads = async () => {
   aggregated.salesByDay.create;
 };
 
+/**
+ * `.extends()` reads a view's keys from its columns again: a column derived
+ * from a key of the source (its least id, a member of a compound `by`) is no
+ * key of the view, which is keyed by its `by` list alone.
+ */
+export const _extendedAggregatedKeys = () => {
+  const firsts = s
+    .view(() => sale, {
+      by: ["shopId"],
+      _min: { id: true },
+      _max: { id: true },
+    })
+    .extends({
+      shop: s
+        .toOne(() => shop)
+        .fields("shopId")
+        .references("id"),
+    });
+  const pairs = s
+    .view(() => sale, { by: ["id", "currency"], _count: true })
+    .extends({});
+  const regions = s
+    .view(() => sale, { by: ["region", "id"], _count: true })
+    .extends({});
+  const extended = createClient({
+    schema: { shop, sale, firsts, pairs, regions },
+    driver: new PGliteDriver(),
+  });
+  extended.firsts.findUnique({ where: { shopId: "s" } });
+  // @ts-expect-error - the least id of a group is no key of the view
+  extended.firsts.findUnique({ where: { minId: "x" } });
+  // @ts-expect-error - nor is the greatest
+  extended.firsts.findUnique({ where: { maxId: "x" } });
+  extended.pairs.findUnique({
+    where: { id_currency: { id: "x", currency: "EUR" } },
+  });
+  // @ts-expect-error - one member of a compound key is no key
+  extended.pairs.findUnique({ where: { id: "x" } });
+  // @ts-expect-error - no key where a grouped field is nullable
+  extended.regions.findUnique;
+};
+
 export const _refusedAggregatedQueries = () => {
   // @ts-expect-error - a field the source does not have
   s.view(() => sale, { by: ["nope"], _count: true });

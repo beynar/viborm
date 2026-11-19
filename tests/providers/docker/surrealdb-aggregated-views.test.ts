@@ -982,6 +982,140 @@ describe.skipIf(!surrealUrl)("aggregated views on SurrealDB", () => {
     });
   });
 
+  it("a nullable bigint summed or averaged: a write that leaves it unset passes, and is no part of the total", async () => {
+    const entry = s
+      .model({
+        id: s.int().id(),
+        part: s.string(),
+        big: s.bigInt().nullable(),
+      })
+      .map("sa_entries");
+    const query = {
+      by: ["part"],
+      _sum: { big: true },
+      _avg: { big: true },
+    } as const;
+    const entryTotals = s.view(() => entry, query).map("sa_entry_totals");
+    const driver = await freshDriver();
+    const client = clientOf({ entry, entryTotals }, driver);
+    const same = async () =>
+      expect(unordered(await client.entryTotals.findMany())).toEqual(
+        unordered(
+          (await client.entry.groupBy(grouping(query) as never)).map(flattened)
+        )
+      );
+    await using(client, async () => {
+      await push(client);
+      await client.entry.create({ data: { id: 1, part: "a", big: 1n } });
+      // Each of these failed while the body cast an unset bigint to a decimal.
+      await client.entry.create({ data: { id: 2, part: "a", big: null } });
+      await client.entry.create({ data: { id: 3, part: "b", big: null } });
+      expect(
+        await client.entryTotals.findMany({ orderBy: { part: "asc" } })
+      ).toEqual([
+        { part: "a", sumBig: 1n, avgBig: 1 },
+        { part: "b", sumBig: null, avgBig: null },
+      ]);
+      await same();
+      await client.entry.update({ where: { id: 2 }, data: { big: 3n } });
+      await client.entry.update({ where: { id: 1 }, data: { big: null } });
+      expect(
+        await client.entryTotals.findUnique({ where: { part: "a" } })
+      ).toEqual({ part: "a", sumBig: 3n, avgBig: 3 });
+      await client.entry.delete({ where: { id: 2 } });
+      await same();
+    });
+  });
+
+  it("grouped by a key that is a decimal or an instant, or by a link to one: a group is found by its value", async () => {
+    const price = s
+      .model({
+        amount: s.decimal({ precision: 6, scale: 2 }).id(),
+        label: s.string(),
+        lines: s.toMany(() => line),
+      })
+      .map("sa_prices");
+    const line = s
+      .model({
+        id: s.int().id(),
+        priceAmount: s.decimal({ precision: 6, scale: 2 }).nullable(),
+        price: s
+          .toOne(() => price)
+          .fields("priceAmount")
+          .references("amount"),
+      })
+      .map("sa_lines");
+    const tick = s.model({ at: s.dateTime().id(), n: s.int() }).map("sa_ticks");
+    const byAmount = s
+      .view(() => price, { by: ["amount"], _count: true })
+      .map("sa_by_amount");
+    const byPrice = s
+      .view(() => line, { by: ["priceAmount"], _count: true })
+      .map("sa_by_price");
+    const byAt = s
+      .view(() => tick, { by: ["at"], _sum: { n: true } })
+      .map("sa_by_at");
+    const driver = await freshDriver();
+    const client = clientOf(
+      { price, line, tick, byAmount, byPrice, byAt },
+      driver
+    );
+    await using(client, async () => {
+      const { statements } = await push(client);
+      // A record's key that is a decimal or an instant is its text: the
+      // group holds the value, which a lookup binds.
+      expect(
+        statements
+          .filter((statement: string) => statement.includes(" AS SELECT "))
+          .map((statement: string) =>
+            statement.replace(MARKER, "viborm_view_…")
+          )
+          .sort()
+      ).toEqual([
+        'DEFINE TABLE sa_by_amount AS SELECT <decimal> record::id(id) AS amount, count() AS count FROM sa_prices GROUP BY amount COMMENT "viborm_view_…";',
+        'DEFINE TABLE sa_by_at AS SELECT <datetime> record::id(id) AS at, math::sum(n) AS sumN FROM sa_ticks GROUP BY at COMMENT "viborm_view_…";',
+        'DEFINE TABLE sa_by_price AS SELECT <option<decimal>> (IF priceAmount { record::id(priceAmount) }) AS priceAmount, count() AS count FROM sa_lines GROUP BY priceAmount COMMENT "viborm_view_…";',
+      ]);
+      const at = new Date("2026-01-02T03:04:05.000Z");
+      const later = new Date("2026-01-03T03:04:05.000Z");
+      await client.price.create({ data: { amount: "1.25", label: "x" } });
+      await client.line.createMany({
+        data: [
+          { id: 1, priceAmount: "1.25" },
+          { id: 2, priceAmount: "1.25" },
+          { id: 3, priceAmount: null },
+        ],
+      });
+      await client.tick.createMany({
+        data: [
+          { at, n: 2 },
+          { at: later, n: 5 },
+        ],
+      });
+      const amount = new Decimal("1.25");
+      expect(
+        plain(await client.byAmount.findUnique({ where: { amount: "1.25" } }))
+      ).toEqual(plain({ amount, count: 1 }));
+      expect(
+        plain(await client.byPrice.findMany({ where: { priceAmount: "1.25" } }))
+      ).toEqual(plain([{ priceAmount: amount, count: 2 }]));
+      expect(await client.byPrice.count({ where: { priceAmount: null } })).toBe(
+        1
+      );
+      expect(await client.byAt.findUnique({ where: { at } })).toEqual({
+        at,
+        sumN: 2,
+      });
+      expect(
+        await client.byAt.findMany({
+          cursor: { at },
+          skip: 1,
+          orderBy: { at: "asc" },
+        })
+      ).toEqual([{ at: later, sumN: 5 }]);
+    });
+  });
+
   it("a bigint sum past 2^63: the view holds it exactly and the write that carries it there is not refused, where groupBy cannot read it", async () => {
     const huge = s
       .model({ id: s.int().id(), part: s.string(), big: s.bigInt() })

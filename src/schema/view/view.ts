@@ -42,12 +42,19 @@ import type {
 } from "../relation/static-membership";
 import type { AnyRelation } from "../relation/types";
 import type { Scalar } from "../scalars/base";
-import { bigInt } from "../scalars/bigint/scalar";
-import { derivedScalar } from "../scalars/common";
-import { decimal } from "../scalars/decimal/scalar";
-import { int } from "../scalars/int/scalar";
-import { number } from "../scalars/number/scalar";
-import { string } from "../scalars/string/scalar";
+import { type BigIntScalar, bigInt } from "../scalars/bigint/scalar";
+import {
+  derivedScalar,
+  type ScalarState,
+  type UpdateState,
+} from "../scalars/common";
+import type { DateScalar } from "../scalars/datetime/date-scalar";
+import type { DateTimeScalar } from "../scalars/datetime/scalar";
+import type { TimeScalar } from "../scalars/datetime/time-scalar";
+import { type DecimalScalar, decimal } from "../scalars/decimal/scalar";
+import { type IntScalar, int } from "../scalars/int/scalar";
+import { type NumberScalar, number } from "../scalars/number/scalar";
+import { type StringScalar, string } from "../scalars/string/scalar";
 import {
   type ViewAggregate,
   type ViewColumnOrigin,
@@ -188,6 +195,40 @@ type NullableOf<F> = F extends {
   ? N
   : never;
 
+/** What a column derived from a key of the source is not. */
+interface NoKey {
+  readonly isId: false;
+  readonly isUnique: false;
+}
+
+/**
+ * `F` as a column that is no key, whatever the source declared for its own:
+ * the type of `columnOf`'s `isId: false`, for each class that can be a key.
+ * `.extends()` reads a view's keys from its columns again, and would find
+ * the least id of a group, or one member of a compound `by`, to be one.
+ */
+type Keyless<F> = F extends {
+  readonly "~": { readonly state: { readonly isUnique: true } };
+}
+  ? F extends StringScalar<infer S extends ScalarState<"string">>
+    ? StringScalar<UpdateState<S, NoKey>>
+    : F extends IntScalar<infer S extends ScalarState<"int">>
+      ? IntScalar<UpdateState<S, NoKey>>
+      : F extends BigIntScalar<infer S extends ScalarState<"bigint">>
+        ? BigIntScalar<UpdateState<S, NoKey>>
+        : F extends NumberScalar<infer S extends ScalarState<"number">>
+          ? NumberScalar<UpdateState<S, NoKey>>
+          : F extends DecimalScalar<infer S extends ScalarState<"decimal">>
+            ? DecimalScalar<UpdateState<S, NoKey>>
+            : F extends DateTimeScalar<infer S extends ScalarState<"datetime">>
+              ? DateTimeScalar<UpdateState<S, NoKey>>
+              : F extends DateScalar<infer S extends ScalarState<"date">>
+                ? DateScalar<UpdateState<S, NoKey>>
+                : F extends TimeScalar<infer S extends ScalarState<"time">>
+                  ? TimeScalar<UpdateState<S, NoKey>>
+                  : F
+  : F;
+
 /** A grouped field as a view's only key member: unique, where its type says so. */
 type UniqueOf<F> = F extends { readonly unique: () => infer U extends Scalar }
   ? U
@@ -240,7 +281,7 @@ type GroupKey<M extends AnyModel, Q, Fields = GroupedFields<Q>> = true extends {
 /** A grouped column: the field's scalar, or the day its period starts on. */
 type GroupedScalar<F, Member, Key> = Key extends "single"
   ? UniqueOf<StepScalar<F, Member>>
-  : StepScalar<F, Member>;
+  : Keyless<StepScalar<F, Member>>;
 
 type StepScalar<F, Member> = Member extends string
   ? F
@@ -280,12 +321,12 @@ type ScalarType<F> = F extends {
  * answers past the int range.
  */
 type AggregateScalar<A, F> = A extends "_min" | "_max"
-  ? NullableOf<F>
+  ? NullableOf<Keyless<F>>
   : ScalarType<F> extends "decimal"
-    ? NullableOf<F>
+    ? NullableOf<Keyless<F>>
     : A extends "_sum"
       ? ScalarType<F> extends "bigint"
-        ? NullableOf<F>
+        ? NullableOf<Keyless<F>>
         : NullableNumber
       : NullableNumber;
 

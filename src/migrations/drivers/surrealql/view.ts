@@ -203,7 +203,13 @@ function aggregateOf(
       );
   } else {
     if (type === "number") refuse(`${verb} the double '${field}'`, view, DRIFT);
-    const operand = type === "bigint" ? sql`<decimal> ${column}` : column;
+    // A bigint is summed as a decimal, past an int's range. An unset one
+    // stays unset, which the sum skips, where `<decimal>` of it would fail
+    // every write that leaves the field unset (measured).
+    const operand =
+      type === "bigint"
+        ? sql`<${sql.raw(state.nullable ? "option<decimal>" : "decimal")}> ${column}`
+        : column;
     value =
       aggregate === "_sum"
         ? sql`math::sum(${operand})`
@@ -212,6 +218,18 @@ function aggregateOf(
   return state.nullable
     ? sql`(IF count(${column} != NONE) = 0 { NULL } ELSE { ${value} })`
     : value;
+}
+
+/**
+ * The type a grouped column is cast to, so that a group is named by the
+ * value a lookup binds: an int, whatever holds it, and a decimal or an
+ * instant read `fromRecord`, whose key is that value's text.
+ */
+function keyCastOf(type: string, fromRecord: boolean): string | undefined {
+  if (type === "int" || type === "bigint") return "int";
+  return fromRecord && (type === "decimal" || type === "datetime")
+    ? type
+    : undefined;
 }
 
 /** What a refusal of a value names it by. */
@@ -413,12 +431,14 @@ export function surrealViewWriter(
                 : key
               : stored;
             // An int column is stored as an i32, which a record id holds
-            // apart from the int a lookup by value names; `<int>` refuses an
-            // unset value, which `<option<int>>` keeps.
-            const value =
-              type === "int" || type === "bigint"
-                ? sql`<${sql.raw(nullable ? "option<int>" : "int")}> ${held}`
-                : held;
+            // apart from the int a lookup by value names, and a record's
+            // key that is a decimal or an instant is its text, which a
+            // lookup by value does not name either; a cast refuses an unset
+            // value, which its `option` keeps.
+            const cast = keyCastOf(type, held !== stored);
+            const value = cast
+              ? sql`<${sql.raw(nullable ? `option<${cast}>` : cast)}> ${held}`
+              : held;
             grouped.push(alias);
             return value.toStatement() === alias.toStatement()
               ? value

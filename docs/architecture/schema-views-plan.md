@@ -363,13 +363,22 @@ column is text):
   link in `by` is grouped by its value (`record::id`, behind `IF` where the
   link may be unset: `record::id` of none fails every such write), an
   integer as an `int` (`<option<int>>` where it may be unset: the column is
-  an `i32`, which a lookup by value does not find in a record id). Each aggregate is written so that the view holds what
+  an `i32`, which a lookup by value does not find in a record id), and a
+  key or a link that is a decimal or an instant as that value (`<decimal>`,
+  `<datetime>`: a record's key holds its text, which a lookup by value does
+  not name). Each aggregate is written so that the view holds what
   `groupBy` answers (a bigint sum on a decimal accumulator, which a write
-  never overflows; a decimal average rounded as the read rounds it; `NULL`
-  for a group with no value). Refused, with the view named: a `having`, a
+  never overflows, `<option<decimal>>` where the field may be unset: a plain
+  cast of none fails every such write; a decimal average rounded as the read
+  rounds it; `NULL` for a group with no value). Refused, with the view named: a `having`, a
   time step, a sum or an average of doubles (the stored total drifts after
   deletes), a minimum or a maximum of text, an enum or a boolean, and any
   aggregate of a key or a link (a record there).
+- **A derived column is no key in its type either.** `columnOf` clears what
+  the source declared for its own column, and the type does the same
+  (`Keyless`): `.extends()` reads a view's keys from its columns again, and
+  typed the least id of a group, or one member of a compound `by`, as a key
+  that the run time refuses.
 - **A list in a query** (`in: [...]`, `orderBy: [...]`, `OR: [...]`) is a
   read-only tuple under `const`. The constraint of both overloads takes
   every list read-only (`ReadonlyLists`): with a mutable one the inference
