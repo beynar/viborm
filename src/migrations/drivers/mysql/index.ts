@@ -222,7 +222,11 @@ export class MySQLMigrationDriver
 
   /** Relative to the database a session selects, as every MySQL artifact is. */
   override viewWriter(): SqlViewWriter {
-    return { dialect: this.dialect, adapter: new MySQLAdapter(), columns: this };
+    return {
+      dialect: this.dialect,
+      adapter: new MySQLAdapter(),
+      columns: this,
+    };
   }
   readonly driverName = "mysql";
 

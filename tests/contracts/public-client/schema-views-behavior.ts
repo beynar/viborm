@@ -1250,6 +1250,9 @@ const AGG_VIEWS = [
   "va_huge_totals",
 ];
 
+const KEY_INDEX_ON_BIN = /^CREATE UNIQUE INDEX .*\(bin\)$/;
+const INDEX_ON_TOTAL = /^CREATE INDEX .*\("sumUnits"\)$/;
+
 /** A `groupBy` row as an aggregated view holds it: each aggregate a column. */
 function flattened(row: object): Record<string, unknown> {
   const columns: Record<string, unknown> = {};
@@ -1772,8 +1775,8 @@ function runAggregatedViewsBehavior({
           "SELECT indexdef FROM pg_indexes WHERE tablename = 'va_stock_totals' ORDER BY indexname"
         );
         expect(rows.map((row) => row.indexdef)).toEqual([
-          expect.stringMatching(/^CREATE UNIQUE INDEX .*\(bin\)$/),
-          expect.stringMatching(/^CREATE INDEX .*\("sumUnits"\)$/),
+          expect.stringMatching(KEY_INDEX_ON_BIN),
+          expect.stringMatching(INDEX_ON_TOTAL),
         ]);
       }
       // A second push finds the view, its key and its index as declared.
