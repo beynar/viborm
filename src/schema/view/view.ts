@@ -56,6 +56,20 @@ import {
 } from "./facts";
 
 /**
+ * `T` with every list it holds read-only, at any depth. A view's query is
+ * inferred `const`, so each list in it (`in: [...]`, `orderBy: [...]`,
+ * `OR: [...]`) is a read-only tuple, which a mutable list in the constraint
+ * does not take: the inference then fails without a word, the query is
+ * checked against the constraint and passes, and the view's columns are read
+ * off the constraint, every scalar of the source, instead of off the query.
+ */
+type ReadonlyLists<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends object
+    ? { readonly [K in keyof T]: ReadonlyLists<T[K]> }
+    : T;
+
+/**
  * What a view may say: what `findMany` takes on its source, without `cursor`,
  * a paging anchor and not a row set.
  *
@@ -66,7 +80,9 @@ import {
  */
 export type ViewQuery<M extends AnyModel> = 0 extends 1 & M["~"]["state"]
   ? unknown
-  : Omit<NonNullable<ModelOperationInput<M, "findMany">>, "cursor"> & {
+  : ReadonlyLists<
+      Omit<NonNullable<ModelOperationInput<M, "findMany">>, "cursor">
+    > & {
       // A query that groups is an aggregated view's (`AggregatedViewQuery`).
       readonly by?: never;
     };
@@ -75,27 +91,15 @@ type GroupByInput<M extends AnyModel> = NonNullable<
   ModelOperationInput<M, "groupBy">
 >;
 
-/** One member of a list a query takes as one value or a list of them. */
-type Listed<Value> = Value extends readonly (infer Member)[] ? Member : Value;
-
 /**
  * What an aggregated view may say: what `groupBy` takes on its source, with
- * the same guard as {@link ViewQuery} while `M` is at its constraint. Its
- * `by` and `orderBy` lists may be read-only, as `const` infers a list: one a
- * constraint takes only as mutable fails the inference, and the view's
- * columns would be read off the constraint instead of the query.
+ * the same guard as {@link ViewQuery} while `M` is at its constraint, and its
+ * lists read-only for the same reason.
  */
 export type AggregatedViewQuery<M extends AnyModel> = 0 extends 1 &
   M["~"]["state"]
   ? unknown
-  : Omit<GroupByInput<M>, "by" | "orderBy"> & {
-      readonly by:
-        | Listed<GroupByInput<M>["by"]>
-        | readonly Listed<GroupByInput<M>["by"]>[];
-      readonly orderBy?:
-        | Listed<NonNullable<GroupByInput<M>["orderBy"]>>
-        | readonly Listed<NonNullable<GroupByInput<M>["orderBy"]>>[];
-    };
+  : ReadonlyLists<GroupByInput<M>>;
 
 /** The keys of a selection its value does not switch off. */
 type AskedKeys<Selection> = {

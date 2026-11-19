@@ -1025,6 +1025,8 @@ export const _refusedAggregatedQueries = () => {
 
 // =============================================================================
 // A SELF JUNCTION WHOSE SIDES REFERENCE DIFFERENT KEYS: EACH END ITS OWN SIDE
+// ======================================================================};
+
 // =============================================================================
 
 const nodeLink = s
@@ -1067,4 +1069,62 @@ export const _selfJunctionSides = async () => {
   await nodes.nodeSlugs.findMany({ include: { children: true } });
   // @ts-expect-error - and `parents` needs `id`
   await nodes.nodeSlugs.findMany({ include: { parents: true } });
+=======
+// A LIST IN A VIEW'S QUERY: THE VIEW'S COLUMNS ARE STILL ITS QUERY'S
+// =============================================================================
+
+/**
+ * A query is inferred `const`, so a list in it is a read-only tuple. Where
+ * the constraint took only a mutable list, the inference failed in silence
+ * and the view had every scalar of its source.
+ */
+export const _listsInAQuery = () => {
+  const entry = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    status: s.string(),
+    hits: s.int(),
+  });
+  const listed = s.view(() => entry, {
+    where: { status: { in: ["a", "b"] } },
+    select: { id: true, title: true },
+  });
+  type ListedColumn = keyof (typeof listed)["~"]["state"]["scalars"];
+  const listedColumns: ListedColumn[] = ["id", "title"];
+  // @ts-expect-error - the view does not project hits
+  const notListed: ListedColumn = "hits";
+
+  const ordered = s.view(() => entry, {
+    orderBy: [{ hits: "desc" }],
+    take: 3,
+    select: { id: true },
+  });
+  // @ts-expect-error - the view does not project title
+  const notOrdered: keyof (typeof ordered)["~"]["state"]["scalars"] = "title";
+
+  const either = s.view(() => entry, {
+    where: { OR: [{ status: "a" }, { hits: { gt: 3 } }] },
+    select: { id: true },
+  });
+  // @ts-expect-error - the view does not project title
+  const notEither: keyof (typeof either)["~"]["state"]["scalars"] = "title";
+
+  const grouped = s.view(() => entry, {
+    by: ["status"],
+    where: { status: { in: ["a", "b"] }, OR: [{ hits: { gt: 1 } }] },
+    _sum: { hits: true },
+  });
+  type GroupedColumn = keyof (typeof grouped)["~"]["state"]["scalars"];
+  const groupedColumns: GroupedColumn[] = ["status", "sumHits"];
+  // @ts-expect-error - an aggregated view has its grouped fields and its aggregates
+  const notGrouped: GroupedColumn = "title";
+
+  return [
+    listedColumns,
+    notListed,
+    notOrdered,
+    notEither,
+    groupedColumns,
+    notGrouped,
+  ];
 };
