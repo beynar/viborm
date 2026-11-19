@@ -573,6 +573,23 @@ describe("a materialized view's $refresh", () => {
     ]);
   });
 
+  test("is sent when awaited: the array form of $transaction refuses it with nothing sent", async () => {
+    const driver = new BoundedDriver(new PostgresAdapter(), "postgresql");
+    const client = createClient({ schema: stored, driver });
+    const pending = client.digest.$refresh();
+    expect(driver.sent).toEqual([]);
+    await expect(
+      client.$transaction([client.author.count(), pending as never] as never)
+    ).rejects.toThrow(
+      "$transaction array must contain only pending operations"
+    );
+    expect(driver.sent).toEqual([]);
+    await pending;
+    expect(driver.sent).toEqual([
+      'REFRESH MATERIALIZED VIEW "public"."author_digest"',
+    ]);
+  });
+
   test("is a raw statement to an extension chain: seen as one, and governed by no policy", async () => {
     const driver = new RecordingDriver(new PostgresAdapter(), "postgresql");
     const seen: string[] = [];

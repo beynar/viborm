@@ -488,6 +488,32 @@ describe("the program rule", () => {
     ]);
   });
 
+  it("where a foreign key's column holds a link (SurrealDB), a foreign key and any change to a column replace the view; an added column does not", () => {
+    const linked = (operation: DiffOperation) =>
+      kinds(withViewReplacements([operation], current, current, false, true));
+    const around = (type: string) => [
+      "dropView digest",
+      "dropView feed",
+      type,
+      "createView feed",
+      "createView digest",
+    ];
+    const named = new Map(cases);
+    for (const name of ["addForeignKey", "dropForeignKey"])
+      expect(linked(named.get(name)!)).toEqual(around(name));
+    // A filter is lowered for the column as it was: nullable or not.
+    expect(
+      linked({
+        type: "alterColumn",
+        tableName: "posts",
+        columnName: "score",
+        from: { name: "score", type: "integer", nullable: false },
+        to: { name: "score", type: "integer", nullable: true },
+      })
+    ).toEqual(around("alterColumn"));
+    expect(linked(named.get("addColumn")!)).toEqual(["addColumn"]);
+  });
+
   it.each(
     cases
   )("%s on a table a view reads replaces it and every view reading it, where tables are rebuilt", (_, operation) => {

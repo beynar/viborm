@@ -759,7 +759,7 @@ const stored = createClient({
 type _refresh = Expect<
   Equal<
     (typeof stored.authorDigest)["$refresh"],
-    (options?: { readonly concurrently?: boolean }) => Promise<void>
+    (options?: { readonly concurrently?: boolean }) => PromiseLike<void>
   >
 >;
 type _refreshKeyless = Expect<
@@ -782,8 +782,8 @@ export const _refreshes = async () => {
   await stored.$transaction(async (tx) => {
     await tx.authorDigest.$refresh();
   });
-  // An array transaction takes pending operations alone: a refresh is sent
-  // as it is called, so it is not one.
+  // An array transaction takes pending operations alone, and a refresh is
+  // not one: it is refused there, before it is awaited, so nothing is sent.
   // @ts-expect-error - refused in the array form
   await stored.$transaction([stored.authorDigest.$refresh()]);
   // A materialized view keeps its reads, and its key.

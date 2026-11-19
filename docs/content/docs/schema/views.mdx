@@ -265,9 +265,14 @@ view is an index lookup.
   [key](#the-key): without one the call is refused, on every database.
 - `$refresh` exists only on a materialized view: it is absent from the type of
   an ordinary view and of a model, and refused at run time.
-- It runs on the client it is called on. Inside
+- It is sent when it is awaited, on the client it is called on. Inside
   `db.$transaction(async (tx) => { await tx.authorDigest.$refresh(); })` it is
-  part of the transaction. The array form of `$transaction` does not take it.
+  part of the transaction. The array form of `$transaction` does not take it,
+  and refuses it with nothing sent.
+- PostgreSQL lets the view's owner refresh it, and from version 17 a role
+  granted `MAINTAIN` on it. The owner is the role that ran the migration: an
+  application that connects as another role needs that grant, again after
+  each migration that replaces the view.
 - An extension sees it as a raw statement, like `$executeRaw`: no permissions
   policy governs it and soft delete does not apply to it.
 - The [cache](/docs/extensions/cache) is not cleared by a refresh. A cached
@@ -290,20 +295,23 @@ job.
   | --- | --- |
   | PostgreSQL, MySQL | a table renamed or dropped; a column dropped, renamed or given another type; a primary key changed (a view orders its rows by it) |
   | SQLite, D1, libSQL, Durable Objects | any change to the table except an index, because SQLite rebuilds the table |
-  | SurrealDB | what PostgreSQL's row lists, and a foreign key added or dropped: the column then holds a record link, or stops holding one |
+  | SurrealDB | what PostgreSQL's row lists; a foreign key added or dropped (the column then holds a record link, or stops holding one); and any change to a column, its nullability included, since a view's filter is written for the column as it was |
 
 - A view the schema no longer declares is dropped.
 
 A materialized view on PostgreSQL follows the same rules, with these
 differences:
 
-- Creating it runs its whole query, and so does replacing it: the view is
-  missing from its drop until its creation ends. The plan of a push says so
-  beside the operation.
+- Creating it runs its whole query, and so does replacing it. The migration
+  is one transaction, so readers of a replaced view wait until it commits.
+  The plan of a push says so beside the operation.
 - An index added to it or removed from it is an index operation. The stored
   rows are kept.
-- A table it reads that gains a column, a key or a foreign key leaves it as it
-  is, rows included.
+- A table it reads that gains a column or a foreign key leaves it as it is,
+  rows included.
+- A key its source gains or loses among the fields it selects replaces it.
+  Each key of the view is a unique index on its stored rows, and only rows
+  computed again are known to satisfy a new one.
 - A view that becomes materialized, or stops being so, is replaced.
 
 Dropping a view loses no data, so it asks no confirmation. Views are dropped
@@ -411,6 +419,10 @@ source's own rows, so a view's query is narrower there:
 
 Each refusal names the view, at `viborm check` (`W005`) and before a migration
 changes anything.
+
+VibORM knows its own views by the table's comment, which holds the marker.
+A view you define again by hand under the same comment is taken for the one
+VibORM wrote, and is not replaced until its query changes.
 
 A view row keeps the record id of its source row, so a view that selects its
 source's key has `findUnique` and cursors, as on the other databases.

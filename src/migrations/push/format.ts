@@ -36,9 +36,9 @@ export function formatOperation(op: DiffOperation): string {
     case "dropPrimaryKey":
       return `- Drop primary key "${op.constraintName}" from "${op.tableName}"`;
     case "createView":
-      // The costly one: a replaced materialized view is missing until it ends.
+      // The costly one: readers of a replaced materialized view wait on it.
       return op.view.materialized
-        ? `+ Create materialized view "${op.view.name}" (computed by its CREATE, which runs the whole query; the view is missing until it ends)`
+        ? `+ Create materialized view "${op.view.name}" (computed by its CREATE, which runs the whole query; its readers wait until the migration commits)`
         : `+ Create view "${op.view.name}"`;
     case "dropView":
       return `- Drop ${op.materialized ? "materialized " : ""}view "${op.viewName}"`;

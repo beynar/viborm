@@ -115,7 +115,12 @@ function isViewOperation(operation: DiffOperation): operation is ViewOperation {
  * foreign key's column holds `links` (SurrealDB stores a record link there,
  * and the plain value without the key), a foreign key added or dropped too:
  * a view's filter on the column was written for the other form, and would
- * match no row (measured). An index's creation or drop leaves
+ * match no row (measured). There a column changed in any way replaces the
+ * view as well: its body is not SQL's, where a filter means the same under a
+ * nullable column, but a filter lowered for the column as it was (a column
+ * that becomes nullable needs a guard its filter did not have, without
+ * which every write of `NULL` to the table fails; measured), and the view's
+ * hash holds neither the body nor a column the query only filters by. An index's creation or drop leaves
  * every view as it was, on every dialect. A materialized view is refused and
  * survives the same changes as an ordinary one (measured on PostgreSQL 18),
  * and keeps the rows it stored through the ones it survives.
@@ -147,7 +152,7 @@ function changedTables(
         names.add(operation.tableName);
         break;
       case "alterColumn":
-        if (rebuilds || operation.from.type !== operation.to.type)
+        if (rebuilds || links || operation.from.type !== operation.to.type)
           names.add(operation.tableName);
         break;
       case "addForeignKey":

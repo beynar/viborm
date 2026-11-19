@@ -222,7 +222,12 @@ As built (2026-11-19):
 - **Snapshot**: `ViewDef.materialized` and `ViewDef.indexes` (a table's
   `IndexDef`), both absent on an ordinary view. `materialized` is in the
   hash, only when true: a change of kind replaces the view by the one
-  existing rule. The indexes are not in the hash.
+  existing rule. The declared indexes are not in the hash. The view's keys
+  are: each is a unique index on stored rows, and one its source gains would
+  be built on the rows of the last refresh, which the source's new
+  constraint says nothing of (a review probe: the migration failed on a
+  duplicate the source no longer had). Replacing the view computes them
+  first.
 - **Indexes**: a unique index per key the view derives
   (`getModelKeyCatalog(view).addressableKeys`), named as a table's primary
   key and uniques are, then each declared `.index()`. A view that keeps its
@@ -238,8 +243,9 @@ As built (2026-11-19):
 - **`$refresh`** is the adapter's statement (`DatabaseAdapter.refresh`,
   PostgreSQL's alone) sent as the delegate's own `$executeRaw`: in its
   transaction, and what a raw statement is to an extension (no permissions
-  policy, no soft delete, no cache invalidation). It is eager, so the array
-  form of `$transaction` does not take it. Typed on a materialized view's
+  policy, no soft delete, no cache invalidation). It is sent when awaited
+  (a thenable), so the array form of `$transaction`, which takes operations
+  alone, refuses it with nothing sent. Typed on a materialized view's
   delegate only (`MaterializedView`, asked in the view arm of `Client`).
 - **Measured on PostgreSQL 18**: `pg_get_viewdef` of a materialized view ends
   with the marker; under one, a column type change, a column drop and a table
@@ -273,7 +279,13 @@ As built (2026-11-19):
 - A foreign key added or dropped on a table a view reads replaces the view
   (`links` in `withViewReplacements`): the column then holds a record link,
   or stops holding one, and the view's filter on it was written for the
-  other form.
+  other form. So does any change to a column: the filter is lowered for the
+  column as it was (a column that becomes nullable needs a `!= NONE` guard
+  its filter did not have, without which every write of `NULL` to the table
+  fails), and the hash holds neither the body nor a column the query only
+  filters by. A golden body in the SurrealDB provider tests stands where the
+  SQL dialects' stand: a release that lowers a filter differently fails it
+  and must raise `VIEW_REVISION`.
 - Relations between a view and a model read both ways (the read backend
   takes a reference to a view as the key itself, not a record link).
 

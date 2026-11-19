@@ -68,14 +68,14 @@ const view = s.view as unknown as (
 ) => Model<any>;
 
 /** A fresh schema each time: a model object binds one schema key for good. */
-function posts() {
+function posts(uniqueViews = false) {
   return model({
     id: s.string().id(),
     slug: s.string().unique(),
     region: s.string(),
     code: s.string(),
     title: s.string().map("headline"),
-    views: s.int(),
+    views: uniqueViews ? s.int().unique() : s.int(),
   })
     .unique(["region", "code"], { name: "regionCode" })
     .map("posts");
@@ -86,13 +86,15 @@ interface Declared {
   readonly materialized?: boolean;
   readonly indexes?: readonly (readonly [string[], object?])[];
   readonly select?: object;
+  /** The source declares `views` unique: one more key the feed derives. */
+  readonly uniqueViews?: boolean;
 }
 
 function feedSnapshot(
   declared: Declared,
   migrationDriver: MigrationDriver = postgresMigrationDriver
 ): SchemaSnapshot {
-  const post = posts();
+  const post = posts(declared.uniqueViews);
   let feed = view(() => post, {
     where: { views: { gt: 10 } },
     ...(declared.select ? { select: declared.select } : {}),
@@ -427,6 +429,33 @@ describe("the differ", () => {
       "createView",
     ]);
   });
+
+  it("a key its source gains replaces a materialized view: its unique index is built on fresh rows, never on the last refresh's", async () => {
+    const pg = getMigrationDriver(pgEstateDriver("public"));
+    const before = feedSnapshot({ materialized: true });
+    const keyed = feedSnapshot({ materialized: true, uniqueViews: true });
+    expect(feedOf(keyed).hash).not.toBe(feedOf(before).hash);
+    const program = prepareSchemaProgram(
+      (await diff(before, keyed)).operations,
+      before,
+      keyed,
+      pg
+    );
+    // The source's constraint first, then the view with its new key: no
+    // unique index is added to the rows the view already stored.
+    expect(program.map(({ type }) => type)).toEqual([
+      "dropView",
+      "addUniqueConstraint",
+      "createView",
+    ]);
+    expect(feedOf(keyed).indexes!.map(({ name }) => name)).toContain(
+      "feed_views_key"
+    );
+    // An ordinary view stores no row: the same key leaves its hash alone.
+    expect(feedOf(feedSnapshot({ uniqueViews: true })).hash).toBe(
+      feedOf(feedSnapshot({})).hash
+    );
+  });
 });
 
 describe("the program rule", () => {
@@ -638,7 +667,7 @@ describe("collisions and display", () => {
 
   it("says a materialized view is computed by its creation", () => {
     expect(formatOperation({ type: "createView", view: stored(H1) })).toBe(
-      '+ Create materialized view "feed" (computed by its CREATE, which runs the whole query; the view is missing until it ends)'
+      '+ Create materialized view "feed" (computed by its CREATE, which runs the whole query; its readers wait until the migration commits)'
     );
     expect(
       formatOperation({

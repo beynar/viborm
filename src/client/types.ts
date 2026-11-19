@@ -155,9 +155,10 @@ export interface ViewRefresh {
    * Recomputes the view's stored rows (PostgreSQL's `REFRESH MATERIALIZED
    * VIEW`), on the connection this client runs on: inside a transaction, in
    * it. `concurrently` does not block the view's readers, and needs a view
-   * with a key. A database that stores no view's rows sends nothing.
+   * with a key. A database that stores no view's rows sends nothing. Sent
+   * when awaited, as an operation is.
    */
-  $refresh(options?: { readonly concurrently?: boolean }): Promise<void>;
+  $refresh(options?: { readonly concurrently?: boolean }): PromiseLike<void>;
 }
 
 /**

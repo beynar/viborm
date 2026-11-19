@@ -988,7 +988,8 @@ export async function introspectPostgresSchema(
       ? readIndexes(
           row.view_name,
           indexesByTable.get(row.view_name),
-          scope.tables === undefined || scope.tables.includes(row.view_name)
+          scope.tables === undefined || scope.tables.includes(row.view_name),
+          true
         )
       : [];
     views.push({
@@ -1017,7 +1018,8 @@ export async function introspectPostgresSchema(
 function readIndexes(
   relation: string,
   rows: Map<string, PgIndexRow[]> | undefined,
-  managed: boolean
+  managed: boolean,
+  view = false
 ): IndexDef[] {
   const indexes: IndexDef[] = [];
   for (const [indexName, indexCols] of rows ?? []) {
@@ -1050,7 +1052,7 @@ function readIndexes(
           method !== "gist"))
     ) {
       throw new MigrationError(
-        `PostgreSQL index "${relation}.${indexName}" has physical method/order/expression/include/opclass/collation semantics that this index declaration cannot represent. Synchronization refuses before effects and preserves the index. Declare it with .rawIndex() (drop this hand-made copy first: only an index VibORM created carries the marker it recognizes), or manage its table outside this synchronization scope.`,
+        `PostgreSQL index "${relation}.${indexName}" has physical method/order/expression/include/opclass/collation semantics that this index declaration cannot represent. Synchronization refuses before effects and preserves the index. ${view ? "A view takes no .rawIndex(), so VibORM's materialized view cannot keep this index: drop it." : "Declare it with .rawIndex() (drop this hand-made copy first: only an index VibORM created carries the marker it recognizes), or manage its table outside this synchronization scope."}`,
         VibORMErrorCode.FEATURE_NOT_SUPPORTED,
         { meta: { table: relation, indexName } }
       );

@@ -494,7 +494,8 @@ consent a drop takes. Dropping a view loses no data, so it asks no consent.
 
 A [materialized view](/docs/schema/views#materialized-views) on PostgreSQL is
 computed by its creation: the plan says so beside the operation, since the
-whole query runs and the view is missing until it ends. An index added to it
+whole query runs, and readers of a replaced view wait until the push commits.
+An index added to it
 or removed from it is an index operation, which keeps its stored rows.
 
 ## Next Steps

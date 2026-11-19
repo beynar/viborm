@@ -17,9 +17,10 @@
  * changes one of those replaces the view around the change
  * (`withViewReplacements`, `view.ts`), which is the other half of this rule.
  *
- * A materialized view's indexes are not here either: the serializer writes
- * them beside the view, and a change to them is an index operation that leaves
- * the stored rows as they are.
+ * A materialized view's declared indexes are not here either: the serializer
+ * writes them beside the view, and a change to them is an index operation
+ * that leaves the stored rows as they are. Its keys are here: each is a
+ * unique index, which only fresh rows are known to satisfy.
  */
 
 import { inlineLiterals } from "../adapters/inline-literals";
@@ -28,6 +29,7 @@ import { viewBody } from "../query-engine/raptor3/view-body";
 import { fieldRefPayload, isFieldRef } from "../schema/field-ref";
 import { jsonNullKindOf } from "../schema/json-null";
 import { type AnyModel, Model } from "../schema/model";
+import { getModelKeyCatalog } from "../schema/model/keys";
 import { emptyRecord, put } from "../schema/record";
 import type { AnyRelation } from "../schema/relation";
 import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
@@ -301,8 +303,19 @@ export function viewDefinition(
       relations: [...crossed].sort(([left], [right]) =>
         left < right ? -1 : 1
       ),
-      // Last and only when true: every ordinary view keeps its hash.
-      ...(materialized ? { materialized } : {}),
+      // Last and only when true: every ordinary view keeps its hash. A
+      // materialized view holds its keys too, each of which is a unique
+      // index on its stored rows: one its source gains would be built on the
+      // rows of the last refresh, which the source's new constraint says
+      // nothing of. Creating the view again computes them first.
+      ...(materialized
+        ? {
+            materialized,
+            keys: getModelKeyCatalog(view).addressableKeys.map(
+              (key) => key.fields
+            ),
+          }
+        : {}),
     },
     relationValue
   );

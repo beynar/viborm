@@ -134,7 +134,7 @@ function schemaOf(
 
 /** What a push says of a materialized view's creation. */
 const COMPUTED =
-  " (computed by its CREATE, which runs the whole query; the view is missing until it ends)";
+  " (computed by its CREATE, which runs the whole query; its readers wait until the migration commits)";
 const NO_KEY = /has no key to be refreshed concurrently by/;
 const ROLLED_BACK = /rolled back on purpose/;
 

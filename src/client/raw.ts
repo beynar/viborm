@@ -123,7 +123,7 @@ export function createRowsFragment(
  * `concurrently` is refused without a key wherever it runs, so that code
  * written for one database runs on another.
  */
-export async function refreshView(
+async function sendRefresh(
   engine: QueryEngine,
   model: AnyModel,
   options: unknown
@@ -145,6 +145,20 @@ export async function refreshView(
   ).refresh?.(getTableName(model), concurrently);
   if (statement) await createRawSurface({ engine }).$executeRaw(statement);
 }
+
+/**
+ * `<view>.$refresh(options)`, sent when it is awaited, as an operation is:
+ * one handed to the array form of `$transaction`, which takes operations
+ * alone, is refused there with nothing sent outside the transaction.
+ */
+export const refreshView = (
+  engine: QueryEngine,
+  model: AnyModel,
+  options: unknown
+): PromiseLike<void> => ({
+  then: (resolve, reject) =>
+    sendRefresh(engine, model, options).then(resolve, reject),
+});
 
 /**
  * The `FROM` item a `$rows` fragment stands for in a raw call of `engine`:
