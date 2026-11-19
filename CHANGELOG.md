@@ -12,8 +12,8 @@ Versioning.
   and `migrate` create it, replace it and drop it; the client reads it like a
   model that cannot be written (`findMany`, `findFirst`, `count`,
   `aggregate`, `groupBy`, `exist`, and `findUnique` and cursors when the view
-  projects a key of its source). On PostgreSQL, MySQL and the SQLite family
-  (SQLite, D1, libSQL, Durable Objects). Prisma reads views it does not
+  projects a key of its source). On PostgreSQL, MySQL, the SQLite family
+  (SQLite, D1, libSQL, Durable Objects) and SurrealDB. Prisma reads views it does not
   create; Drizzle creates views written in its query builder or in SQL. See
   [Views](https://viborm.dev/docs/schema/views).
   - **Columns.** Each selected scalar is a column stored as the table stores
@@ -43,8 +43,24 @@ Versioning.
   - **Extensions** act when a view is read, on the view as its own model: a
     view over a soft-deleted model shows deleted rows unless its query filters
     them, and a permissions policy that does not list the view refuses it.
-  - **Not yet:** materialized views, aggregated views, SurrealDB. Snowflake
-    refuses a schema that holds a view.
+  - **Materialized views: `.materialized()`, `.index()` and `$refresh()`.**
+    On PostgreSQL the view's rows are stored (`CREATE MATERIALIZED VIEW`),
+    each key the view derives gets a unique index, `.index()` on its scalar
+    columns creates real indexes, and `db.view.$refresh()` recomputes it
+    (`{ concurrently: true }` does not block readers and needs a view with a
+    key). An index added or removed keeps the stored rows; a changed query,
+    or a view that becomes or stops being materialized, replaces the view,
+    which runs its whole query. On MySQL and the SQLite family a materialized
+    view is an ordinary view: `.index()` creates nothing and `$refresh()`
+    sends nothing, so one schema and one code path run everywhere.
+  - **SurrealDB.** A view is a table the database computes and keeps current
+    (`DEFINE TABLE … AS SELECT`). Its query holds scalars of the source and a
+    filter on the source's own fields; a relation, `_count`, `_aggregate`, an
+    order or a window is refused with the view named, because SurrealDB does
+    not keep those current. A view inherits its source's relations there
+    too.
+  - **Not yet:** aggregated views. Snowflake refuses a schema that holds a
+    view.
   - **`viborm/schema/json`** documents state a view in a `views` section, and
     Studio lists views as read-only.
 - **Aggregates of a relation's rows: `_aggregate`, and an `orderBy` by

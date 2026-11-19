@@ -3653,3 +3653,32 @@ refused at its first use by the site above. `select.ts` `toManyRelationNames`
 reading `slots.has` is no guard: `_count: true` counts the slots a model has,
 which for a table are all its relations. The message `R002` gives for a
 relation that targets a view is the existing rule, worded for the case.
+
+## Addendum — materialized views, `$refresh`, views on SurrealDB (views plan §2.6, §2.7, 2026-11-19)
+
+One site deleted (`SurrealQueries`' constructor refusal of a schema holding a
+view: SurrealDB now defines views). A materialized view is a view whose rows
+the database stores; only PostgreSQL does, and `MigrationDriver.materializesViews()`
+is the one fact the serializer asks, so a guard below never compares a
+dialect's name.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/schema/model/model.ts` `Model.materialized` · `throw new Error("Only a view is materialized")` (type twin: the `this` constraint `DeclaredViewState`) | Only a view is materialized. | The call. | A cast or a JavaScript caller; a table carrying the fact would be read as a view by `viewFacts`. | `view-declaration.core.test.ts`, the `viewOnly` declarations a table refuses at the call. |
+| `src/schema/validation/rules/view.ts` W002, index arms | A view takes `.index()` only when materialized, on its scalar columns, never unique. | Advice and every migration of a view (`viewDefinition`). | Nothing else refuses an index on an ordinary view (I001 only asks that its fields exist); a JSON column has no order; a unique index is a key (`keys.ts`) the query does not show, which MySQL and SQLite would not hold the rows to. | same file, the `index` cases of the census (each arm removed: the case reports no issue). |
+| `src/client/raw.ts` `refreshView` · `'x' is not a materialized view ($refresh)` | `$refresh` runs on a materialized view only. | The delegate's call (the member exists at run time on every delegate; it is typed on a materialized view's alone). | A cast or a JavaScript caller: without it PostgreSQL answers its own error for a table, and MySQL and SQLite answer nothing. | `schema-views.core.test.ts` "refuses a model that is not a materialized view, and a concurrent refresh without a key, on every database". |
+| same · `'x' has no key to be refreshed concurrently by ($refresh)` | A concurrent refresh needs a view with a key. | same, before the adapter is asked, so on every database. | MySQL and SQLite send nothing and would accept it; PostgreSQL fails later, in the statement. Code written against one database must refuse on the other. | same. |
+| `src/migrations/v1-parse-snapshot.ts` `parseView` | `materialized` is `true` or absent; `indexes` only on a materialized view, never empty. | The closed snapshot parser. | Snapshot bytes the serializer never writes: an ordinary view with indexes would plan index operations on a view. | `materialized-views.core.test.ts` "admits the kind only as true, and indexes only on a materialized view, never empty". |
+| `src/migrations/view.ts` `withViewReplacements` · index operations on a replaced view are left out | A view the program drops and creates is created with its indexes, once. | The last step of `prepareSchemaProgram`, where replacements are decided. | An index change and a table change under one view in one program: the differ plans the index operation before it knows the view is replaced. | same file, "replaces a materialized view around a change it does not survive, its indexes with it, never beside it". |
+| `src/migrations/view.ts` `changedTables` · `links` | On SurrealDB a foreign key added or dropped on a table a view reads replaces the view. | same | The column changes form (a record link, or the plain value); the view's hash does not, and its filter on the column would match no row. | `surrealdb-views.test.ts` "a foreign key added under a view replaces it". |
+| `src/migrations/drivers/surrealql/view.ts` `refuseRoot`, `refuseFilter`, the projection walk | A SurrealDB view's query holds scalars of its source and a filter on the source's own fields with plain values. | The view writer, which `viewDefinition` and `viborm check` (W005) call. | SurrealDB parses a relation, a count or an aggregate in `DEFINE TABLE … AS` and never updates it; an order or a window is a parse error with no view named. | `surrealdb-views.test.ts` "a query a view cannot hold on SurrealDB is refused with the view named". |
+| same · `literal` | A filter value with no exact SurrealQL literal is refused (a non-finite number, a lone surrogate, a bigint outside 64 bits). | Where each bound value of the lowered filter is written. | A guessed literal would filter other rows than the read does. | same test, the lone-surrogate case. |
+| same · unbound driver | A view body is written by a migration bound to a SurrealDB client. | The writer. | The body is lowered by that client's read backend, so that no migrations bundle imports the SDK; without the refusal an unbound driver would throw a `TypeError`. | same file, "the migration driver unbound from a SurrealDB client writes no view body". |
+
+Not guards: the `id != NONE AND` a SurrealDB view's filter opens with (the
+server evaluates the filter on a deleted row whose fields are all `NONE`, and
+a function that refuses `NONE` would fail every delete of a source row); the
+marker a SurrealDB view carries as its table's comment, which
+`refuseRelationCollision` reads beside a SQL view's definition; and a view's
+`keyOrder` on SurrealDB being its source's (a view row keeps its source
+record's id).
