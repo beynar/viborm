@@ -1347,7 +1347,15 @@ to `viewWriter()`: its SQL dialect and an adapter under one fixed
 configuration, so every driver of a dialect writes one text; a driver that
 answers nothing creates no view, and that is the one refusal. Each SQL driver
 names its own adapter there, so a dialect's migrations bundle carries one
-adapter, not three. The serializer records `SchemaSnapshot.views`: `ViewDef = { name, hash, sql?,
+adapter, not three. The driver also states how an expression becomes one of the
+view's columns (`ViewColumnSql`, implemented by `SqlMigrationDriver`): an
+aggregated view's aggregate is cast to its scalar's column type (`viewCast`,
+`mapScalarType`'s own answer) wherever the cast keeps the value, which on
+MySQL is a double only (its `CAST` to an integer or a fixed decimal clamps
+out of range in a SELECT), and PostgreSQL writes a time step's period as the
+`YYYY-MM-DD` day `groupBy` publishes (`viewDay`). The relations a view inherits
+are its source's slots, in no snapshot and no edge: they write no foreign key
+and replace no view. The serializer records `SchemaSnapshot.views`: `ViewDef = { name, hash, sql?,
 dependsOn }`, sorted by name, the key absent when there is no view so every
 other snapshot, state id, fingerprint and catalog digest keeps its bytes.
 `hash` is 40 lowercase hex characters and is the view's identity: no layer
