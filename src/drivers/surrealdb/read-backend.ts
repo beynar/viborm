@@ -180,6 +180,28 @@ function keyCast(model: AnyModel, field: string, value: Sql): Sql {
   return isIntegerKey(model, field) ? sql`<option<int>>${value}` : value;
 }
 
+/**
+ * The type a record's key is cast to once read out of the record: a decimal
+ * or an instant, which the record holds as its text (`keyPart`) and every
+ * other column as the value. Any other key is read as it is held.
+ */
+function textKeyType(model: AnyModel, field: string): string | undefined {
+  const type = model["~"].state.scalars[field]?.["~"].state.type;
+  return type === "decimal" || type === "datetime" ? type : undefined;
+}
+
+/**
+ * A value as the key of the record that names it: an instant as the text
+ * `keyPart` writes (its ISO form to the millisecond), unset where the value
+ * is, and any other as a lookup by record reads it (`keyCast`; a decimal
+ * names its record by the text it prints as, measured).
+ */
+function recordKey(model: AnyModel, field: string, value: Sql): Sql {
+  return textKeyType(model, field) === "datetime"
+    ? sql`(IF ${value} { time::format(${value}, "%Y-%m-%dT%H:%M:%S%.3fZ") })`
+    : keyCast(model, field, value);
+}
+
 /** An exact decimal lands back on its scale, ties to even as `numeric` does here. */
 export function quantized(
   state: { readonly decimal?: { readonly scale: number } } | undefined,
@@ -1763,8 +1785,11 @@ export class SurrealReadBackend implements ReadBackend {
     const to = this.#heldTable(other, otherField);
     if (from === to) return read;
     if (to !== undefined)
-      return sql`type::record(${to}, ${from === undefined ? keyCast(other, otherField, read) : read})`;
-    const key = sql`record::id(${read})`;
+      return sql`type::record(${to}, ${from === undefined ? recordKey(other, otherField, read) : read})`;
+    const type = textKeyType(model, field);
+    const key = type
+      ? sql`<${sql.raw(type)}> record::id(${read})`
+      : sql`record::id(${read})`;
     return isSingleKey(this.#queries, model, field)
       ? key
       : sql`(IF ${read} { ${key} })`;

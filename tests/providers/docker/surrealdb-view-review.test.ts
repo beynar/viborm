@@ -4,7 +4,9 @@
  * table that key targets: towards that table it compares as the record, and
  * towards any other model, another view among them, by the key it names. A
  * column holding the key itself, unset, names no row, and a compound key's
- * integer part is looked up as the key holds it. A filtered column made
+ * integer part is looked up as the key holds it, and a key that is an
+ * instant or a decimal, which a record holds as text, by its value. A
+ * filtered column made
  * nullable replaces the view reading it, whose filter then admits a row
  * without a value, and the rename of the table a filtered foreign key
  * targets replaces it too, since the links it compares are rewritten. And
@@ -241,10 +243,6 @@ function titles(nullable: boolean) {
 }
 
 /**
- * The filter of the view whose body is pinned below: a string function, a
- * number comparison, a nullable column and an `in` list.
- */
-/**
  * A view filtered by its source's foreign key, whose value is a record of the
  * authors' table: `authors` names that table.
  */
@@ -276,6 +274,73 @@ function firsts(authors: string) {
   return { author, post, first };
 }
 
+/**
+ * A view's copies of two foreign keys whose targets are keyed by an instant
+ * and by a decimal: a record holds such a key as its text. `noteAt` and
+ * `noteAmount` each name a view's row by a column of their own, which holds
+ * the value.
+ */
+function texts() {
+  const stamp = s
+    .model({ at: s.dateTime().id(), entries: s.toMany(() => entry) })
+    .map("svr_stamps");
+  const price = s
+    .model({
+      amount: s.decimal({ precision: 6, scale: 2 }).id(),
+      entries: s.toMany(() => entry),
+    })
+    .map("svr_prices");
+  const entry = s
+    .model({
+      id: s.int().id(),
+      stampAt: s.dateTime(),
+      priceAmount: s.decimal({ precision: 6, scale: 2 }).nullable(),
+      stamp: s
+        .toOne(() => stamp)
+        .fields("stampAt")
+        .references("at"),
+      price: s
+        .toOne(() => price)
+        .fields("priceAmount")
+        .references("amount"),
+    })
+    .map("svr_text_entries");
+  const noteAt = s
+    .model({
+      id: s.int().id(),
+      at: s.dateTime().unique(),
+      entries: s.toMany((): AnyModel => liveText),
+    })
+    .map("svr_notes_at");
+  const noteAmount = s
+    .model({
+      id: s.int().id(),
+      amount: s.decimal({ precision: 6, scale: 2 }).unique(),
+      entries: s.toMany((): AnyModel => liveText),
+    })
+    .map("svr_notes_amount");
+  const liveText: AnyModel = s
+    .view(() => entry, {
+      select: { id: true, stampAt: true, priceAmount: true },
+    })
+    .extends({
+      noteAt: s
+        .toOne(() => noteAt)
+        .fields("stampAt")
+        .references("at"),
+      noteAmount: s
+        .toOne(() => noteAmount)
+        .fields("priceAmount")
+        .references("amount"),
+    })
+    .map("svr_live_texts");
+  return { stamp, price, entry, noteAt, noteAmount, liveText };
+}
+
+/**
+ * The filter of the view whose body is pinned below: a string function, a
+ * number comparison, a nullable column and an `in` list.
+ */
 const SHELF_WHERE = {
   name: { startsWith: "a" },
   rank: { gte: 2 },
@@ -591,6 +656,58 @@ describe.skipIf(!surrealUrl)("views on SurrealDB, after review", () => {
           select: { label: true, tags: { select: { id: true } } },
         })
       ).toEqual([{ label: "x1", tags: [{ id: 1 }] }]);
+    });
+  });
+
+  it("a copied link to a key that is an instant or a decimal names a row by that value, between a view and a table", async () => {
+    const driver = await freshDriver();
+    const client = clientOf(texts(), driver);
+    await using(client, async () => {
+      await push(client);
+      const at = new Date("2026-01-02T03:04:05.000Z");
+      await client.stamp.create({ data: { at } });
+      await client.price.create({ data: { amount: "2.50" } });
+      await client.entry.createMany({
+        data: [
+          { id: 1, stampAt: at, priceAmount: "2.50" },
+          { id: 2, stampAt: at, priceAmount: null },
+        ],
+      });
+      await client.noteAt.create({ data: { id: 7, at } });
+      await client.noteAmount.create({ data: { id: 8, amount: "2.50" } });
+      // The record of each key holds its text, and the note's column the
+      // value: compared as held, neither end found the other.
+      expect(
+        await client.liveText.findMany({
+          orderBy: { id: "asc" },
+          select: {
+            id: true,
+            noteAt: { select: { id: true } },
+            noteAmount: { select: { id: true } },
+          },
+        })
+      ).toEqual([
+        { id: 1, noteAt: { id: 7 }, noteAmount: { id: 8 } },
+        { id: 2, noteAt: { id: 7 }, noteAmount: null },
+      ]);
+      expect(
+        await client.noteAt.findMany({
+          select: { id: true, entries: { select: { id: true } } },
+        })
+      ).toEqual([{ id: 7, entries: [{ id: 1 }, { id: 2 }] }]);
+      expect(
+        await client.noteAmount.findMany({
+          select: { id: true, entries: { select: { id: true } } },
+        })
+      ).toEqual([{ id: 8, entries: [{ id: 1 }] }]);
+      expect(
+        ids(
+          await client.liveText.findMany({
+            where: { noteAmount: { id: 8 } },
+            select: { id: true },
+          })
+        )
+      ).toEqual([1]);
     });
   });
 
