@@ -412,6 +412,23 @@ are the keys of its source that it selects, and each of them gets a unique
 index on PostgreSQL without being declared: `findUnique` on a materialized
 view is an index lookup.
 
+An [aggregated view](#aggregated-views) is the usual one to materialize: its
+`by` list is its key, so the report is stored, read by its key, indexed on a
+total and refreshed without blocking its readers.
+
+```ts
+const salesByDay = s
+  .view(() => order, {
+    by: [{ createdAt: "day" }, "currency"],
+    _sum: { amount: true },
+    _count: true,
+  })
+  .materialized()
+  .index(["sumAmount"]);
+
+await db.salesByDay.$refresh({ concurrently: true });
+```
+
 ### Refreshing
 
 - `$refresh()` recomputes the stored rows from the view's query. While it

@@ -1714,5 +1714,72 @@ function runAggregatedViewsBehavior({
         `DROP VIEW IF EXISTS ${quote("va_plain_totals")}`
       );
     });
+
+    test("a materialized aggregated view is keyed by its by list in the database, indexed on a total, and follows a refresh", async () => {
+      const stored = dialect === "postgresql";
+      const aggStock = s
+        .model({ id: s.int().id(), bin: s.string(), units: s.int() })
+        .map("va_stock");
+      const aggStockTotals = s
+        .view(() => aggStock, {
+          by: ["bin"],
+          _sum: { units: true },
+          _count: true,
+        })
+        .materialized()
+        .index(["sumUnits"])
+        .map("va_stock_totals");
+      const stock = createClient({
+        schema: { aggStock, aggStockTotals },
+        driver,
+      });
+      const dropStored = () =>
+        driver._executeRaw(
+          `DROP ${stored ? "MATERIALIZED " : ""}VIEW IF EXISTS ${quote("va_stock_totals")}`
+        );
+      await dropStored();
+      await syncLiveSchema(stock, { tables: ["va_stock", "va_stock_totals"] });
+      await stock.aggStock.deleteMany({});
+      for (const [id, bin, units] of [
+        [1, "a", 2],
+        [2, "a", 3],
+        [3, "b", 4],
+      ] as const)
+        await stock.aggStock.create({ data: { id, bin, units } });
+      // Stored rows are those of the last refresh: none yet where the
+      // database stores them. A concurrent refresh matches rows by a unique
+      // index, which the view has on its `by` list without declaring one.
+      if (stored) expect(await stock.aggStockTotals.count()).toBe(0);
+      await stock.aggStockTotals.$refresh({ concurrently: true });
+      expect(
+        await stock.aggStockTotals.findMany({ orderBy: { bin: "asc" } })
+      ).toEqual([
+        { bin: "a", sumUnits: 5, count: 2 },
+        { bin: "b", sumUnits: 4, count: 1 },
+      ]);
+      expect(
+        await stock.aggStockTotals.findUnique({ where: { bin: "b" } })
+      ).toEqual({ bin: "b", sumUnits: 4, count: 1 });
+      expect(
+        await stock.aggStockTotals.findMany({
+          where: { sumUnits: { gt: 4 } },
+        })
+      ).toEqual([{ bin: "a", sumUnits: 5, count: 2 }]);
+      if (stored) {
+        const { rows } = await driver._executeRaw<{ indexdef: string }>(
+          "SELECT indexdef FROM pg_indexes WHERE tablename = 'va_stock_totals' ORDER BY indexname"
+        );
+        expect(rows.map((row) => row.indexdef)).toEqual([
+          expect.stringMatching(/^CREATE UNIQUE INDEX .*\(bin\)$/),
+          expect.stringMatching(/^CREATE INDEX .*\("sumUnits"\)$/),
+        ]);
+      }
+      // A second push finds the view, its key and its index as declared.
+      const again = await syncLiveSchema(stock, {
+        tables: ["va_stock", "va_stock_totals"],
+      });
+      expect(again.operations).toEqual([]);
+      await dropStored();
+    });
   });
 }

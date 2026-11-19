@@ -314,6 +314,46 @@ const salesByDay = s.view(() => order, {
 
 Time steps exist on PostgreSQL only, as in `groupBy`.
 
+As built (2026-11-19), the sketch confirmed with one difference (a stepped
+column is text):
+
+- **A query with `by` is an aggregated view's.** `s.view` has two overloads,
+  so an ordinary view never instantiates `groupBy`'s types (`by?: never` on
+  `ViewQuery` is what sends a grouping query to the second). The query is
+  what `groupBy` takes, under the root rule ordinary views have (an order or
+  a skip only with a `take`).
+- **Columns**: a grouped field under its name; `count` for `_count: true` or
+  `_all`, `countField` for a counted field; `sumField`, `avgField`,
+  `minField`, `maxField`. Two columns of one name are W004's.
+- **Each column is a scalar the view derives** (`derivedScalar`,
+  `ViewFacts.aggregated.scalars`), named by the view: no `.map()`, default,
+  key or generator flag of the field it reads carries over. `_min`/`_max`:
+  the field's scalar, nullable. `_avg`: a number, the field's decimal for a
+  decimal. `_sum`: a number for an int or a double (what `groupBy` answers
+  past the int range), a bigint for a bigint, a decimal of the field's scale
+  and `max(p, 18 - s)` digits for a decimal. `_count`: an int. A stepped `by`
+  member: a string, the `YYYY-MM-DD` text `groupBy` publishes for a period.
+- **One fact says where a column comes from**: `ViewFacts.aggregated.origins`
+  and `heldField(facts, column)`, which the identifier domains, the
+  identifier conversion and W002 read. `_min`/`_max` of an identifier keep
+  its stored format that way.
+- **The key is the `by` list** when no member is nullable: one member is a
+  single-field key, several a compound key named as `.id([...])` names one.
+  A materialized aggregated view therefore has its unique index, and a
+  concurrent refresh, with nothing added.
+- **The body is the read compiler's own `groupBy`** (`view-body.ts`), its
+  root projected flat. A column is always a column of its scalar: the
+  dialect's migration driver casts an aggregate to the scalar's column type
+  (`ViewColumnSql.viewCast`) where the cast keeps its value. MySQL casts
+  doubles only: its `CAST` to `SIGNED` or `DECIMAL` clamps an out-of-range
+  value with a warning, where its own `COUNT` and `SUM` are exact. A total
+  past what its column holds is a refused read, never another number.
+- **A list in a query** (`in: [...]`, `orderBy: [...]`, `OR: [...]`) is a
+  read-only tuple under `const`. The constraint of both overloads takes
+  every list read-only (`ReadonlyLists`): with a mutable one the inference
+  failed in silence and the view was typed with every scalar of its source,
+  a defect of the first views PR found here.
+
 ## 3. Hard points
 
 ### 3.1 No parameters in DDL
