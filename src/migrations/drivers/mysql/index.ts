@@ -92,9 +92,8 @@ import type {
   DropUniqueConstraintOperation,
   RenameColumnOperation,
   RenameTableOperation,
-  ViewWriter,
 } from "../base";
-import { SqlMigrationDriver } from "../sql";
+import { SqlMigrationDriver, type SqlViewWriter, sqlViewWriter } from "../sql";
 import {
   getMySQLType,
   MYSQL_TYPE_DEFAULTS,
@@ -220,8 +219,8 @@ export class MySQLMigrationDriver
   readonly dialect = "mysql" as const;
 
   /** Relative to the database a session selects, as every MySQL artifact is. */
-  override viewWriter(): ViewWriter {
-    return { dialect: this.dialect, adapter: new MySQLAdapter() };
+  override viewWriter(): SqlViewWriter {
+    return sqlViewWriter(this.dialect, new MySQLAdapter());
   }
   readonly driverName = "mysql";
 

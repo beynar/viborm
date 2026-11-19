@@ -5,9 +5,9 @@
  * Each driver implements DDL generation and introspection for its database.
  */
 
-import type { DatabaseAdapter } from "@adapters/database-adapter";
-import type { SqlDialect } from "@drivers/types";
+import type { Schema } from "@schema/hydration";
 import { jsonNullKindOf } from "@schema/json-null";
+import type { AnyModel } from "@schema/model";
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { refinedStringDefault } from "@schema/validation/rules/model";
 import type { IdDomain } from "@validation/primitives/id-codec";
@@ -16,6 +16,7 @@ import type {
   SqliteMigrationCapability,
 } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
+import type { ResolvedSchemaViews } from "../../query-engine/raptor3/shared/schema";
 import { refuseBinaryReencoding } from "../binary-conversion";
 import type { Sha256 } from "../identity";
 import type { ResolvedMigrationLimits } from "../limits";
@@ -173,10 +174,31 @@ type GeneratedStatements = string | readonly string[];
  * Each database (PostgreSQL, SQLite, LibSQL, etc.) extends this class
  * to provide database-specific DDL generation and schema introspection.
  */
+/** The schema a view's body is written over. */
+export interface ViewWriteContext {
+  /** The schema the view and every model its query reads belong to. */
+  readonly schema: Schema;
+  /** The schema's resolved views, where the caller already holds them. */
+  readonly resolved?: ResolvedSchemaViews;
+}
+
+/** A view's body as its database takes it. */
+export interface WrittenView {
+  /** The body in the driver's language, without parameter, wrapper or marker. */
+  readonly sql: string;
+  /** The decoder shape of a view row, as JSON data: part of the view's identity. */
+  readonly shape: unknown;
+  /** Physical names of every table and view the body reads, each once. */
+  readonly reads: readonly string[];
+}
+
 /** See {@link MigrationDriver.viewWriter}. */
 export interface ViewWriter {
-  readonly dialect: SqlDialect;
-  readonly adapter: DatabaseAdapter;
+  /**
+   * The body of `view`, a view of `context.schema`: refused, with the view
+   * named, where its query says what a view cannot hold on this database.
+   */
+  write(context: ViewWriteContext, view: AnyModel): WrittenView;
 }
 
 export abstract class MigrationDriver {
@@ -249,14 +271,14 @@ export abstract class MigrationDriver {
   declare readonly limits?: ResolvedMigrationLimits;
 
   /**
-   * What a view's body is written with, or nothing where VibORM creates no
-   * view: the SQL dialect its values are spelled in, and an adapter made for
-   * one body, under one fixed configuration of the dialect, so that two
-   * drivers of it write one text (no shared relation bodies, no bound a
-   * transport puts on a statement: D1's expression depth and compound terms,
-   * Neki's relations; every tier a column of the schema may need). Each
-   * dialect answers with its own adapter, so a bundle of one dialect's
-   * migrations carries one.
+   * Who writes a view's body, made for one body, or nothing where VibORM
+   * creates no view. Each driver answers with its own writer, so a bundle of
+   * one database's migrations carries one compiler: the SQL dialects compile
+   * the read with their own adapter (`sqlViewWriter`, `sql.ts`), under one
+   * fixed configuration of the dialect, so that two drivers of it write one
+   * text (no shared relation bodies, no bound a transport puts on a
+   * statement: D1's expression depth and compound terms, Neki's relations;
+   * every tier a column of the schema may need).
    */
   viewWriter(): ViewWriter | undefined {
     return;

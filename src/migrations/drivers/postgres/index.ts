@@ -79,9 +79,8 @@ import type {
   DropUniqueConstraintOperation,
   RenameColumnOperation,
   RenameTableOperation,
-  ViewWriter,
 } from "../base";
-import { SqlMigrationDriver } from "../sql";
+import { SqlMigrationDriver, type SqlViewWriter, sqlViewWriter } from "../sql";
 import { getPostgresType, PG_TYPE_DEFAULTS } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import {
@@ -401,10 +400,10 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
   readonly dialect = "postgresql" as const;
 
   /** In the estate's schema (a migration sets no search path), PostGIS and pgvector on. */
-  override viewWriter(): ViewWriter {
+  override viewWriter(): SqlViewWriter {
     const adapter = new PostgresAdapter(this.namespace, true);
     adapter.capabilities.supportsVector = true;
-    return { dialect: this.dialect, adapter };
+    return sqlViewWriter(this.dialect, adapter);
   }
   readonly driverName = "postgresql";
 

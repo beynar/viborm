@@ -17,7 +17,6 @@ import {
   auditStorage,
   type StorageColumnAudit,
 } from "../../migrations/sqlite-storage-audit";
-import { viewBody } from "../../query-engine/raptor3/view-body";
 import { hydrateSchemaNames } from "../../schema/hydration";
 import type {
   SchemaValidationIssue,
@@ -90,7 +89,7 @@ function withViewQueries(
   for (const [model, view] of Object.entries(models)) {
     if (viewFacts(view) === undefined) continue;
     try {
-      viewBody({ schema: models, adapter: writer().adapter }, view);
+      writer().write({ schema: models }, view);
     } catch (cause) {
       errors.push({
         code: "W005",

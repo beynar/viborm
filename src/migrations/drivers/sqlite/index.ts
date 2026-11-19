@@ -78,9 +78,8 @@ import type {
   DropUniqueConstraintOperation,
   RenameColumnOperation,
   RenameTableOperation,
-  ViewWriter,
 } from "../base";
-import { SqlMigrationDriver } from "../sql";
+import { SqlMigrationDriver, type SqlViewWriter, sqlViewWriter } from "../sql";
 import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { introspect, sqliteTableHazards } from "./introspect";
@@ -408,8 +407,8 @@ export function sqliteTableBearsRelations(
 export class SQLite3MigrationDriver extends SqlMigrationDriver {
   readonly dialect = "sqlite" as const;
 
-  override viewWriter(): ViewWriter {
-    return { dialect: this.dialect, adapter: new SQLiteAdapter() };
+  override viewWriter(): SqlViewWriter {
+    return sqlViewWriter(this.dialect, new SQLiteAdapter());
   }
   readonly driverName: string = "sqlite3";
 

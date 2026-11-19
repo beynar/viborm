@@ -6,6 +6,7 @@
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { AnyDriver } from "@drivers/driver";
+import type { SqlDialect } from "@drivers/types";
 import { jsonNullKindOf } from "@schema/json-null";
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { sql } from "@sql";
@@ -14,8 +15,10 @@ import {
   decimalDefaultText,
   decimalListDefaultText,
 } from "@validation/primitives/decimal-codec";
+import { inlineLiterals } from "../../adapters/inline-literals";
 import { stringifyJson } from "../../adapters/shared/standard-sql";
 import { MigrationError, VibORMErrorCode } from "../../errors";
+import { viewBody } from "../../query-engine/raptor3/view-body";
 import type { ColumnDef, ReferentialAction } from "../types";
 import { wrappedViewBody } from "../view";
 import {
@@ -24,7 +27,38 @@ import {
   type DDLContext,
   type DropViewOperation,
   MigrationDriver,
+  type ViewWriter,
 } from "./base";
+
+/** A SQL dialect's view writer: the read compiler on `adapter`, its values written as `dialect`'s literals. */
+export interface SqlViewWriter extends ViewWriter {
+  readonly dialect: SqlDialect;
+  /** Made for one body: its table renderer is wrapped to note what the body reads. */
+  readonly adapter: DatabaseAdapter;
+}
+
+/**
+ * The view writer of a SQL dialect: a view's declared read compiled by the
+ * read compiler itself on `adapter` (`viewBody`), then written without
+ * parameters (`inlineLiterals`).
+ */
+export function sqlViewWriter(
+  dialect: SqlDialect,
+  adapter: DatabaseAdapter
+): SqlViewWriter {
+  return {
+    dialect,
+    adapter,
+    write(context, view) {
+      const body = viewBody({ ...context, adapter }, view);
+      return {
+        sql: inlineLiterals(dialect, body.statement),
+        shape: body.shape,
+        reads: body.reads,
+      };
+    },
+  };
+}
 
 export abstract class SqlMigrationDriver extends MigrationDriver {
   override async tableHoldsRows(

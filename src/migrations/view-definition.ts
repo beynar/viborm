@@ -18,9 +18,7 @@
  * (`withViewReplacements`, `view.ts`), which is the other half of this rule.
  */
 
-import { inlineLiterals } from "../adapters/inline-literals";
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { viewBody } from "../query-engine/raptor3/view-body";
 import { fieldRefPayload, isFieldRef } from "../schema/field-ref";
 import { jsonNullKindOf } from "../schema/json-null";
 import { type AnyModel, Model } from "../schema/model";
@@ -239,11 +237,10 @@ export function viewDefinition(
       VibORMErrorCode.INVALID_INPUT,
       { meta: { feature: "view", model: view["~"].names.ts } }
     );
-  const body = viewBody(
+  const body = writer.write(
     {
       schema: models,
       resolved: { index: relations, registry: schema.registry },
-      adapter: writer.adapter,
     },
     view
   );
@@ -267,7 +264,7 @@ export function viewDefinition(
     relationValue
   );
   return {
-    sql: inlineLiterals(writer.dialect, body.statement),
+    sql: body.sql,
     hash: domainHash(HASH_DOMAIN.view, utf8Bytes(identity)).slice(0, 40),
     dependsOn,
   };
