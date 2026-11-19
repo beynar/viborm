@@ -397,7 +397,7 @@ describe("a raw index is its name, its text's hash and its columns", () => {
       tableName: "documents",
       index: declared,
     };
-    expect(lowLockSteps([create]).size).toBe(0);
+    expect(lowLockSteps([create], { tables: [] }).size).toBe(0);
   });
 });
 

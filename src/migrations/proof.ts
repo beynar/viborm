@@ -232,10 +232,11 @@ export async function proveLive(
     );
   }
   if (command.target.dialect !== "postgresql") return [];
-  return live.tables.flatMap((table) =>
-    table.indexes.flatMap((index) =>
+  // A materialized view's partial index under the view's name.
+  return [...live.tables, ...(live.views ?? [])].flatMap((relation) =>
+    (relation.indexes ?? []).flatMap((index) =>
       index.where
-        ? [{ table: table.name, index: index.name, deparsed: index.where }]
+        ? [{ table: relation.name, index: index.name, deparsed: index.where }]
         : []
     )
   );

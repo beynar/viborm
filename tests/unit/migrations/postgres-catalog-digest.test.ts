@@ -124,6 +124,28 @@ describe("the catalog digest equals fingerprintLive of an introspection", () => 
     expect((await digestAndFingerprint(orm)).digest).toBeUndefined();
   });
 
+  it("abstains on a materialized view's partial index as on a table's", async () => {
+    await database.exec(`CREATE SCHEMA "digest_partial_view"`);
+    const account = s
+      .model({ id: s.string().id(), email: s.string().nullable() })
+      .map("accounts");
+    const orm = createClient({
+      client: database,
+      schema: {
+        account,
+        emails: s
+          .view(() => account, {})
+          .materialized()
+          .index(["email"], { where: `"email" IS NOT NULL` })
+          .map("emails"),
+      },
+      namespace: "digest_partial_view",
+    });
+    await createMigrationClient(orm).push();
+
+    expect((await digestAndFingerprint(orm)).digest).toBeUndefined();
+  });
+
   it("a digest that disagrees with a matching introspection is a defect, not drift", async () => {
     await database.exec(`CREATE SCHEMA "digest_defect"`);
     const storage = new MemoryEstateStorage();

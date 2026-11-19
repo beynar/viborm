@@ -134,7 +134,7 @@ export function lowLockStates(
   current: SchemaSnapshot,
   desired: SchemaSnapshot
 ): { states: LowLockState[]; steps: ReadonlySet<DiffOperation> } | undefined {
-  const steps = lowLockSteps(operations);
+  const steps = lowLockSteps(operations, desired);
   if (steps.size === 0) return;
   const first = operations.findIndex(
     (op) => op.type === "createIndex" && steps.has(op)
@@ -182,19 +182,25 @@ export function lowLockStates(
 /**
  * The index builds and keys of `operations` on tables it does not create. A
  * raw index is not one: its text is the author's, and it is built blocking.
+ * Nor is an index of a materialized view: no write waits for its build, only
+ * a refresh.
  */
 export function lowLockSteps(
-  operations: readonly DiffOperation[]
+  operations: readonly DiffOperation[],
+  desired: SchemaSnapshot
 ): ReadonlySet<DiffOperation> {
-  const created = new Set(
-    operations.flatMap((op) => (op.type === "createTable" ? op.table.name : []))
-  );
+  const inPlace = new Set([
+    ...operations.flatMap((op) =>
+      op.type === "createTable" ? op.table.name : []
+    ),
+    ...(desired.views ?? []).map((view) => view.name),
+  ]);
   return new Set(
     operations.filter(
       (op) =>
         ((op.type === "createIndex" && !op.index.raw) ||
           op.type === "addForeignKey") &&
-        !created.has(op.tableName)
+        !inPlace.has(op.tableName)
     )
   );
 }

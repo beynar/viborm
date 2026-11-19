@@ -228,6 +228,9 @@ const PRIMARY_KEYS_QUERY = `${PRIMARY_KEYS_SOURCE}ORDER BY tc.table_name, kcu.or
  * join must not treat that as ownership or a unique-index FK target vanishes
  * from both lists.
  *
+ * A materialized view's indexes are read here too (`relkind = 'm'`): a view
+ * holds no constraint, so each of them is a standalone index.
+ *
  * `nullsNotDistinct` is the SQL that says whether a unique index takes NULLs
  * as equal, which no snapshot models: `ix.indnullsnotdistinct` where the
  * column exists ({@link NULLS_NOT_DISTINCT_QUERY}), `false` before PostgreSQL
@@ -261,7 +264,7 @@ LEFT JOIN pg_constraint c
 WHERE n.nspname = $1
   AND NOT ix.indisprimary
   AND c.oid IS NULL
-  AND t.relkind = 'r'
+  AND t.relkind IN ('r', 'm')
 `;
 const INDEXES_ORDER = `ORDER BY t.relname, i.relname, array_position(ix.indkey, a.attnum);
 `;
@@ -379,19 +382,23 @@ WHERE n.nspname = $1
 const ENUMS_QUERY = `${ENUMS_SOURCE}ORDER BY t.typname, e.enumsortorder;
 `;
 
-/** The namespace's views, each with its definition as `pg_get_viewdef` deparses it. */
+/**
+ * The namespace's views, materialized or not, each with its definition as
+ * `pg_get_viewdef` deparses it: a materialized view's ends with the marker
+ * as an ordinary view's does (measured on PostgreSQL 18 and PGlite).
+ */
 export const VIEWS_SOURCE = `
-SELECT rel.oid AS view_oid, rel.relname::text AS view_name, pg_catalog.pg_get_viewdef(rel.oid) AS definition
+SELECT rel.oid AS view_oid, rel.relname::text AS view_name, rel.relkind = 'm' AS materialized, pg_catalog.pg_get_viewdef(rel.oid) AS definition
 FROM pg_catalog.pg_class rel
 JOIN pg_catalog.pg_namespace rel_namespace ON rel_namespace.oid = rel.relnamespace
 WHERE rel_namespace.nspname = $1
-  AND rel.relkind = 'v'
+  AND rel.relkind IN ('v', 'm')
 `;
 /**
  * The views and, as JSON text, the relations of the namespace each one's rule
  * depends on: what a drop under RESTRICT must come after.
  */
-const VIEWS_QUERY = `SELECT v.view_name, v.definition, coalesce((
+const VIEWS_QUERY = `SELECT v.view_name, v.materialized, v.definition, coalesce((
   SELECT json_agg(DISTINCT read_rel.relname::text)
   FROM pg_catalog.pg_rewrite rw
   JOIN pg_catalog.pg_depend dep
@@ -910,67 +917,11 @@ export async function introspectPostgresSchema(
       }
     }
 
-    // Build indexes
-    const indexes: IndexDef[] = [];
-    const tableIndexes = indexesByTable.get(tableName);
-    if (tableIndexes) {
-      for (const [indexName, indexCols] of tableIndexes) {
-        indexCols.sort((a, b) => a.ordinal_position - b.ordinal_position);
-        const firstCol = indexCols[0];
-        if (firstCol) {
-          const method = firstCol.index_type;
-          const managed =
-            scope.tables === undefined || scope.tables.includes(tableName);
-          // `=== false` is not fail-open: is_valid is a NOT NULL boolean, and
-          // a transport returning non-booleans fails unsupported_structure.
-          if (managed && firstCol.is_valid === false) {
-            throw new MigrationError(
-              `PostgreSQL index "${tableName}.${indexName}" is INVALID: a CREATE INDEX CONCURRENTLY or REINDEX CONCURRENTLY build of it was interrupted or is still running, and PostgreSQL never reads through it. status() lists it; resolve() repairs it when the unfinished migration attempt's own CONCURRENTLY statement named it, otherwise drop it with DROP INDEX CONCURRENTLY or rebuild it with REINDEX INDEX CONCURRENTLY.`,
-              VibORMErrorCode.MIGRATION_INVALID_INDEX,
-              { meta: { table: tableName, indexName } }
-            );
-          }
-          // A raw index is its marker: whatever its method or structure, it
-          // is the text the marker's hash names.
-          const raw = readPostgresRawIndex(firstCol.index_comment, indexName);
-          if (raw) {
-            indexes.push(raw);
-            continue;
-          }
-          if (
-            managed &&
-            (firstCol.unsupported_structure !== false ||
-              (method !== "btree" &&
-                method !== "hash" &&
-                method !== "gin" &&
-                method !== "gist"))
-          ) {
-            throw new MigrationError(
-              `PostgreSQL index "${tableName}.${indexName}" has physical method/order/expression/include/opclass/collation semantics that this index declaration cannot represent. Synchronization refuses before effects and preserves the index. Declare it with .rawIndex() (drop this hand-made copy first: only an index VibORM created carries the marker it recognizes), or manage its table outside this synchronization scope.`,
-              VibORMErrorCode.FEATURE_NOT_SUPPORTED,
-              { meta: { table: tableName, indexName } }
-            );
-          }
-          if (
-            method !== "btree" &&
-            method !== "hash" &&
-            method !== "gin" &&
-            method !== "gist"
-          )
-            continue;
-          if (indexCols.some((column) => column.column_name === null)) continue;
-          indexes.push({
-            name: indexName,
-            columns: indexCols.flatMap((idx) =>
-              idx.column_name === null ? [] : [idx.column_name]
-            ),
-            unique: firstCol.is_unique,
-            type: method,
-            where: firstCol.filter_condition || undefined,
-          });
-        }
-      }
-    }
+    const indexes = readIndexes(
+      tableName,
+      indexesByTable.get(tableName),
+      scope.tables === undefined || scope.tables.includes(tableName)
+    );
 
     // Build foreign keys
     const foreignKeys: ForeignKeyDef[] = [];
@@ -1026,18 +977,28 @@ export async function introspectPostgresSchema(
   }
 
   // A view is VibORM's when its definition ends with the marker; any other
-  // is not this schema's, and stays out of the snapshot.
+  // is not this schema's, and stays out of the snapshot. A materialized one
+  // holds its indexes, read as a table's are.
   const views: ViewDef[] = [];
   for (const row of viewsResult.rows) {
     const hash = readViewMarker(row.definition);
     if (hash === undefined) continue;
     const reads: unknown = JSON.parse(row.depends_on);
+    const indexes = row.materialized
+      ? readIndexes(
+          row.view_name,
+          indexesByTable.get(row.view_name),
+          scope.tables === undefined || scope.tables.includes(row.view_name)
+        )
+      : [];
     views.push({
       name: row.view_name,
       hash,
       dependsOn: Array.isArray(reads)
         ? [...new Set(reads.filter(isString))].sort()
         : [],
+      ...(row.materialized ? { materialized: true } : {}),
+      ...(indexes.length > 0 ? { indexes } : {}),
     });
   }
 
@@ -1046,6 +1007,73 @@ export async function introspectPostgresSchema(
     enums: enums.length > 0 ? enums : undefined,
     ...(views.length > 0 ? { views } : {}),
   };
+}
+
+/**
+ * The indexes of one table or materialized view, from its catalog rows. In a
+ * relation the scope `manages`, an index this declaration cannot represent is
+ * refused, and an INVALID one too; elsewhere it is left out.
+ */
+function readIndexes(
+  relation: string,
+  rows: Map<string, PgIndexRow[]> | undefined,
+  managed: boolean
+): IndexDef[] {
+  const indexes: IndexDef[] = [];
+  for (const [indexName, indexCols] of rows ?? []) {
+    indexCols.sort((a, b) => a.ordinal_position - b.ordinal_position);
+    const firstCol = indexCols[0];
+    if (!firstCol) continue;
+    const method = firstCol.index_type;
+    // `=== false` is not fail-open: is_valid is a NOT NULL boolean, and
+    // a transport returning non-booleans fails unsupported_structure.
+    if (managed && firstCol.is_valid === false) {
+      throw new MigrationError(
+        `PostgreSQL index "${relation}.${indexName}" is INVALID: a CREATE INDEX CONCURRENTLY or REINDEX CONCURRENTLY build of it was interrupted or is still running, and PostgreSQL never reads through it. status() lists it; resolve() repairs it when the unfinished migration attempt's own CONCURRENTLY statement named it, otherwise drop it with DROP INDEX CONCURRENTLY or rebuild it with REINDEX INDEX CONCURRENTLY.`,
+        VibORMErrorCode.MIGRATION_INVALID_INDEX,
+        { meta: { table: relation, indexName } }
+      );
+    }
+    // A raw index is its marker: whatever its method or structure, it
+    // is the text the marker's hash names.
+    const raw = readPostgresRawIndex(firstCol.index_comment, indexName);
+    if (raw) {
+      indexes.push(raw);
+      continue;
+    }
+    if (
+      managed &&
+      (firstCol.unsupported_structure !== false ||
+        (method !== "btree" &&
+          method !== "hash" &&
+          method !== "gin" &&
+          method !== "gist"))
+    ) {
+      throw new MigrationError(
+        `PostgreSQL index "${relation}.${indexName}" has physical method/order/expression/include/opclass/collation semantics that this index declaration cannot represent. Synchronization refuses before effects and preserves the index. Declare it with .rawIndex() (drop this hand-made copy first: only an index VibORM created carries the marker it recognizes), or manage its table outside this synchronization scope.`,
+        VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+        { meta: { table: relation, indexName } }
+      );
+    }
+    if (
+      method !== "btree" &&
+      method !== "hash" &&
+      method !== "gin" &&
+      method !== "gist"
+    )
+      continue;
+    if (indexCols.some((column) => column.column_name === null)) continue;
+    indexes.push({
+      name: indexName,
+      columns: indexCols.flatMap((idx) =>
+        idx.column_name === null ? [] : [idx.column_name]
+      ),
+      unique: firstCol.is_unique,
+      type: method,
+      where: firstCol.filter_condition || undefined,
+    });
+  }
+  return indexes;
 }
 
 /** The raw index an index's comment marks, when VibORM wrote it for this index. */

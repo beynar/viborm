@@ -11,8 +11,8 @@ import type {
   ViewDefinition,
   ViewDefinitionContext,
 } from "@migrations/view-definition";
-import { type AnyModel, Model } from "@schema/model";
-import type { ViewFacts } from "@schema/view/facts";
+import { type AnyModel, type IndexDefinition, Model } from "@schema/model";
+import { type ViewFacts, viewFacts } from "@schema/view/facts";
 
 /** How a body names a table (qualified where the dialect qualifies) and a column. */
 export interface ViewSpelling {
@@ -28,19 +28,41 @@ export interface TestViewDefinition {
 
 const DEFINITIONS = new WeakMap<AnyModel, TestViewDefinition>();
 
-/** A view of `source` named `name` in the database, with its definition. */
+/** What a view declares beside its query: `.materialized()` and its `.index()`es. */
+export interface TestViewOptions {
+  readonly materialized?: true;
+  readonly indexes?: readonly IndexDefinition[];
+  /** The view projects no key of its source, so it derives none. */
+  readonly keyless?: true;
+}
+
+/**
+ * A view of `source` named `name` in the database, with its definition. Its
+ * keys are its source's, as a view that projects every column derives them,
+ * unless it is `keyless`.
+ */
 export function testView(
   source: AnyModel,
   name: string,
-  definition: TestViewDefinition
+  definition: TestViewDefinition,
+  options: TestViewOptions = {}
 ): AnyModel {
-  const facts: ViewFacts = { source, query: {}, documents: [] };
+  const facts: ViewFacts = {
+    source,
+    query: {},
+    documents: [],
+    ...(options.materialized ? { materialized: true } : {}),
+  };
   const state = {
     ...source["~"].state,
+    shape: source["~"].state.scalars,
     relations: {},
-    indexes: [],
+    indexes: [...(options.indexes ?? [])],
     tableName: name,
     view: facts,
+    ...(options.keyless
+      ? { uniques: {}, compoundId: undefined, compoundUniques: undefined }
+      : {}),
   };
   const view = new Model(state);
   DEFINITIONS.set(view, definition);
@@ -70,6 +92,8 @@ export function testViewDefinition(
   return {
     hash: definition.hash,
     dependsOn: [...definition.dependsOn],
+    materialized:
+      viewFacts(view)?.materialized === true && driver.materializesViews(),
     sql: definition.body({
       table: (name) =>
         namespace === undefined

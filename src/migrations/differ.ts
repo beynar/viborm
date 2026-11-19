@@ -91,6 +91,11 @@ export interface DiffOptions {
   projectRename?: typeof applyNativeRename;
 }
 
+/** What holds indexes: a table, or a materialized view. */
+interface IndexHolder {
+  readonly indexes?: readonly IndexDef[] | undefined;
+}
+
 /** Canonical spellings, keyed by table and by the predicate as declared. */
 type CanonicalPredicates = ReadonlyMap<string, string>;
 
@@ -110,8 +115,8 @@ function predicateKey(tableName: string, predicate: string): string {
  * partial index, or one that already converged, costs nothing.
  */
 async function canonicalizeChangedPredicates(
-  currentTables: ReadonlyMap<string, TableDef>,
-  desiredTables: ReadonlyMap<string, TableDef>,
+  currentTables: ReadonlyMap<string, IndexHolder>,
+  desiredTables: ReadonlyMap<string, IndexHolder>,
   canonicalize: IndexPredicateCanonicalizer | undefined
 ): Promise<CanonicalPredicates> {
   if (!canonicalize) return EMPTY_CANONICAL_PREDICATES;
@@ -123,11 +128,11 @@ async function canonicalizeChangedPredicates(
     if (!currentTable) continue;
 
     const currentIndexes = new Map(
-      currentTable.indexes.map((i) => [i.name, i])
+      (currentTable.indexes ?? []).map((i) => [i.name, i])
     );
     const pending = new Set<string>();
 
-    for (const desiredIndex of desiredTable.indexes) {
+    for (const desiredIndex of desiredTable.indexes ?? []) {
       const currentIndex = currentIndexes.get(desiredIndex.name);
       if (!currentIndex) continue;
       const left = normalizeIndexWhere(currentIndex.where);
@@ -424,6 +429,28 @@ function diffKeyed<T>(
   ];
 }
 
+/** The index operations of one table or materialized view, by name. */
+function diffIndexes(
+  relation: string,
+  current: readonly IndexDef[],
+  desired: readonly IndexDef[],
+  canonical: CanonicalPredicates
+): DiffOperation[] {
+  return diffKeyed(
+    current,
+    desired,
+    (index) => index.name,
+    (from, to) => indexesEqual(relation, from, to, canonical),
+    (index) => ({
+      type: "dropIndex",
+      tableName: relation,
+      indexName: index.name,
+      ...(index.raw ? { raw: true } : {}),
+    }),
+    (index) => ({ type: "createIndex", tableName: relation, index })
+  );
+}
+
 function enumsEqual(a: EnumDef, b: EnumDef): boolean {
   return a.name === b.name && arraysEqual(a.values, b.values);
 }
@@ -632,19 +659,7 @@ function diffTable(
   // pair IS one shape, so a changed definition — a referential action, a
   // referenced column — is the name-identity dialects' drop and re-add.
   operations.push(
-    ...diffKeyed(
-      current.indexes,
-      desired.indexes,
-      (index) => index.name,
-      (from, to) => indexesEqual(tableName, from, to, canonical),
-      (index) => ({
-        type: "dropIndex",
-        tableName,
-        indexName: index.name,
-        ...(index.raw ? { raw: true } : {}),
-      }),
-      (index) => ({ type: "createIndex", tableName, index })
-    ),
+    ...diffIndexes(tableName, current.indexes, desired.indexes, canonical),
     ...diffKeyed(
       current.foreignKeys,
       desired.foreignKeys,
@@ -752,10 +767,27 @@ export async function diff(
   // Build table maps
   const currentTables = new Map(current.tables.map((t) => [t.name, t]));
   const desiredTables = new Map(desired.tables.map((t) => [t.name, t]));
+  const currentViews = new Map(
+    (current.views ?? []).map((view) => [view.name, view])
+  );
+  const desiredViews = new Map(
+    (desired.views ?? []).map((view) => [view.name, view])
+  );
+  // A view that keeps its hash keeps its rows; a materialized one has its
+  // indexes compared as a table's are.
+  const keptViews = [...desiredViews.keys()].filter(
+    (name) => currentViews.get(name)?.hash === desiredViews.get(name)!.hash
+  );
 
   const canonicalPredicates = await canonicalizeChangedPredicates(
-    currentTables,
-    desiredTables,
+    new Map<string, IndexHolder>([
+      ...currentTables,
+      ...keptViews.map((name) => [name, currentViews.get(name)!] as const),
+    ]),
+    new Map<string, IndexHolder>([
+      ...desiredTables,
+      ...keptViews.map((name) => [name, desiredViews.get(name)!] as const),
+    ]),
     options.canonicalizeIndexPredicate
   );
 
@@ -944,23 +976,32 @@ export async function diff(
     }
   }
 
-  // A view is its hash: a changed one is dropped and created again, one side
-  // only is created or dropped. What the program does under a view that keeps
-  // its hash is `withViewReplacements`, once the program is resolved.
-  const currentViews = new Map(
-    (current.views ?? []).map((view) => [view.name, view])
-  );
-  const desiredViews = new Map(
-    (desired.views ?? []).map((view) => [view.name, view])
-  );
+  // A view is its hash: a changed one is dropped and created again (with its
+  // indexes), one side only is created or dropped, and one that keeps it has
+  // its indexes diffed, so a new index does not compute a materialized view
+  // again. What the program does under a view that keeps its hash is
+  // `withViewReplacements`, once the program is resolved.
   for (const [name, view] of currentViews) {
     if (desiredViews.get(name)?.hash !== view.hash)
-      operations.push({ type: "dropView", viewName: name });
+      operations.push({
+        type: "dropView",
+        viewName: name,
+        ...(view.materialized ? { materialized: true } : {}),
+      });
   }
   for (const [name, view] of desiredViews) {
-    if (currentViews.get(name)?.hash !== view.hash)
+    if (!keptViews.includes(name))
       operations.push({ type: "createView", view });
   }
+  for (const name of keptViews)
+    operations.push(
+      ...diffIndexes(
+        name,
+        currentViews.get(name)!.indexes ?? [],
+        desiredViews.get(name)!.indexes ?? [],
+        canonicalPredicates
+      )
+    );
 
   // Sort operations for proper execution order
   return {

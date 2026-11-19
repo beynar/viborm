@@ -151,6 +151,56 @@ function partnerOf(
 }
 
 /**
+ * An index declared with `.index()` on a table or a materialized view, named
+ * after the relation unless it names itself. `.map()` renames a column, so
+ * the DDL names the column and not the TypeScript field, as the compound
+ * uniques and the foreign-key columns do.
+ */
+function declaredIndex(
+  model: AnyModel,
+  relation: string,
+  index: ModelState["indexes"][number]
+): IndexDef {
+  return {
+    name: index.options.name || `${relation}_${index.fields.join("_")}_idx`,
+    columns: index.fields.map((field) => model["~"].getFieldName(field).sql),
+    unique: index.options.unique ?? false,
+    type: index.options.type,
+    where: index.options.where,
+  };
+}
+
+/**
+ * A materialized view's indexes: a unique one for each key the view derives
+ * from its source, named as a table's primary key and uniques are (each is
+ * what `findUnique` can name, and one of them is what a concurrent refresh
+ * needs), then each declared one. A view holds no constraint, so a key is an
+ * index there.
+ */
+function materializedViewIndexes(view: AnyModel, name: string): IndexDef[] {
+  const column = (field: string) => view["~"].getFieldName(field).sql;
+  const keys = getModelKeyCatalog(view).addressableKeys.flatMap(
+    (key): IndexDef[] =>
+      key.fields.length === 0
+        ? []
+        : [
+            {
+              name:
+                key.kind === "primary"
+                  ? `${name}_pkey`
+                  : `${name}_${key.name ?? column(key.fields[0]!)}_key`,
+              columns: key.fields.map(column),
+              unique: true,
+            },
+          ]
+  );
+  return [
+    ...keys,
+    ...view["~"].state.indexes.map((index) => declaredIndex(view, name, index)),
+  ];
+}
+
+/**
  * Serializes a collection of VibORM models into a SchemaSnapshot
  */
 export function serializeModels(
@@ -186,7 +236,8 @@ export function serializeResolvedModels(
   // by the walk that follows) — so the "one table name, one definition"
   // invariant covers both routes through the same map.
   const junctionTables = new Map<string, { def: TableDef; pairKey: string }>();
-  // A view holds no table, column, key or index: only its definition.
+  // A view holds no table, column, key or foreign key: its definition, and a
+  // materialized view its indexes.
   const views: ViewDef[] = [];
 
   for (const [modelName, model] of Object.entries(models)) {
@@ -205,11 +256,24 @@ export function serializeResolvedModels(
         relations: index,
         migrationDriver,
       });
+      // Through the driver's own pass over a table's indexes, so a view's
+      // index is named and typed as a table's would be.
+      const indexes = definition.materialized
+        ? migrationDriver.finalizeTable({
+            name: tableName,
+            columns: [],
+            indexes: materializedViewIndexes(model, tableName),
+            foreignKeys: [],
+            uniqueConstraints: [],
+          }).indexes
+        : [];
       views.push({
         name: tableName,
         hash: definition.hash,
         sql: definition.sql,
         dependsOn: [...definition.dependsOn],
+        ...(definition.materialized ? { materialized: true } : {}),
+        ...(indexes.length > 0 ? { indexes } : {}),
       });
       continue;
     }
@@ -407,30 +471,15 @@ export function serializeResolvedModels(
       }
     }
 
-    // Process indexes from model state
+    // Process indexes from model state. One resolution of the columns serves
+    // both readers: the CREATE INDEX, and the foreign-key index's coverage
+    // decision, which has to compare the same names or it emits a duplicate.
     const declaredIndexColumns: string[][] = [];
     for (const indexDef of modelState.indexes) {
-      const indexName =
-        indexDef.options.name ||
-        `${tableName}_${indexDef.fields.join("_")}_idx`;
-      // `.map()` renames the column, so the DDL has to name the column and not
-      // the TypeScript field — the same resolution the compound uniques and the
-      // FK columns already do. One resolution serves both readers: the CREATE
-      // INDEX below, and the foreign-key index's coverage decision, which has
-      // to compare the same names or it emits a duplicate index.
-      const columns = indexDef.fields.map(
-        (field) => model["~"].getFieldName(field).sql
-      );
-      const declared: IndexDef = {
-        name: indexName,
-        columns,
-        unique: indexDef.options.unique ?? false,
-        type: indexDef.options.type,
-        where: indexDef.options.where,
-      };
+      const declared = declaredIndex(model, tableName, indexDef);
       indexes.push(declared);
       if (isTotalIndex(declared)) {
-        declaredIndexColumns.push(columns);
+        declaredIndexColumns.push(declared.columns);
       }
     }
 

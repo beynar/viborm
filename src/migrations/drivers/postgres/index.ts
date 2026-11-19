@@ -405,6 +405,11 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     adapter.capabilities.supportsVector = true;
     return sqlViewWriter(this.dialect, adapter);
   }
+
+  /** `CREATE MATERIALIZED VIEW`, on PostgreSQL and every server of its dialect. */
+  override materializesViews(): boolean {
+    return true;
+  }
   readonly driverName = "postgresql";
 
   readonly capabilities: MigrationCapabilities = {
@@ -726,7 +731,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
           kind: string;
           definition: string | null;
         }>(
-          `SELECT relation.relname AS name, relation.relkind AS kind, CASE WHEN relation.relkind = 'v' THEN pg_catalog.pg_get_viewdef(relation.oid) END AS definition FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname=$1 AND relation.relkind IN ('r','p','f','v','m') AND relation.relname=ANY($2::text[])`,
+          `SELECT relation.relname AS name, relation.relkind AS kind, CASE WHEN relation.relkind IN ('v','m') THEN pg_catalog.pg_get_viewdef(relation.oid) END AS definition FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname=$1 AND relation.relkind IN ('r','p','f','v','m') AND relation.relname=ANY($2::text[])`,
           [this.requireEstateNamespace(), arrayLiteralText(declaredNames)]
         );
         refuseRelationCollision(
@@ -739,7 +744,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
                 row.kind === "v"
                   ? "view"
                   : row.kind === "m"
-                    ? "other"
+                    ? "materialized view"
                     : "table",
               definition: row.definition,
             })

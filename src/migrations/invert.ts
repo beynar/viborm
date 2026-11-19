@@ -165,8 +165,11 @@ function invertOperation(
       ];
 
     case "dropIndex": {
-      const table = findPrevTable(op.tableName);
-      const index = table?.indexes.find((i) => i.name === op.indexName);
+      // A materialized view holds indexes too; renames never reach its name.
+      const index = (
+        findPrevTable(op.tableName) ??
+        previousSnapshot.views?.find((view) => view.name === op.tableName)
+      )?.indexes?.find((i) => i.name === op.indexName);
       if (!index) {
         warnings.push(
           `Cannot invert dropIndex "${op.indexName}" on "${op.tableName}": index not found in previous snapshot.`
@@ -245,11 +248,18 @@ function invertOperation(
     }
 
     case "createView":
-      return [{ type: "dropView", viewName: op.view.name }];
+      return [
+        {
+          type: "dropView",
+          viewName: op.view.name,
+          ...(op.view.materialized ? { materialized: true } : {}),
+        },
+      ];
 
     case "dropView": {
-      // A view holds no rows: dropping one loses nothing its creation does
-      // not give back, so this is no warning.
+      // A view holds no rows of its own (a materialized one holds what its
+      // creation computes again, with its indexes): dropping one loses
+      // nothing its creation does not give back, so this is no warning.
       const view = previousSnapshot.views?.find(
         (item) => item.name === op.viewName
       );

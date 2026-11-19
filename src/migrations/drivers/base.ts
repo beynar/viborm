@@ -284,6 +284,17 @@ export abstract class MigrationDriver {
     return;
   }
 
+  /**
+   * Whether a view declared `.materialized()` is a materialized view here:
+   * stored, indexed and refreshed (PostgreSQL). Everywhere else it is an
+   * ordinary view, by the maintainer's choice, and `.materialized()` and its
+   * indexes change nothing a migration writes: not the snapshot, not the
+   * view's identity, not the program.
+   */
+  materializesViews(): boolean {
+    return false;
+  }
+
   // ===========================================================================
   // INTROSPECTION
   // ===========================================================================
@@ -838,7 +849,10 @@ export abstract class MigrationDriver {
   // DDL GENERATION - View Operations
   // ===========================================================================
 
-  /** `CREATE VIEW`, its body wrapped by `wrappedViewBody` so it carries its marker. */
+  /**
+   * `CREATE VIEW`, its body wrapped by `wrappedViewBody` so it carries its
+   * marker; a materialized view's creation is followed by its indexes.
+   */
   abstract generateCreateView(
     op: CreateViewOperation,
     context: DDLContext

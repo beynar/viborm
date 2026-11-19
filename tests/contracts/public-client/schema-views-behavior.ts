@@ -7,6 +7,9 @@
  * scalars and JSON columns alike, decoded by the read's own decoder. Then the
  * ordinary read verbs run on the views unchanged, and a write is refused
  * before any statement.
+ *
+ * A materialized view (plan §2.6) reads what its last refresh computed where
+ * the database stores it (PostgreSQL), and its source's rows elsewhere.
  */
 
 import { MemoryCache } from "@cache/drivers/memory";
@@ -265,6 +268,23 @@ const liveByline = s
   .view(() => livePost, liveBylineQuery)
   .map("vw_live_bylines");
 
+const storedQuery = {
+  where: { published: true },
+  select: {
+    id: true,
+    uid: true,
+    title: true,
+    views: true,
+    author: { select: { name: true } },
+  },
+} as const;
+/** Stored where the database stores a view's rows: keyed by `id` and `uid`, indexed by `views`. */
+const storedPost = s
+  .view(() => post, storedQuery)
+  .materialized()
+  .index(["views"])
+  .map("vw_stored_posts");
+
 const TABLE_NAMES = [
   "vw_authors",
   "vw_posts",
@@ -290,6 +310,7 @@ const views = {
   noIdPost,
   countOver,
   unflagged,
+  storedPost,
 };
 const schema = { ...tables, ...views };
 
@@ -311,6 +332,7 @@ const CREATED = [
   "noIdPost",
   "countOver",
   "unflagged",
+  "storedPost",
 ] as const;
 
 const NAMES: Record<(typeof CREATED)[number], string> = {
@@ -330,6 +352,7 @@ const NAMES: Record<(typeof CREATED)[number], string> = {
   noIdPost: "vw_no_id_posts",
   countOver: "vw_count_over",
   unflagged: "vw_unflagged_posts",
+  storedPost: "vw_stored_posts",
 };
 
 const hex = (bytes: Uint8Array) =>
@@ -387,8 +410,16 @@ export function runSchemaViewsBehavior({
       dialect === "mysql" ? `\`${identifier}\`` : `"${identifier}"`;
     const SCOPE = [...TABLE_NAMES, ...Object.values(NAMES)];
     const dropViews = async () => {
-      for (const view of [...CREATED].reverse())
-        await driver._executeRaw(`DROP VIEW IF EXISTS ${quote(NAMES[view])}`);
+      for (const view of [...CREATED].reverse()) {
+        // PostgreSQL drops a materialized view with its own statement.
+        const kind =
+          view === "storedPost" && dialect === "postgresql"
+            ? "MATERIALIZED VIEW"
+            : "VIEW";
+        await driver._executeRaw(
+          `DROP ${kind} IF EXISTS ${quote(NAMES[view])}`
+        );
+      }
     };
 
     beforeAll(async () => {
@@ -585,6 +616,38 @@ export function runSchemaViewsBehavior({
           )
         )
       );
+    });
+
+    test("a materialized view reads what its last refresh computed, by its key too, where the database stores it", async () => {
+      const ordered = { orderBy: { id: "asc" } } as const;
+      await client.storedPost.$refresh();
+      const rows = await client.storedPost.findMany(ordered);
+      expect(plain(rows)).toEqual(
+        plain(await client.post.findMany({ ...storedQuery, ...ordered }))
+      );
+      const [first] = rows;
+      expect(
+        await client.storedPost.findUnique({ where: { uid: first!.uid } })
+      ).toEqual(first);
+      // A write since: kept out of a stored view until its refresh, read at
+      // once where the view is an ordinary one.
+      await client.post.update({
+        where: { id: first!.id },
+        data: { published: false },
+      });
+      try {
+        expect(await client.storedPost.count()).toBe(
+          dialect === "postgresql" ? rows.length : rows.length - 1
+        );
+        await client.storedPost.$refresh({ concurrently: true });
+        expect(await client.storedPost.count()).toBe(rows.length - 1);
+      } finally {
+        await client.post.update({
+          where: { id: first!.id },
+          data: { published: true },
+        });
+        await client.storedPost.$refresh();
+      }
     });
 
     test("a value with a line break or the word DELIMITER is written into the view as it is", async () => {

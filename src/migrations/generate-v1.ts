@@ -276,7 +276,7 @@ export async function generateV1(
         lowLock && parents.length === 1
           ? lowLockStates(staged, current, desired)
           : undefined;
-      if (lowLock && !split && lowLockSteps(staged).size > 0) {
+      if (lowLock && !split && lowLockSteps(staged, desired).size > 0) {
         warnings.push(
           "lowLock: this change keeps its blocking index builds and validating foreign keys, because it merges several parents or changes something other than an index or a foreign key after its first index build. Generate those indexes and keys in a migration of their own to get their step form."
         );
@@ -526,7 +526,7 @@ function sameSchema(a: SchemaSnapshot, b: SchemaSnapshot): boolean {
   );
 }
 
-/** A snapshot with its tables, columns, keys, enums and views sorted by name. */
+/** A snapshot with its tables, columns, keys, enums, views and indexes sorted by name. */
 function orderFree(snapshot: SchemaSnapshot): SchemaSnapshot {
   const byName = (a: { name: string }, b: { name: string }) =>
     a.name < b.name ? -1 : Number(a.name > b.name);
@@ -542,7 +542,13 @@ function orderFree(snapshot: SchemaSnapshot): SchemaSnapshot {
       }))
       .sort(byName),
     enums: snapshot.enums && [...snapshot.enums].sort(byName),
-    views: snapshot.views && [...snapshot.views].sort(byName),
+    views: snapshot.views
+      ?.map((view) =>
+        view.indexes
+          ? { ...view, indexes: [...view.indexes].sort(byName) }
+          : view
+      )
+      .sort(byName),
   };
 }
 

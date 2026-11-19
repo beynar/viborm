@@ -36,9 +36,12 @@ export function formatOperation(op: DiffOperation): string {
     case "dropPrimaryKey":
       return `- Drop primary key "${op.constraintName}" from "${op.tableName}"`;
     case "createView":
-      return `+ Create view "${op.view.name}"`;
+      // The costly one: a replaced materialized view is missing until it ends.
+      return op.view.materialized
+        ? `+ Create materialized view "${op.view.name}" (computed by its CREATE, which runs the whole query; the view is missing until it ends)`
+        : `+ Create view "${op.view.name}"`;
     case "dropView":
-      return `- Drop view "${op.viewName}"`;
+      return `- Drop ${op.materialized ? "materialized " : ""}view "${op.viewName}"`;
     case "createEnum":
       return `+ Create enum "${op.enumDef.name}" with values [${op.enumDef.values.join(", ")}]`;
     case "dropEnum":

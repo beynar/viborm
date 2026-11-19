@@ -6,12 +6,22 @@
  * view in order, drops it when undeclared, replaces a table of its name with
  * consent and refuses a hand-made view of its name before any effect, and generate, apply, verify, down and reset converge.
  *
+ * A materialized view (`.materialized()`): where the driver materializes
+ * (PostgreSQL), push creates it with its rows and a unique index per key, an
+ * index change is an index operation that leaves its rows as they were (a
+ * row written since is still missing), a change of kind or under it replaces
+ * it, `$refresh` recomputes it (concurrently with a key, inside a
+ * transaction), and the history converges; elsewhere it is the ordinary view
+ * of the same hash, and `$refresh` sends nothing.
+ *
  * The test file mocks `@migrations/view-definition` with
  * `testViewDefinition` (`./view-definitions`): the body is written per
  * dialect here, the identity is the hash this file gives.
  */
 
+import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
+import { UnsupportedOperationError } from "@errors";
 import { qualifiedName } from "@migrations/catalog-probes";
 import { CONTROL_TABLES } from "@migrations/control";
 import {
@@ -32,6 +42,10 @@ const FEED = "view_feed";
 const DIGEST = "view_digest";
 const FEED_A = "a".repeat(40);
 const FEED_B = "b".repeat(40);
+/** The feed's hash once materialized, where the driver materializes: its identity holds the kind. */
+const FEED_MATERIALIZED = "d".repeat(40);
+/** The feed's hash when its query projects no key. */
+const FEED_KEYLESS = "e".repeat(40);
 const DIGEST_HASH = "c0".repeat(20);
 
 /** What a push that plans nothing answers. */
@@ -51,6 +65,11 @@ interface Shape {
   readonly feed?: "A" | "B";
   /** A view reading the feed. */
   readonly digest?: boolean;
+  /** The feed declared `.materialized()`, with an `.index()` on each of these. */
+  readonly materialized?: boolean;
+  readonly indexed?: readonly ("score" | "id")[];
+  /** The feed projects no key of its source. */
+  readonly keyless?: boolean;
 }
 
 const FIRST: Shape = {
@@ -60,7 +79,20 @@ const FIRST: Shape = {
   feed: "A",
 };
 
-function schemaOf(shape: Shape): Record<string, AnyModel> {
+/**
+ * The feed's hash, as its identity is: the declared body, and the kind where
+ * the driver materializes (`materializes`).
+ */
+function feedHash(shape: Shape, materializes: boolean): string {
+  if (shape.keyless) return FEED_KEYLESS;
+  if (shape.materialized && materializes) return FEED_MATERIALIZED;
+  return shape.feed === "A" ? FEED_A : FEED_B;
+}
+
+function schemaOf(
+  shape: Shape,
+  materializes = false
+): Record<string, AnyModel> {
   // A type and a nullability change: an alteration on every dialect (SQLite
   // stores both integers alike, and rebuilds the table for the nullability).
   const score = shape.bigScore ? s.bigInt().nullable() : s.int();
@@ -72,12 +104,24 @@ function schemaOf(shape: Shape): Record<string, AnyModel> {
   const schema: Record<string, AnyModel> = { post };
   if (shape.feed !== undefined) {
     const floor = shape.feed === "A" ? 0 : 1;
-    schema.feed = testView(post, FEED, {
-      hash: shape.feed === "A" ? FEED_A : FEED_B,
-      dependsOn: [shape.table],
-      body: ({ table, column }) =>
-        `SELECT ${column("id")}, ${column(shape.title)}, ${column("score")} FROM ${table(shape.table)} WHERE ${column("score")} > ${floor}`,
-    });
+    schema.feed = testView(
+      post,
+      FEED,
+      {
+        hash: feedHash(shape, materializes),
+        dependsOn: [shape.table],
+        body: ({ table, column }) =>
+          `SELECT ${column("id")}, ${column(shape.title)}, ${column("score")} FROM ${table(shape.table)} WHERE ${column("score")} > ${floor}`,
+      },
+      {
+        ...(shape.materialized ? { materialized: true } : {}),
+        indexes: (shape.indexed ?? []).map((field) => ({
+          fields: [field],
+          options: {},
+        })),
+        ...(shape.keyless ? { keyless: true } : {}),
+      }
+    );
   }
   if (shape.digest)
     schema.digest = testView(post, DIGEST, {
@@ -86,6 +130,23 @@ function schemaOf(shape: Shape): Record<string, AnyModel> {
       body: ({ table, column }) => `SELECT ${column("id")} FROM ${table(FEED)}`,
     });
   return schema;
+}
+
+/** What a push says of a materialized view's creation. */
+const COMPUTED =
+  " (computed by its CREATE, which runs the whole query; the view is missing until it ends)";
+const NO_KEY = /has no key to be refreshed concurrently by/;
+const ROLLED_BACK = /rolled back on purpose/;
+
+/** The client calls these tests make on the schema of a shape. */
+interface FeedClient {
+  readonly feed: {
+    $refresh(options?: { readonly concurrently?: boolean }): Promise<void>;
+  };
+  $transaction<T>(run: (tx: FeedClient) => Promise<T>): Promise<T>;
+  readonly post: {
+    create(args: { data: Record<string, unknown> }): Promise<unknown>;
+  };
 }
 
 /** Renames are renames, and a type change is accepted. */
@@ -127,7 +188,7 @@ export function runViewMigrationBehavior({
 
     const client = (driver: AnyDriver, shape: Shape) => ({
       $driver: driver,
-      $schema: schemaOf(shape),
+      $schema: schemaOf(shape, getMigrationDriver(driver).materializesViews()),
     });
 
     /** Push `shape` through preview and consent; the operations it ran. */
@@ -169,6 +230,28 @@ export function runViewMigrationBehavior({
       await driver._executeRaw(
         `INSERT INTO ${qualifiedName(command, POSTS)} (${column("id")}, ${column("title")}, ${column("score")}) VALUES ('p0', 'zero', 0), ('p1', 'one', 1), ('p2', 'two', 2)`
       );
+    }
+
+    /** One more post the feed shows (its score is above every floor). */
+    async function write(driver: AnyDriver, id: string): Promise<void> {
+      const command = getMigrationDriver(driver);
+      const column = (name: string) => command.escapeIdentifier(name);
+      await driver._executeRaw(
+        `INSERT INTO ${qualifiedName(command, POSTS)} (${column("id")}, ${column("title")}, ${column("score")}) VALUES ('${id}', '${id}', 9)`
+      );
+    }
+
+    async function liveFeed(driver: AnyDriver): Promise<ViewDef | undefined> {
+      return (await liveViews(driver)).find(({ name }) => name === FEED);
+    }
+
+    /** A client of `shape`'s schema on `driver`. */
+    function feedClient(driver: AnyDriver, shape: Shape): FeedClient {
+      const materializes = getMigrationDriver(driver).materializesViews();
+      return createClient({
+        schema: schemaOf(shape, materializes),
+        driver,
+      }) as unknown as FeedClient;
     }
 
     test("push creates, reads back, replaces, follows what it reads and drops", async () => {
@@ -378,6 +461,218 @@ export function runViewMigrationBehavior({
           [DIGEST, DIGEST_HASH],
           [FEED, FEED_B],
         ]);
+      });
+    });
+
+    test("a materialized view is stored and keyed where the driver materializes, indexed without being computed again, and replaced around a change it does not survive", async () => {
+      await withDriver(async (driver) => {
+        const materializes = getMigrationDriver(driver).materializesViews();
+        const created = materializes
+          ? `+ Create materialized view "${FEED}"${COMPUTED}`
+          : `+ Create view "${FEED}"`;
+        const dropped = `- Drop ${materializes ? "materialized " : ""}view "${FEED}"`;
+        await push(driver, { ...FIRST, feed: undefined });
+        await seed(driver);
+        const stored: Shape = { ...FIRST, materialized: true };
+        expect(await push(driver, stored)).toEqual([created]);
+        expect(await liveFeed(driver)).toMatchObject(
+          materializes
+            ? {
+                hash: FEED_MATERIALIZED,
+                materialized: true,
+                indexes: [
+                  { name: `${FEED}_pkey`, columns: ["id"], unique: true },
+                ],
+              }
+            : { hash: FEED_A }
+        );
+        if (!materializes) {
+          // The ordinary view of the same hash: neither key is there, and
+          // the declaration without `.materialized()` plans nothing.
+          expect(await liveFeed(driver)).not.toHaveProperty("materialized");
+          expect(await pushAgain(driver, FIRST)).toMatchObject(NOOP);
+        }
+        expect(await pushAgain(driver, stored)).toMatchObject(NOOP);
+        expect(await ids(driver, FEED)).toEqual(["p1", "p2"]);
+
+        // A row written since: a materialized view holds the rows its
+        // creation computed, an ordinary view reads the table.
+        await write(driver, "p3");
+        const computed = materializes ? ["p1", "p2"] : ["p1", "p2", "p3"];
+        expect(await ids(driver, FEED)).toEqual(computed);
+
+        // An index added and dropped: an index operation alone, and the
+        // stored rows stay as they were (the view was not computed again).
+        const indexed: Shape = { ...stored, indexed: ["score"] };
+        if (materializes)
+          expect(await push(driver, indexed)).toEqual([
+            `+ Create index "${FEED}_score_idx" on "${FEED}"`,
+          ]);
+        expect(await pushAgain(driver, indexed)).toMatchObject(NOOP);
+        expect(await ids(driver, FEED)).toEqual(computed);
+        if (materializes)
+          expect(await push(driver, stored)).toEqual([
+            `- Drop index "${FEED}_score_idx"`,
+          ]);
+        expect(await pushAgain(driver, stored)).toMatchObject(NOOP);
+        expect(await ids(driver, FEED)).toEqual(computed);
+
+        // A column type change under it: dropped and computed again around it.
+        const wide: Shape = { ...indexed, bigScore: true };
+        expect(await push(driver, wide)).toEqual([
+          dropped,
+          `~ Alter column "score" in "${POSTS}"`,
+          created,
+        ]);
+        expect(await pushAgain(driver, wide)).toMatchObject(NOOP);
+        expect(await ids(driver, FEED)).toEqual(["p1", "p2", "p3"]);
+        expect(
+          (await liveFeed(driver))?.indexes?.map(({ name }) => name)
+        ).toEqual(
+          materializes ? [`${FEED}_pkey`, `${FEED}_score_idx`] : undefined
+        );
+
+        // Ordinary again: a new kind is a new view where it is one.
+        const plain: Shape = { ...wide, materialized: false, indexed: [] };
+        if (materializes)
+          expect(await push(driver, plain)).toEqual([
+            dropped,
+            `+ Create view "${FEED}"`,
+          ]);
+        expect(await liveFeed(driver)).toEqual(
+          expect.not.objectContaining({ materialized: true })
+        );
+        expect(await pushAgain(driver, plain)).toMatchObject(NOOP);
+      });
+    });
+
+    test("$refresh computes a materialized view again, concurrently by its key, inside a transaction, and sends nothing where a view is ordinary", async () => {
+      await withDriver(async (driver) => {
+        const materializes = getMigrationDriver(driver).materializesViews();
+        const stored: Shape = { ...FIRST, materialized: true };
+        await push(driver, stored);
+        await seed(driver);
+        const db = feedClient(driver, stored);
+        await write(driver, "p3");
+        expect(await ids(driver, FEED)).toEqual(
+          materializes ? [] : ["p1", "p2", "p3"]
+        );
+        await db.feed.$refresh();
+        expect(await ids(driver, FEED)).toEqual(["p1", "p2", "p3"]);
+
+        // Readers are not blocked: PostgreSQL matches the rows by the key's
+        // unique index.
+        await write(driver, "p4");
+        await db.feed.$refresh({ concurrently: true });
+        expect(await ids(driver, FEED)).toEqual(["p1", "p2", "p3", "p4"]);
+
+        // In a transaction: rolled back with it, committed with it.
+        await expect(
+          db.$transaction(async (tx) => {
+            await tx.post.create({
+              data: { id: "p5", title: "five", score: 5 },
+            });
+            await tx.feed.$refresh();
+            throw new Error("rolled back on purpose");
+          })
+        ).rejects.toThrow(ROLLED_BACK);
+        expect(await ids(driver, FEED)).toEqual(["p1", "p2", "p3", "p4"]);
+        await db.$transaction(async (tx) => {
+          await tx.post.create({ data: { id: "p5", title: "five", score: 5 } });
+          await tx.feed.$refresh();
+        });
+        expect(await ids(driver, FEED)).toEqual(["p1", "p2", "p3", "p4", "p5"]);
+
+        // A view that projects no key (another query, another hash) has no
+        // unique index to refresh it concurrently by: refused before any
+        // statement, on every database.
+        const keyless: Shape = { ...stored, keyless: true };
+        expect(await push(driver, keyless)).toEqual(
+          materializes
+            ? [
+                `- Drop materialized view "${FEED}"`,
+                `+ Create materialized view "${FEED}"${COMPUTED}`,
+              ]
+            : [`- Drop view "${FEED}"`, `+ Create view "${FEED}"`]
+        );
+        expect(await liveFeed(driver)).toMatchObject({ hash: FEED_KEYLESS });
+        expect((await liveFeed(driver))?.indexes).toBeUndefined();
+        const loose = feedClient(driver, keyless);
+        await expect(
+          loose.feed.$refresh({ concurrently: true })
+        ).rejects.toThrow(NO_KEY);
+        await expect(
+          loose.feed.$refresh({ concurrently: true })
+        ).rejects.toBeInstanceOf(UnsupportedOperationError);
+        await loose.feed.$refresh();
+      });
+    });
+
+    test("generate, apply, verify, down and reset converge with a materialized view and its indexes", async () => {
+      await withDriver(async (driver) => {
+        const materializes = getMigrationDriver(driver).materializesViews();
+        const storage = new MemoryEstateStorage();
+        const step = async (
+          name: string,
+          shape: Shape,
+          outcome: "applied" | "noop" = "applied"
+        ) => {
+          const migrations = createMigrationClient(client(driver, shape), {
+            storage,
+          });
+          await migrations.generate({ name, resolve: resolve as never });
+          await expect(migrations.apply()).resolves.toMatchObject({ outcome });
+          await expect(migrations.verify()).resolves.toEqual({ ok: true });
+          return migrations;
+        };
+        const stored: Shape = { ...FIRST, materialized: true };
+        await step("first", stored);
+        await seed(driver);
+        // An index alone: its state computes nothing again. Where the view
+        // is ordinary the index is nothing, and so is the state.
+        await step(
+          "indexed",
+          { ...stored, indexed: ["score"] },
+          materializes ? "applied" : "noop"
+        );
+        expect(await ids(driver, FEED)).toEqual(
+          materializes ? [] : ["p1", "p2"]
+        );
+        const migrations = await step("digest", {
+          ...stored,
+          indexed: ["score"],
+          digest: true,
+        });
+        const indexes = async () =>
+          (await liveFeed(driver))?.indexes?.map(({ name }) => name);
+        expect(await indexes()).toEqual(
+          materializes ? [`${FEED}_pkey`, `${FEED}_score_idx`] : undefined
+        );
+
+        await expect(
+          migrations.down({ steps: materializes ? 2 : 1 })
+        ).resolves.toMatchObject({ preview: false });
+        await expect(migrations.verify()).resolves.toEqual({ ok: true });
+        expect(await indexes()).toEqual(
+          materializes ? [`${FEED}_pkey`] : undefined
+        );
+        expect(await names(driver)).toEqual([
+          [FEED, materializes ? FEED_MATERIALIZED : FEED_A],
+        ]);
+
+        // A reset drops the reader, then the materialized view, then the
+        // tables, and replays the whole history.
+        await expect(migrations.reset()).resolves.toMatchObject({
+          preview: false,
+        });
+        await expect(migrations.verify()).resolves.toEqual({ ok: true });
+        expect(await names(driver)).toEqual([
+          [DIGEST, DIGEST_HASH],
+          [FEED, materializes ? FEED_MATERIALIZED : FEED_A],
+        ]);
+        expect(await indexes()).toEqual(
+          materializes ? [`${FEED}_pkey`, `${FEED}_score_idx`] : undefined
+        );
       });
     });
   });

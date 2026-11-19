@@ -16,6 +16,10 @@
  * and its primary key (the order a body breaks ties by). A program that
  * changes one of those replaces the view around the change
  * (`withViewReplacements`, `view.ts`), which is the other half of this rule.
+ *
+ * A materialized view's indexes are not here either: the serializer writes
+ * them beside the view, and a change to them is an index operation that leaves
+ * the stored rows as they are.
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
@@ -40,6 +44,13 @@ export interface ViewDefinition {
   readonly hash: string;
   /** Physical names of the tables and views the body reads, sorted, each once. */
   readonly dependsOn: readonly string[];
+  /**
+   * The view is declared `.materialized()` and the driver materializes views:
+   * the database stores its rows. Part of the identity only then, so a view
+   * that changes kind is replaced, and a dialect that keeps such a view
+   * ordinary sees it as the same view.
+   */
+  readonly materialized: boolean;
 }
 
 /** What the serializer holds when it asks for a view's definition. */
@@ -206,7 +217,7 @@ export function viewDefinition(
   const writer = migrationDriver.viewWriter();
   if (writer === undefined)
     throw new MigrationError(
-      `The view "${view["~"].names.ts}" cannot be migrated: VibORM creates no view on ${dialect === "surrealql" ? "SurrealDB yet; views arrive there with materialized views" : dialect}.`,
+      `The view "${view["~"].names.ts}" cannot be migrated: VibORM creates no view on ${dialect}.`,
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
       { meta: { feature: "view", dialect } }
     );
@@ -251,6 +262,8 @@ export function viewDefinition(
   const facts = viewFacts(view)!;
   const crossed = new Map<string, unknown>();
   crossedRelations(facts.source, facts.query, relations, crossed);
+  const materialized =
+    facts.materialized === true && migrationDriver.materializesViews();
   const identity = JSON.stringify(
     {
       revision: VIEW_REVISION,
@@ -260,6 +273,8 @@ export function viewDefinition(
       relations: [...crossed].sort(([left], [right]) =>
         left < right ? -1 : 1
       ),
+      // Last and only when true: every ordinary view keeps its hash.
+      ...(materialized ? { materialized } : {}),
     },
     relationValue
   );
@@ -267,5 +282,6 @@ export function viewDefinition(
     sql: body.sql,
     hash: domainHash(HASH_DOMAIN.view, utf8Bytes(identity)).slice(0, 40),
     dependsOn,
+    materialized,
   };
 }

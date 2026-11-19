@@ -37,6 +37,21 @@ export interface ViewDef {
   sql?: string | undefined;
   /** The tables and views the body reads, by physical name, sorted, each once. */
   dependsOn: string[];
+  /**
+   * The database stores the view's rows (PostgreSQL's materialized view),
+   * computed by its `CREATE` and again by each refresh. Set only for a view
+   * declared `.materialized()` on a dialect whose driver materializes views:
+   * elsewhere such a view is an ordinary one, and its snapshot says nothing of
+   * it. Absent on an ordinary view, so its bytes and hash stay as they were.
+   */
+  materialized?: true | undefined;
+  /**
+   * A materialized view's indexes, in a table's form: a unique index for each
+   * key the view derives from its source (what `findUnique` can name, and
+   * what a concurrent refresh needs), then each one declared with `.index()`.
+   * Never set without {@link materialized}; absent when there is none.
+   */
+  indexes?: IndexDef[] | undefined;
 }
 
 export interface PolymorphicToOneSnapshotMember {
@@ -283,7 +298,15 @@ export type DiffOperation =
   | { type: "addPrimaryKey"; tableName: string; primaryKey: PrimaryKeyDef }
   | { type: "dropPrimaryKey"; tableName: string; constraintName: string }
   | { type: "createView"; view: ViewDef }
-  | { type: "dropView"; viewName: string }
+  | {
+      type: "dropView";
+      viewName: string;
+      /**
+       * The view is a materialized one, as the snapshot holding it says:
+       * PostgreSQL drops each kind with its own statement.
+       */
+      materialized?: true | undefined;
+    }
   | { type: "createEnum"; enumDef: EnumDef }
   | {
       type: "dropEnum";
