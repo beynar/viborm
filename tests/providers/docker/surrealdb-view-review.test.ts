@@ -4,7 +4,10 @@
  * table that key targets: towards that table it compares as the record, and
  * towards any other model, another view among them, by the key it names. A
  * column holding the key itself, unset, names no row, and a compound key's
- * integer part is looked up as the key holds it. Gated on SURREAL_TEST_URL.
+ * integer part is looked up as the key holds it. A filtered column made
+ * nullable replaces the view reading it, whose filter then admits a row
+ * without a value. And the body one view is written as, which its identity
+ * does not hold. Gated on SURREAL_TEST_URL.
  */
 
 import { createClient } from "@client/client";
@@ -213,6 +216,67 @@ function pairs() {
     .map("svr_live_tags");
   return { pair, tag, livePair, liveTag };
 }
+
+/** `title` required, or nullable, under a view that filters on it. */
+function titles(nullable: boolean) {
+  const post: AnyModel = s
+    .model({
+      id: s.string().id(),
+      title: nullable ? s.string().nullable() : s.string(),
+      score: s.int(),
+    })
+    .map("svr_posts");
+  const feed = s
+    .view(() => post, {
+      where: { title: { startsWith: "t" } },
+      select: { id: true, score: true },
+    } as never)
+    .map("svr_feed");
+  return { post, feed };
+}
+
+/**
+ * The filter of the view whose body is pinned below: a string function, a
+ * number comparison, a nullable column and an `in` list.
+ */
+const SHELF_WHERE = {
+  name: { startsWith: "a" },
+  rank: { gte: 2 },
+  note: { not: "hidden" },
+  kind: { in: ["book", "map"] },
+};
+
+/** The view whose body is pinned below. */
+function pinned() {
+  const item = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      rank: s.int(),
+      note: s.string().nullable(),
+      kind: s.string(),
+      secret: s.string(),
+    })
+    .map("svr_items");
+  const shelf = s
+    .view(() => item, { where: SHELF_WHERE, omit: { secret: true } })
+    .map("svr_shelf");
+  return { item, shelf };
+}
+
+/**
+ * The text SurrealDB is asked to define the pinned view with, its identity
+ * left out. A view's identity does not hold its body, so a release that
+ * lowers the filter otherwise plans no migration, and every view already
+ * defined keeps the body it was defined with for ever. A failure here asks
+ * which: if every view already defined still reads the same rows, update
+ * the text; if not, raise `VIEW_REVISION` (`src/migrations/view-definition.ts`),
+ * so that every view is defined again, then update the text.
+ */
+const SHELF_BODY =
+  'DEFINE TABLE svr_shelf AS SELECT id, name, rank, note, kind FROM svr_items WHERE id != NONE AND ((string::starts_with(name, s"a") AND rank >= 2 AND (note != NONE AND !(note = s"hidden")) AND kind IN [s"book", s"map"])) COMMENT "viborm_view_<identity>";';
+
+const IDENTITY = /viborm_view_[0-9a-f]{40}/;
 
 describe.skipIf(!surrealUrl)("views on SurrealDB, after review", () => {
   it("a view's copied foreign key names a record of its target's table, and a view's row by the key it holds", async () => {
@@ -490,6 +554,78 @@ describe.skipIf(!surrealUrl)("views on SurrealDB, after review", () => {
           select: { label: true, tags: { select: { id: true } } },
         })
       ).toEqual([{ label: "x1", tags: [{ id: 1 }] }]);
+    });
+  });
+
+  it("a filtered column made nullable replaces the view, whose filter then admits a row without a value", async () => {
+    const driver = await freshDriver();
+    const required = clientOf(titles(false), driver);
+    const nullable = clientOf(titles(true), driver);
+    await using(nullable, async () => {
+      await push(required);
+      await required.post.createMany({
+        data: [
+          { id: "p1", title: "t1", score: 1 },
+          { id: "p2", title: "u2", score: 2 },
+        ],
+      });
+      await required.$disconnect();
+      const { labels } = await push(nullable);
+      expect(labels.at(0)).toBe('- Drop view "svr_feed"');
+      expect(labels.at(-1)).toBe('+ Create view "svr_feed"');
+      // The view's filter was written for a title that is always there: kept,
+      // the database refuses both writes ("Expected string but found NONE").
+      await nullable.post.create({
+        data: { id: "p3", title: null, score: 3 },
+      });
+      await nullable.post.update({
+        where: { id: "p1" },
+        data: { title: null },
+      });
+      await nullable.post.create({
+        data: { id: "p4", title: "t4", score: 4 },
+      });
+      expect(await nullable.feed.findMany({ orderBy: { id: "asc" } })).toEqual([
+        { id: "p4", score: 4 },
+      ]);
+      expect(await createMigrationClient(nullable).push()).toMatchObject({
+        outcome: "noop",
+      });
+    });
+  });
+
+  it("the body a view is defined with, which its identity does not hold", async () => {
+    const driver = await freshDriver();
+    const client = clientOf(pinned(), driver);
+    await using(client, async () => {
+      const { statements } = await push(client);
+      const body = statements.find((statement: string) =>
+        statement.startsWith("DEFINE TABLE svr_shelf ")
+      );
+      expect(body?.replace(IDENTITY, "viborm_view_<identity>")).toBe(
+        SHELF_BODY
+      );
+      // The body defined reads the rows the query reads on its source: an
+      // unset note is not one that differs from "hidden".
+      await client.item.createMany({
+        data: [
+          { id: "i1", name: "atlas", rank: 3, note: null, kind: "map" },
+          { id: "i2", name: "almanac", rank: 2, note: "ok", kind: "book" },
+          { id: "i3", name: "abacus", rank: 5, note: "hidden", kind: "book" },
+          { id: "i4", name: "arc", rank: 1, note: "ok", kind: "book" },
+          { id: "i5", name: "bell", rank: 4, note: "ok", kind: "book" },
+          { id: "i6", name: "anvil", rank: 4, note: "ok", kind: "tool" },
+        ].map((row) => ({ ...row, secret: "s" })),
+      });
+      expect(
+        ids(
+          await client.item.findMany({
+            where: SHELF_WHERE,
+            select: { id: true },
+          })
+        )
+      ).toEqual(["i2"]);
+      expect(ids(await client.shelf.findMany())).toEqual(["i2"]);
     });
   });
 });
