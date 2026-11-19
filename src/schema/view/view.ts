@@ -500,8 +500,11 @@ const aggregateColumn = (aggregate: ViewAggregate, field: string): string =>
  * decimals the field's type, nullable; another average a number; a sum of
  * bigints a bigint, of ints or doubles a number (an int sum passes the int
  * range where `groupBy` still answers), of decimals a decimal at the field's
- * scale, as wide as every provider stores one at that scale (SQLite's
- * coefficient, 18 digits) and never narrower than the field.
+ * scale, as wide as every provider that stores the field stores one at that
+ * scale: 18 digits less the scale where SQLite stores the field (its
+ * coefficient is an int64), 65 less the scale where MySQL does and SQLite
+ * does not, PostgreSQL's 1000 beyond. A field SQLite stores at its limit
+ * (precision and scale adding up to 18) has no room above its own range.
  */
 function aggregateScalar(aggregate: ViewAggregate, field: Scalar): Scalar {
   if (aggregate === "_count") return int();
@@ -512,8 +515,11 @@ function aggregateScalar(aggregate: ViewAggregate, field: Scalar): Scalar {
   if (descriptor !== undefined) {
     if (aggregate === "_avg") return columnOf(field, true);
     const { precision, scale } = descriptor;
+    // 18 and 65: what precision and scale add up to at most on SQLite and
+    // on MySQL (`PROVIDER_LIMITS`, the decimal codec).
+    const limit = [18, 65].find((sum) => precision + scale <= sum);
     return decimal({
-      precision: Math.max(precision, 18 - scale),
+      precision: limit ? limit - scale : 1000,
       scale,
     }).nullable();
   }

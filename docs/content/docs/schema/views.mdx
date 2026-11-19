@@ -289,13 +289,28 @@ named as `.id([...])` names one. With a nullable field, the view has no key.
 An aggregated view reads a view and is read by one. Its columns are not its
 source's, so it inherits none of its source's relations.
 
-Each total is held in a column of its value's type. A sum of decimals keeps
-the field's scale and at least 18 digits (more where the field declares
-more); a sum of ints is a double, exact up to 2^53 as `groupBy`'s is. A total
-past what its column holds is never read as another number: PostgreSQL and
-SQLite refuse the read (a bigint sum past 2^63, for instance), and MySQL keeps
-its own exact sum, which the client reads as `groupBy` does or refuses past
-the decimal's precision.
+Each total is held in a column of its value's type, and a total past what
+that column holds is never read as another number: the read is refused.
+
+| Total | Column | Where it ends |
+| --- | --- | --- |
+| `_count` | an int | a group of 2^31 rows |
+| `_sum` of ints | a double | exact up to 2^53, as `groupBy`'s is |
+| `_sum` of doubles | a double | a sum that overflows a double: `groupBy` answers `Infinity` on MySQL, the view's read is refused |
+| `_sum` of bigints | a bigint | 2^63 on PostgreSQL and SQLite, where `groupBy` still answers |
+| `_sum` of decimals | a decimal at the field's scale, as wide as every database that stores the field stores one | see below |
+
+A sum of decimals has room above its field: with a scale of `s`, the column
+holds 18 − `s` digits where SQLite can store the field (precision and scale
+add up to 18 at most), 65 − `s` where only MySQL and PostgreSQL can, and
+PostgreSQL's 1000 beyond. `decimal(10, 2)` sums into 16 digits, and
+`decimal(19, 4)` into 61. A field SQLite stores at its limit, `decimal(16, 2)`
+for instance, has no room: its sum ends where the field does, on every
+database.
+
+On a materialized view a refused total is refused by the refresh, and by the
+migration that creates the view again: keep the field's precision under what
+its totals reach.
 
 Time steps exist on PostgreSQL only, as in `groupBy`; elsewhere a migration
 refuses the view, naming it.

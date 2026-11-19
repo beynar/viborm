@@ -798,14 +798,16 @@ describe("an aggregated view", () => {
       type: "number",
       nullable: true,
     });
-    // A decimal sum at the field's scale, as wide as every provider stores one.
+    // A decimal sum at the field's scale, as wide as every provider that
+    // stores the field stores one: SQLite's 18 digits less the scale, and
+    // MySQL's 65 for a field SQLite does not store.
     expect(typeOf(totals, "sumAmount")).toEqual({
       type: "decimal",
       nullable: true,
       decimal: { precision: 16, scale: 2 },
     });
     expect(typeOf(totals, "sumWide").decimal).toEqual({
-      precision: 30,
+      precision: 63,
       scale: 2,
     });
     expect(typeOf(totals, "avgUnits")).toEqual({

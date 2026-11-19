@@ -330,8 +330,13 @@ column is text):
   key or generator flag of the field it reads carries over. `_min`/`_max`:
   the field's scalar, nullable. `_avg`: a number, the field's decimal for a
   decimal. `_sum`: a number for an int or a double (what `groupBy` answers
-  past the int range), a bigint for a bigint, a decimal of the field's scale
-  and `max(p, 18 - s)` digits for a decimal. `_count`: an int. A stepped `by`
+  past the int range), a bigint for a bigint, and for a decimal one of the
+  field's scale as wide as every provider that stores the field stores one:
+  18 - s digits where SQLite stores it (p + s <= 18), 65 - s where MySQL does
+  and SQLite does not, 1000 beyond. A first form, `max(p, 18 - s)`, left a
+  field with p + s >= 18 no room above its own range (a review probe: two
+  rows of `decimal(20, 2)` near its maximum failed every read of the view on
+  PostgreSQL, and would have blocked the refresh of a materialized one). `_count`: an int. A stepped `by`
   member: a string, the `YYYY-MM-DD` text `groupBy` publishes for a period.
 - **One fact says where a column comes from**: `ViewFacts.aggregated.origins`
   and `heldField(facts, column)`, which the identifier domains, the
@@ -342,7 +347,8 @@ column is text):
   A materialized aggregated view therefore has its unique index, and a
   concurrent refresh, with nothing added.
 - **The body is the read compiler's own `groupBy`** (`view-body.ts`), its
-  root projected flat. A column is always a column of its scalar: the
+  root projected flat, and without the order `groupBy` gives its groups when
+  the query takes no window (`groupOrderTerms`): a view has no order. A column is always a column of its scalar: the
   dialect's migration driver casts an aggregate to the scalar's column type
   (`ViewColumnSql.viewCast`) where the cast keeps its value. MySQL casts
   doubles only: its `CAST` to `SIGNED` or `DECIMAL` clamps an out-of-range
@@ -354,8 +360,10 @@ column is text):
   filtered field, and a delete down to an empty group (measured). A group's
   record id is the list of its `by` values, even of one, so the view's key
   order is its `by` list and `findUnique` fetches the record; a key or a
-  link in `by` is grouped by its value (`record::id`), a non-nullable
-  integer as an `int`. Each aggregate is written so that the view holds what
+  link in `by` is grouped by its value (`record::id`, behind `IF` where the
+  link may be unset: `record::id` of none fails every such write), an
+  integer as an `int` (`<option<int>>` where it may be unset: the column is
+  an `i32`, which a lookup by value does not find in a record id). Each aggregate is written so that the view holds what
   `groupBy` answers (a bigint sum on a decimal accumulator, which a write
   never overflows; a decimal average rounded as the read rounds it; `NULL`
   for a group with no value). Refused, with the view named: a `having`, a

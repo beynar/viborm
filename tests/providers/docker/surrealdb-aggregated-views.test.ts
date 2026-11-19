@@ -915,6 +915,73 @@ describe.skipIf(!surrealUrl)("aggregated views on SurrealDB", () => {
     });
   });
 
+  it("grouped by a nullable link or a nullable int: a write that leaves it unset passes, and a filter by value finds the group", async () => {
+    const shop = s
+      .model({ id: s.int().id(), visits: s.toMany(() => visit) })
+      .map("sa_shops");
+    const visit = s
+      .model({
+        id: s.int().id(),
+        shopId: s.int().nullable(),
+        qty: s.int().nullable(),
+        shop: s
+          .toOne(() => shop)
+          .fields("shopId")
+          .references("id"),
+      })
+      .map("sa_visits");
+    const byShop = s
+      .view(() => visit, { by: ["shopId"], _count: true })
+      .map("sa_by_shop");
+    const byQty = s
+      .view(() => visit, { by: ["qty"], _count: true })
+      .map("sa_by_qty");
+    const driver = await freshDriver();
+    const client = clientOf({ shop, visit, byShop, byQty }, driver);
+    await using(client, async () => {
+      const { statements } = await push(client);
+      expect(
+        statements
+          .filter((statement: string) => statement.includes(" AS SELECT "))
+          .map((statement: string) =>
+            statement.replace(MARKER, "viborm_view_…")
+          )
+          .sort()
+      ).toEqual([
+        'DEFINE TABLE sa_by_qty AS SELECT <option<int>> qty AS qty, count() AS count FROM sa_visits GROUP BY qty COMMENT "viborm_view_…";',
+        'DEFINE TABLE sa_by_shop AS SELECT <option<int>> (IF shopId { record::id(shopId) }) AS shopId, count() AS count FROM sa_visits GROUP BY shopId COMMENT "viborm_view_…";',
+      ]);
+      await client.shop.create({ data: { id: 1 } });
+      // Each of these failed while the body took `record::id` of an unset link.
+      await client.visit.create({ data: { id: 1, shopId: 1, qty: 2 } });
+      await client.visit.create({ data: { id: 2, shopId: null, qty: 2 } });
+      await client.visit.create({ data: { id: 3, shopId: 1, qty: null } });
+      await client.visit.update({ where: { id: 3 }, data: { shopId: null } });
+      await client.visit.update({ where: { id: 2 }, data: { qty: 5 } });
+      expect(
+        await client.byShop.findMany({ orderBy: { count: "asc" } })
+      ).toEqual([
+        { shopId: 1, count: 1 },
+        { shopId: null, count: 2 },
+      ]);
+      // A filter by value names the group's record: an int in its id.
+      expect(await client.byShop.findMany({ where: { shopId: 1 } })).toEqual([
+        { shopId: 1, count: 1 },
+      ]);
+      expect(await client.byQty.findMany({ where: { qty: 2 } })).toEqual([
+        { qty: 2, count: 1 },
+      ]);
+      expect(await client.byQty.findFirst({ where: { qty: 5 } })).toEqual({
+        qty: 5,
+        count: 1,
+      });
+      expect(await client.byQty.count({ where: { qty: 2 } })).toBe(1);
+      expect(await client.byQty.findMany({ where: { qty: null } })).toEqual([
+        { qty: null, count: 1 },
+      ]);
+    });
+  });
+
   it("a bigint sum past 2^63: the view holds it exactly and the write that carries it there is not refused, where groupBy cannot read it", async () => {
     const huge = s
       .model({ id: s.int().id(), part: s.string(), big: s.bigInt() })

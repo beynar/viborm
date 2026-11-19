@@ -24,6 +24,7 @@ import type { Sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import { aggregatedIdentifier, isCompact } from "./shared/identifier";
 import {
+  type OrderTerm,
   type PreparedAggregates,
   type PreparedProjection,
   refusesWhileDecoding,
@@ -151,6 +152,12 @@ class ViewBodyQueries extends SqlQueries {
   readonly #columns: ViewColumnSql;
   /** The alias the root row is read under, set as the statement opens. */
   #root: string | undefined;
+  /**
+   * Set for a grouped root that takes no window: it states no order, as a
+   * root of rows does. `groupBy` orders its groups by their grouped fields,
+   * which a view would pay on every read for an order it does not have.
+   */
+  unordered = false;
 
   constructor(
     schema: EngineSchema,
@@ -283,6 +290,12 @@ class ViewBodyQueries extends SqlQueries {
     return this.#columns.viewCast(value, scalarsOf(this.#model)[name]!);
   }
 
+  protected override groupOrderTerms(
+    ...order: Parameters<SqlQueries["groupOrderTerms"]>
+  ): OrderTerm[] {
+    return this.unordered ? [] : super.groupOrderTerms(...order);
+  }
+
   /** Every caller's SQL operand is settled here before it is lowered. */
   override settleRows(): Sql {
     return refuse(
@@ -345,6 +358,7 @@ export function viewBody(context: ViewBodyContext, view: AnyModel): ViewBody {
     );
   }
   refuseRoot(name, admitted);
+  queries.unordered = aggregated !== undefined && admitted.take === undefined;
   let statement: Sql;
   try {
     statement =

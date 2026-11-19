@@ -430,7 +430,11 @@ export class MySQLMigrationDriver
    * warning, in a SELECT whatever the SQL mode (measured on 8.4: a bigint sum
    * past 2^63 read 9223372036854775807). MySQL's own count is a `BIGINT`, and
    * its sum or average of integers or decimals a `DECIMAL` at the column's
-   * scale and of a wider range, which the column's decoder reads exactly.
+   * scale and of a wider range. The view's column is declared as wide as
+   * MySQL stores a decimal of that scale (`aggregateScalar`, `s.view`), so
+   * its decoder reads every sum the field's rows can add up to; a sum past
+   * what the column's scalar holds (a bigint's past 2^63) is refused by that
+   * decoder, never read as another number.
    */
   override viewCast(expression: Sql, scalar: Scalar): Sql {
     return scalar["~"].state.type === "number"

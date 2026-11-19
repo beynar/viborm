@@ -402,13 +402,22 @@ export function surrealViewWriter(
             if (origin.aggregate !== undefined)
               return sql`${aggregateOf(name, source, low, origin)} AS ${alias}`;
             const stored = low.physical(source, origin.field!);
-            const held = low.isRecord(source, origin.field!)
-              ? sql`record::id(${stored})`
-              : stored;
             const { type, nullable } = aggregated.scalars[column]!["~"].state;
+            // A group is named by values: a key's or a link's, not its
+            // record. An unset link names none, where `record::id` of it
+            // would fail every write that leaves the link unset (measured).
+            const key = sql`record::id(${stored})`;
+            const held = low.isRecord(source, origin.field!)
+              ? nullable
+                ? sql`(IF ${stored} { ${key} })`
+                : key
+              : stored;
+            // An int column is stored as an i32, which a record id holds
+            // apart from the int a lookup by value names; `<int>` refuses an
+            // unset value, which `<option<int>>` keeps.
             const value =
-              (type === "int" || type === "bigint") && !nullable
-                ? sql`<int> ${held}`
+              type === "int" || type === "bigint"
+                ? sql`<${sql.raw(nullable ? "option<int>" : "int")}> ${held}`
                 : held;
             grouped.push(alias);
             return value.toStatement() === alias.toStatement()

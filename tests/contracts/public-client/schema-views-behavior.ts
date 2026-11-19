@@ -1718,6 +1718,47 @@ function runAggregatedViewsBehavior({
       );
     });
 
+    // SQLite stores no decimal of 20 digits: a field at its limit has no
+    // room above its own range, which is the coefficient's.
+    if (dialect !== "sqlite")
+      test("a sum past its field's own range is held: the column is as wide as the database stores a decimal of that scale", async () => {
+        const aggLedger = s
+          .model({
+            id: s.int().id(),
+            book: s.string(),
+            amount: s.decimal({ precision: 20, scale: 2 }),
+          })
+          .map("va_ledger");
+        const aggLedgerTotals = s
+          .view(() => aggLedger, { by: ["book"], _sum: { amount: true } })
+          .map("va_ledger_totals");
+        const ledger = createClient({
+          schema: { aggLedger, aggLedgerTotals },
+          driver,
+        });
+        const dropTotals = () =>
+          driver._executeRaw(
+            `DROP VIEW IF EXISTS ${quote("va_ledger_totals")}`
+          );
+        await dropTotals();
+        await syncLiveSchema(ledger, {
+          tables: ["va_ledger", "va_ledger_totals"],
+        });
+        await ledger.aggLedger.deleteMany({});
+        for (const id of [1, 2])
+          await ledger.aggLedger.create({
+            data: { id, book: "a", amount: "999999999999999999.99" },
+          });
+        const groups = await ledger.aggLedger.groupBy({
+          by: ["book"],
+          _sum: { amount: true },
+        });
+        const rows = await ledger.aggLedgerTotals.findMany();
+        expect(rows).toEqual(groups.map(flattened));
+        expect(String(rows[0]?.sumAmount)).toBe("1999999999999999999.98");
+        await dropTotals();
+      });
+
     test("a materialized aggregated view is keyed by its by list in the database, indexed on a total, and follows a refresh", async () => {
       const stored = dialect === "postgresql";
       const aggStock = s
