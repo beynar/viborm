@@ -3682,4 +3682,9 @@ a function that refuses `NONE` would fail every delete of a source row); the
 marker a SurrealDB view carries as its table's comment, which
 `refuseRelationCollision` reads beside a SQL view's definition; and a view's
 `keyOrder` on SurrealDB being its source's (a view row keeps its source
-record's id).
+record's id). Nor is how the read backend compares the two ends of a
+relation there (`#heldAs`, `read-backend.ts`): each end is read as the other
+holds it. A view's copied link is a record of the table its source's link
+targets: towards that table it compares as a record, and towards anything
+else, another view included, by the key it names, an unset value naming no
+record (`<option<int>>`, `IF x { record::id(x) }`).

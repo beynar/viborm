@@ -287,7 +287,12 @@ As built (2026-11-19):
   SQL dialects' stand: a release that lowers a filter differently fails it
   and must raise `VIEW_REVISION`.
 - Relations between a view and a model read both ways (the read backend
-  takes a reference to a view as the key itself, not a record link).
+  takes a reference to a view as the key itself, not a record link). A
+  view's column copied from its source's link holds a record of the table
+  that link targets: a relation of the view to that table compares records,
+  and one to anything else, another view included, compares by the key
+  (`#heldAs`; a review probe found a view-to-view relation reading the
+  source's table).
 
 ### 2.8 Aggregated views (PR 4)
 
