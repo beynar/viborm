@@ -1739,16 +1739,18 @@ function runAggregatedViewsBehavior({
         );
       await dropStored();
       await syncLiveSchema(stock, { tables: ["va_stock", "va_stock_totals"] });
+      // A database a run left behind holds its rows: start from none.
       await stock.aggStock.deleteMany({});
+      await stock.aggStockTotals.$refresh();
       for (const [id, bin, units] of [
         [1, "a", 2],
         [2, "a", 3],
         [3, "b", 4],
       ] as const)
         await stock.aggStock.create({ data: { id, bin, units } });
-      // Stored rows are those of the last refresh: none yet where the
-      // database stores them. A concurrent refresh matches rows by a unique
-      // index, which the view has on its `by` list without declaring one.
+      // Stored rows are those of the last refresh: none where the database
+      // stores them. A concurrent refresh matches rows by a unique index,
+      // which the view has on its `by` list without declaring one.
       if (stored) expect(await stock.aggStockTotals.count()).toBe(0);
       await stock.aggStockTotals.$refresh({ concurrently: true });
       expect(
