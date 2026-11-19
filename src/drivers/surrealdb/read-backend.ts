@@ -170,9 +170,14 @@ function isIntegerKey(model: AnyModel, field: string): boolean {
   return type === "int" || type === "bigint";
 }
 
-/** A key read back from text: an integer key's record names a number. */
+/**
+ * A key read back from another column: an integer key's record names an
+ * `int`, which a lookup by record tells from a narrower integer and from
+ * text. An unset value stays unset and names no record, where `<int>` would
+ * fail the statement (measured on SurrealDB 4.0).
+ */
 function keyCast(model: AnyModel, field: string, value: Sql): Sql {
-  return isIntegerKey(model, field) ? sql`<int>${value}` : value;
+  return isIntegerKey(model, field) ? sql`<option<int>>${value}` : value;
 }
 
 /** An exact decimal lands back on its scale, ties to even as `numeric` does here. */
@@ -785,20 +790,18 @@ export class SurrealReadBackend implements ReadBackend {
     const q = this.#queries;
     const pairs = edge.pairs.map(({ source, target }) => {
       const parent = sql`${sql.raw(row)}.${this.physical(edge.source, source)}`;
-      const column = this.physical(edge.target, target);
-      if (
-        isSingleKey(q, edge.target, target) &&
-        !this.holdsRecord(edge.source, source)
-      )
-        return sql`id = type::record(${tableOf(edge.target)}, ${keyCast(edge.target, target, parent)})`;
-      if (
+      const held = this.#heldAs(
+        edge.source,
+        source,
+        parent,
+        edge.target,
+        target
+      );
+      const carried =
+        edge.discriminator &&
         isSingleKey(q, edge.source, source) &&
-        !this.holdsRecord(edge.target, target)
-      ) {
-        const key = sql`record::id(${parent})`;
-        return sql`${column} = ${edge.discriminator ? this.#carried(edge.target, target, key) : key}`;
-      }
-      return sql`${column} = ${parent}`;
+        this.#heldTable(edge.target, target) === undefined;
+      return sql`${this.physical(edge.target, target)} = ${carried ? this.#carried(edge.target, target, held) : held}`;
     });
     const { discriminator } = edge;
     if (discriminator) {
@@ -1723,6 +1726,48 @@ export class SurrealReadBackend implements ReadBackend {
     const facts = viewFacts(model);
     if (facts) return this.holdsRecord(facts.source, field);
     return this.#linkOf(model, field) !== undefined;
+  }
+
+  /**
+   * The table whose record a field holds: its model's own for its single
+   * key, the target's for a link it holds, none for a field holding the key
+   * itself. A view's field holds what its source's holds: a record of the
+   * table its source's link targets, whatever a relation declared on the view
+   * names.
+   */
+  #heldTable(model: AnyModel, field: string): string | undefined {
+    if (isSingleKey(this.#queries, model, field)) return tableOf(model);
+    const facts = viewFacts(model);
+    if (facts) return this.#heldTable(facts.source, field);
+    const link = this.#linkOf(model, field);
+    // A variant relation's column holds the key itself, whichever model it names.
+    return link && !link.discriminator ? tableOf(link.target) : undefined;
+  }
+
+  /**
+   * `model`'s `field`, read as `read`, as `other`'s `otherField` holds it:
+   * the same record, the record of the key it names in another table, or the
+   * key itself. One end of a relation names the other's row by the key alone
+   * when the two hold it differently: a view's copy of its source's link is
+   * a record of the table that link targets, never of a view. An unset link
+   * names no record; a row's own key is always set.
+   */
+  #heldAs(
+    model: AnyModel,
+    field: string,
+    read: Sql,
+    other: AnyModel,
+    otherField: string
+  ): Sql {
+    const from = this.#heldTable(model, field);
+    const to = this.#heldTable(other, otherField);
+    if (from === to) return read;
+    if (to !== undefined)
+      return sql`type::record(${to}, ${from === undefined ? keyCast(other, otherField, read) : read})`;
+    const key = sql`record::id(${read})`;
+    return isSingleKey(this.#queries, model, field)
+      ? key
+      : sql`(IF ${read} { ${key} })`;
   }
 
   /**
@@ -2787,29 +2832,28 @@ export class SurrealReadBackend implements ReadBackend {
    */
   #heldRecord(edge: Reference): Sql | undefined {
     if (edge.many || edge.owner !== "source") return undefined;
-    const keys = this.#queries.keyOrder(edge.target);
-    const parts = keys.map((key) => {
+    const parts: Sql[] = [];
+    for (const key of this.#queries.keyOrder(edge.target)) {
       const pair = edge.pairs.find(({ target }) => target === key);
-      return pair && sql`$owner.${this.physical(edge.source, pair.source)}`;
-    });
-    if (parts.some((part) => part === undefined)) return undefined;
-    const held = parts as Sql[];
-    // A field holding the record (a view's copy of its source's link, which
-    // no `<~` follows) is the record; a key part is the row's own id, and a
-    // variant's column the key itself.
-    const field = edge.pairs.find(({ target }) => target === keys[0])!.source;
-    const recorded =
-      held.length === 1 &&
-      !edge.discriminator &&
-      !this.#queries.keyOrder(edge.source).includes(field) &&
-      this.holdsRecord(edge.source, field);
-    const key =
-      held.length === 1
-        ? keyCast(edge.target, keys[0]!, held[0]!)
-        : sql`[${sql.join(held, ", ")}]`;
-    const record = recorded
-      ? held[0]!
-      : sql`type::record(${tableOf(edge.target)}, ${key})`;
+      if (!pair) return undefined;
+      const part = this.#heldAs(
+        edge.source,
+        pair.source,
+        sql`$owner.${this.physical(edge.source, pair.source)}`,
+        edge.target,
+        key
+      );
+      // A lookup by record tells an integer part from a narrower integer.
+      parts.push(
+        this.#heldTable(edge.target, key) === undefined
+          ? keyCast(edge.target, key, part)
+          : part
+      );
+    }
+    const record =
+      parts.length === 1
+        ? parts[0]!
+        : sql`type::record(${tableOf(edge.target)}, [${sql.join(parts, ", ")}])`;
     // An arm another row's type names reads nothing; an unset part names no record.
     const { discriminator } = edge;
     return discriminator
