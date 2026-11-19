@@ -402,6 +402,7 @@ export function runSchemaViewsBehavior({
   dialect,
   createDriver,
 }: SchemaViewsBehaviorOptions): void {
+  runAggregatedViewsBehavior({ name, dialect, createDriver });
   describe(`${name}: schema views`, () => {
     const driver = createDriver();
     const setup = createClient({ schema: tables, driver });
@@ -1120,6 +1121,566 @@ export function runSchemaViewsBehavior({
       );
       expect(rows.length).toBeGreaterThan(0);
       for (const row of rows) expect(row).toHaveProperty("_count");
+    });
+  });
+}
+
+// =============================================================================
+// AGGREGATED VIEWS
+// =============================================================================
+
+/**
+ * Aggregated views (`by`, what `groupBy` takes): each is created by a push,
+ * a second push plans nothing, and its rows are what `groupBy` answers on
+ * its source for the same selection, each aggregate a flat column. Then the
+ * read verbs on its columns, its key, a relation from a grouped column, views
+ * over and under it, a time step (PostgreSQL only) and its replacement.
+ */
+const aggStore = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    sales: s.toMany(() => aggSale),
+    // The view's key is its one grouped field: one group per store at most.
+    totals: s.toOne(() => aggByStore),
+  })
+  .map("va_stores");
+const aggSale = s
+  .model({
+    id: s.string().ulid().id(),
+    uid: s.string().uuid(),
+    storeId: s.int(),
+    currency: s.enum(["EUR", "USD"]),
+    region: s.string().nullable(),
+    units: s.int(),
+    big: s.bigInt(),
+    ratio: s.number(),
+    amount: s.decimal({ precision: 10, scale: 2 }),
+    rate: s.decimal({ precision: 12, scale: 4 }),
+    label: s.string().map("sale_label"),
+    soldAt: s.dateTime(),
+    store: s
+      .toOne(() => aggStore)
+      .fields("storeId")
+      .references("id"),
+  })
+  .map("va_sales");
+
+/** Every aggregate of every field type, grouped by two fields: keyed by both. */
+const totalsQuery = {
+  by: ["storeId", "currency"],
+  where: { units: { gte: 0 } },
+  _count: { _all: true, region: true },
+  _sum: { units: true, big: true, ratio: true, amount: true, rate: true },
+  _avg: { units: true, big: true, ratio: true, amount: true, rate: true },
+  _min: {
+    id: true,
+    uid: true,
+    label: true,
+    soldAt: true,
+    currency: true,
+    amount: true,
+  },
+  _max: { id: true, uid: true, label: true, soldAt: true, rate: true },
+} as const;
+const aggTotals = s.view(() => aggSale, totalsQuery).map("va_totals");
+/** One grouped field: the view's key alone, and a relation from it. */
+const byStoreQuery = {
+  by: ["storeId"],
+  having: { units: { _sum: { gte: 7 } } },
+  _sum: { amount: true, units: true },
+} as const;
+const aggByStore = s
+  .view(() => aggSale, byStoreQuery)
+  .extends({
+    store: s
+      .toOne(() => aggStore)
+      .fields("storeId")
+      .references("id"),
+  })
+  .map("va_by_store");
+/** A nullable grouped field: no key. */
+const byRegionQuery = { by: "region", _count: true } as const;
+const aggByRegion = s.view(() => aggSale, byRegionQuery).map("va_by_region");
+/** A view of rows over an aggregated view. */
+const busyQuery = {
+  where: { count: { gt: 1 } },
+  select: { storeId: true, currency: true, count: true, sumAmount: true },
+} as const;
+const aggBusy = s.view(() => aggTotals, busyQuery).map("va_busy");
+/** An aggregated view over a view of rows. */
+const bigSalesQuery = {
+  where: { units: { gte: 2 } },
+  select: { id: true, storeId: true, units: true, amount: true },
+} as const;
+const aggBigSales = s.view(() => aggSale, bigSalesQuery).map("va_big_sales");
+const bigByStoreQuery = {
+  by: ["storeId"],
+  _count: true,
+  _sum: { units: true, amount: true },
+} as const;
+const aggBigByStore = s
+  .view(() => aggBigSales, bigByStoreQuery)
+  .map("va_big_by_store");
+/** A time step: PostgreSQL only, as in `groupBy`. */
+const dailyQuery = {
+  by: [{ soldAt: "day" }, "currency"],
+  timeZone: "Europe/Paris",
+  _count: true,
+  _sum: { amount: true },
+} as const;
+const aggDaily = s.view(() => aggSale, dailyQuery).map("va_daily");
+
+const AGG_TABLES = ["va_stores", "va_sales"];
+const AGG_VIEWS = [
+  "va_totals",
+  "va_by_store",
+  "va_by_region",
+  "va_busy",
+  "va_big_sales",
+  "va_big_by_store",
+  "va_daily",
+];
+
+/** A `groupBy` row as an aggregated view holds it: each aggregate a column. */
+function flattened(row: object): Record<string, unknown> {
+  const columns: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (!key.startsWith("_")) columns[key] = value;
+    else if (typeof value !== "object" || value === null)
+      columns[key.slice(1)] = value;
+    else
+      for (const [field, member] of Object.entries(value))
+        columns[
+          field === "_all"
+            ? key.slice(1)
+            : `${key.slice(1)}${field.charAt(0).toUpperCase()}${field.slice(1)}`
+        ] = member;
+  }
+  return columns;
+}
+
+/** `by` as `groupBy` takes it: a mutable list. */
+const grouping = <Q extends { readonly by: readonly unknown[] }>(query: Q) => ({
+  ...query,
+  by: [...query.by] as Q["by"][number][],
+});
+
+function runAggregatedViewsBehavior({
+  name,
+  dialect,
+  createDriver,
+}: SchemaViewsBehaviorOptions): void {
+  describe(`${name}: aggregated views`, () => {
+    const driver = createDriver();
+    const periods = dialect === "postgresql";
+    const schema = {
+      aggStore,
+      aggSale,
+      aggTotals,
+      aggByStore,
+      aggByRegion,
+      aggBusy,
+      aggBigSales,
+      aggBigByStore,
+      ...(periods ? { aggDaily } : {}),
+    };
+    const client = createClient({ schema, driver });
+    const quote = (identifier: string) =>
+      dialect === "mysql" ? `\`${identifier}\`` : `"${identifier}"`;
+    const SCOPE = [...AGG_TABLES, ...AGG_VIEWS];
+    const dropViews = async () => {
+      for (const view of [...AGG_VIEWS].reverse())
+        await driver._executeRaw(`DROP VIEW IF EXISTS ${quote(view)}`);
+    };
+
+    beforeAll(async () => {
+      await dropViews();
+      await syncLiveSchema(client, { tables: SCOPE });
+      await client.aggSale.deleteMany({});
+      await client.aggStore.deleteMany({});
+      for (const [id, label] of [
+        [1, "North"],
+        [2, "South"],
+        [3, "Empty"],
+      ] as const)
+        await client.aggStore.create({ data: { id, name: label } });
+      // Two sales on each side of midnight in Paris; a half-way average of
+      // decimals (7.625 rounds to 7.62); a bigint past the double range.
+      const sales = [
+        [
+          1,
+          "EUR",
+          "eu",
+          3,
+          9_007_199_254_740_993n,
+          0.5,
+          "10.25",
+          "1.1234",
+          "b",
+          "2024-03-01T23:30:00.000Z",
+        ],
+        [
+          1,
+          "EUR",
+          null,
+          2,
+          7n,
+          0.25,
+          "5.00",
+          "0.0001",
+          "a",
+          "2024-03-01T10:00:00.000Z",
+        ],
+        [
+          1,
+          "USD",
+          "us",
+          1,
+          -3n,
+          1.5,
+          "99.99",
+          "2.5000",
+          "c",
+          "2024-03-02T12:00:00.000Z",
+        ],
+        [
+          2,
+          "EUR",
+          "eu",
+          5,
+          0n,
+          -2.75,
+          "-1.00",
+          "3.3333",
+          "d",
+          "2024-03-02T22:59:59.000Z",
+        ],
+        [
+          2,
+          "EUR",
+          null,
+          4,
+          100n,
+          0.125,
+          "0.01",
+          "1.0000",
+          "e",
+          "2024-03-02T23:00:00.000Z",
+        ],
+        [
+          2,
+          "USD",
+          "us",
+          0,
+          1n,
+          3,
+          "1234.56",
+          "0.5000",
+          "f",
+          "2024-03-03T00:00:00.000Z",
+        ],
+      ] as const;
+      for (const [
+        storeId,
+        currency,
+        region,
+        units,
+        big,
+        ratio,
+        amount,
+        rate,
+        label,
+        soldAt,
+      ] of sales)
+        await client.aggSale.create({
+          data: {
+            uid: crypto.randomUUID(),
+            storeId,
+            currency,
+            region,
+            units,
+            big,
+            ratio,
+            amount,
+            rate,
+            label,
+            soldAt: new Date(soldAt),
+          },
+        });
+    });
+
+    afterAll(async () => {
+      await dropViews();
+      await client.$disconnect();
+    });
+
+    test("a row of an aggregated view is what groupBy answers, each aggregate a column of its scalar", async () => {
+      const grouped = await client.aggSale.groupBy(grouping(totalsQuery));
+      const rows = await client.aggTotals.findMany();
+      expect(unordered(rows)).toEqual(unordered(grouped.map(flattened)));
+      expect(rows).toHaveLength(4);
+      const north = rows.find(
+        (row) => row.storeId === 1 && row.currency === "EUR"
+      )!;
+      // A decimal average is quantized half to even, as groupBy's is.
+      expect(plain(north.avgAmount)).toBe("decimal:7.62");
+      expect(north.sumBig).toBe(9_007_199_254_741_000n);
+      expect(north.countRegion).toBe(1);
+      expect(Object.keys(north)).toEqual([
+        "storeId",
+        "currency",
+        "count",
+        "countRegion",
+        "avgUnits",
+        "avgBig",
+        "avgRatio",
+        "avgAmount",
+        "avgRate",
+        "sumUnits",
+        "sumBig",
+        "sumRatio",
+        "sumAmount",
+        "sumRate",
+        "minId",
+        "minUid",
+        "minLabel",
+        "minSoldAt",
+        "minCurrency",
+        "minAmount",
+        "maxId",
+        "maxUid",
+        "maxLabel",
+        "maxSoldAt",
+        "maxRate",
+      ]);
+      expect(unordered(await client.aggByRegion.findMany())).toEqual(
+        unordered(
+          (await client.aggSale.groupBy({ by: ["region"], _count: true })).map(
+            flattened
+          )
+        )
+      );
+    });
+
+    test("a second push plans nothing", async () => {
+      const again = await syncLiveSchema(client, {
+        tables: SCOPE,
+        dryRun: true,
+      });
+      expect(again.operations).toEqual([]);
+    });
+
+    test("a filter, an order and an aggregate on an aggregate's column read it as its scalar", async () => {
+      const grouped = (await client.aggSale.groupBy(grouping(totalsQuery))).map(
+        flattened
+      ) as { sumAmount: Decimal | null; sumUnits: number | null }[];
+      const over = await client.aggTotals.findMany({
+        where: { sumAmount: { gt: "10" }, count: { gte: 1 } },
+        orderBy: { sumUnits: "desc" },
+        select: { storeId: true, currency: true, sumUnits: true },
+      });
+      expect(over.map(({ sumUnits }) => sumUnits)).toEqual(
+        grouped
+          .filter(({ sumAmount }) => sumAmount?.gt("10"))
+          .map(({ sumUnits }) => sumUnits)
+          .sort((left, right) => right! - left!)
+      );
+      const aggregate = await client.aggTotals.aggregate({
+        _max: { sumAmount: true },
+        _sum: { count: true },
+        _min: { minSoldAt: true },
+      });
+      expect(plain(aggregate)).toEqual(
+        plain({
+          _max: { sumAmount: new Decimal("1234.56") },
+          _sum: { count: 6 },
+          _min: { minSoldAt: new Date("2024-03-01T10:00:00.000Z") },
+        })
+      );
+      expect(
+        unordered(
+          await client.aggTotals.groupBy({
+            by: ["currency"],
+            _sum: { count: true },
+          })
+        )
+      ).toEqual(
+        unordered([
+          { currency: "EUR", _sum: { count: 4 } },
+          { currency: "USD", _sum: { count: 2 } },
+        ])
+      );
+      // A compact identifier picked by `_min` is filtered as its column holds it.
+      const [first] = await client.aggTotals.findMany({ take: 1 });
+      expect(
+        await client.aggTotals.count({ where: { minId: first!.minId } })
+      ).toBe(1);
+    });
+
+    test("its key is its by list: findUnique by the compound key, or by the one field", async () => {
+      const north = await client.aggTotals.findUnique({
+        where: { storeId_currency: { storeId: 1, currency: "EUR" } },
+        select: { count: true, sumUnits: true },
+      });
+      expect(north).toEqual({ count: 2, sumUnits: 5 });
+      expect(
+        plain(await client.aggByStore.findUnique({ where: { storeId: 2 } }))
+      ).toEqual(
+        plain({ storeId: 2, sumAmount: new Decimal("1233.57"), sumUnits: 9 })
+      );
+      // `having` keeps the groups groupBy keeps.
+      expect(unordered(await client.aggByStore.findMany())).toEqual(
+        unordered(
+          (await client.aggSale.groupBy(grouping(byStoreQuery))).map(flattened)
+        )
+      );
+    });
+
+    test("a relation from a grouped column reads as the relation between the tables", async () => {
+      const rows = await client.aggByStore.findMany({
+        include: { store: { select: { name: true } } },
+      });
+      expect(rows.map(({ store }) => store)).toEqual([{ name: "South" }]);
+      const stores = await client.aggStore.findMany({
+        orderBy: { id: "asc" },
+        select: { id: true, totals: { select: { sumUnits: true } } },
+      });
+      expect(stores).toEqual([
+        { id: 1, totals: null },
+        { id: 2, totals: { sumUnits: 9 } },
+        { id: 3, totals: null },
+      ]);
+    });
+
+    test("a view over an aggregated view, and an aggregated view over a view", async () => {
+      expect(unordered(await client.aggBusy.findMany())).toEqual(
+        unordered(await client.aggTotals.findMany(busyQuery))
+      );
+      const over = unordered(await client.aggBigByStore.findMany());
+      expect(over).toEqual(
+        unordered(
+          (await client.aggBigSales.groupBy(grouping(bigByStoreQuery))).map(
+            flattened
+          )
+        )
+      );
+      expect(over).toEqual(
+        unordered(
+          (
+            await client.aggSale.groupBy({
+              ...grouping(bigByStoreQuery),
+              where: bigSalesQuery.where,
+            })
+          ).map(flattened)
+        )
+      );
+    });
+
+    test("a time step: the day groupBy answers in the view's time zone, on PostgreSQL alone", async () => {
+      if (periods) {
+        const daily = client as unknown as {
+          aggDaily: { findMany(args?: object): Promise<object[]> };
+        };
+        const grouped = await client.aggSale.groupBy(grouping(dailyQuery));
+        const rows = await daily.aggDaily.findMany();
+        expect(unordered(rows)).toEqual(unordered(grouped.map(flattened)));
+        expect(
+          unordered(
+            await daily.aggDaily.findMany({
+              where: { soldAt: { gte: "2024-03-02" }, currency: "EUR" },
+              select: { soldAt: true, count: true },
+            })
+          )
+        ).toEqual(
+          unordered([
+            { soldAt: "2024-03-02", count: 2 },
+            { soldAt: "2024-03-03", count: 1 },
+          ])
+        );
+        return;
+      }
+      // Elsewhere the read compiler's refusal, with the view named.
+      const stepped = createClient({ schema: { ...schema, aggDaily }, driver });
+      await expect(
+        syncLiveSchema(stepped, {
+          tables: [...AGG_TABLES, "va_daily"],
+          dryRun: true,
+        })
+      ).rejects.toThrow(
+        "View 'aggDaily' cannot be created from a query that this database cannot read"
+      );
+    });
+
+    test("is replaced when its query changes, and when a table it reads changes under it", async () => {
+      const changed = s
+        .view(() => aggSale, { ...byRegionQuery, _sum: { units: true } })
+        .map("va_by_region");
+      const next = createClient({
+        schema: { ...schema, aggByRegion: changed },
+        driver,
+      });
+      const replaced = await syncLiveSchema(next, { tables: SCOPE });
+      expect(replaced.operations.map(({ type }) => type)).toEqual([
+        "dropView",
+        "createView",
+      ]);
+      expect(unordered(await next.aggByRegion.findMany())).toEqual(
+        unordered(
+          (
+            await next.aggSale.groupBy({
+              by: ["region"],
+              _count: true,
+              _sum: { units: true },
+            })
+          ).map(flattened)
+        )
+      );
+      // A column the view groups by is renamed under it.
+      const plainOf = (column: string) => {
+        const aggPlain = s
+          .model({
+            id: s.int().id(),
+            units: s.int(),
+            label: s.string().map(column),
+          })
+          .map("va_plain");
+        const aggPlainTotals = s
+          .view(() => aggPlain, { by: ["label"], _sum: { units: true } })
+          .map("va_plain_totals");
+        return createClient({
+          schema: { aggPlain, aggPlainTotals },
+          driver,
+        });
+      };
+      const plainScope = ["va_plain", "va_plain_totals"];
+      const before = plainOf("plain_label");
+      await syncLiveSchema(before, { tables: plainScope });
+      await before.aggPlain.deleteMany({});
+      for (const [id, units, label] of [
+        [1, 2, "x"],
+        [2, 3, "x"],
+        [3, 4, "y"],
+      ] as const)
+        await before.aggPlain.create({ data: { id, units, label } });
+      const after = plainOf("plain_note");
+      const moved = await syncLiveSchema(after, {
+        tables: plainScope,
+        resolve: (change) =>
+          change.type === "ambiguous" ? change.rename() : undefined,
+      });
+      const types = moved.operations.map(({ type }) => type);
+      expect(types[0]).toBe("dropView");
+      expect(types.at(-1)).toBe("createView");
+      expect(unordered(await after.aggPlainTotals.findMany())).toEqual(
+        unordered([
+          { label: "x", sumUnits: 5 },
+          { label: "y", sumUnits: 4 },
+        ])
+      );
+      await driver._executeRaw(
+        `DROP VIEW IF EXISTS ${quote("va_plain_totals")}`
+      );
     });
   });
 }
