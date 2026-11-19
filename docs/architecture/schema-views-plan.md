@@ -366,7 +366,9 @@ column is text):
   an `i32`, which a lookup by value does not find in a record id), and a
   key or a link that is a decimal or an instant as that value (`<decimal>`,
   `<datetime>`: a record's key holds its text, which a lookup by value does
-  not name). Each aggregate is written so that the view holds what
+  not name; a relation reads the key out of a record as that value, and
+  names a record from an instant by the text its key holds, `#heldAs`).
+  Each aggregate is written so that the view holds what
   `groupBy` answers (a bigint sum on a decimal accumulator, which a write
   never overflows, `<option<decimal>>` where the field may be unset: a plain
   cast of none fails every such write; a decimal average rounded as the read
