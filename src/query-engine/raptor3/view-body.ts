@@ -86,6 +86,9 @@ export interface ViewBody {
   readonly reads: readonly string[];
 }
 
+/** The period a refusal's message ends on, which the view's own adds again. */
+const FINAL_STOP = /\.$/;
+
 /**
  * A root whose query takes no window asks the page owner nothing, as a
  * related page that asked for none: no order, no limit.
@@ -350,7 +353,11 @@ export function viewBody(context: ViewBodyContext, view: AnyModel): ViewBody {
     // What the read compiler refuses on this dialect (a time step outside
     // PostgreSQL) is refused with the view named.
     if (cause instanceof FeatureNotSupportedError)
-      refuse(name, "this database cannot read", cause.message);
+      refuse(
+        name,
+        "this database cannot read",
+        cause.message.replace(FINAL_STOP, "")
+      );
     throw cause;
   }
   return {

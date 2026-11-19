@@ -410,3 +410,61 @@ describe("a materialized view in a schema document", () => {
     ]);
   });
 });
+
+describe("an aggregated view in a schema document", () => {
+  const totals = s
+    .view(() => post, {
+      by: [{ createdAt: "day" }, "authorId"],
+      timeZone: "Europe/Paris",
+      where: { published: true },
+      having: { readCount: { _sum: { gt: 5 } } },
+      _count: true,
+      _sum: { readCount: true },
+    })
+    .map("post_totals");
+  const aggregated = { user, post, totals };
+  const AGGREGATED: SchemaDocument = {
+    version: 1,
+    models: DOCUMENT.models,
+    views: {
+      totals: {
+        source: "post",
+        query: {
+          by: [{ createdAt: "day" }, "authorId"],
+          timeZone: "Europe/Paris",
+          where: { published: true },
+          having: { readCount: { _sum: { gt: 5 } } },
+          _count: true,
+          _sum: { readCount: true },
+        },
+        table: "post_totals",
+      },
+    },
+  };
+
+  it("is written as its source key and its grouping query, a time step and a having included, and reads back to itself", () => {
+    expect(serializeSchema(aggregated)).toEqual(AGGREGATED);
+    const parsed = parseSchema(JSON.stringify(AGGREGATED));
+    expect(serializeSchema(parsed)).toEqual(AGGREGATED);
+    expect(validateSchema(parsed).errors).toEqual([]);
+  });
+
+  it("a parsed aggregated view derives what s.view derives: its columns, their origins and its key", () => {
+    const parsed = parseSchema(AGGREGATED);
+    expect(derived(parsed.totals!, parsed)).toEqual(
+      derived(totals, aggregated)
+    );
+    expect(derived(parsed.totals!, parsed).scalars).toEqual({
+      createdAt: "string",
+      authorId: "string",
+      count: "int",
+      sumReadCount: "bigint",
+    });
+    expect(viewFacts(parsed.totals!)?.aggregated?.origins).toEqual(
+      viewFacts(totals)?.aggregated?.origins
+    );
+    expect(Object.keys(parsed.totals!["~"].state.compoundId ?? {})).toEqual([
+      "createdAt_authorId",
+    ]);
+  });
+});

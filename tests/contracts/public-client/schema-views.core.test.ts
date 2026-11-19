@@ -654,3 +654,99 @@ describe("the drivers that hold a view, and the one that does not", () => {
     );
   });
 });
+
+describe("an aggregated view", () => {
+  const totals = s
+    .view(() => post, {
+      by: ["authorId", "published"],
+      _count: true,
+      _sum: { views: true, score: true },
+      _max: { deletedAt: true },
+    })
+    .map("post_totals");
+  const daily = s
+    .view(() => post, {
+      by: [{ deletedAt: "week" }],
+      timeZone: "Europe/Paris",
+      _count: true,
+    })
+    .map("post_weeks");
+  const grouped = { author, post, totals, daily };
+
+  test("renders its row as its flat columns", () => {
+    expect(renderSchemaType({ author, post, totals })).toContain(`  totals: {
+    authorId: number;
+    published: boolean;
+    count: number;
+    sumViews: bigint | null;
+    sumScore: import("viborm").Decimal | null;
+    maxDeletedAt: Date | null;
+  };`);
+  });
+
+  test("keeps a window's order and limit, and refuses what a view of rows refuses at its root", () => {
+    const windowed = s
+      .view(() => post, {
+        by: ["published"],
+        _count: true,
+        orderBy: { _count: { published: "desc" } },
+        take: 1,
+      })
+      .map("top_kind");
+    const statement = text(
+      viewBody(
+        { schema: { author, post, windowed }, ...writer("postgresql") },
+        windowed
+      ).statement
+    );
+    expect(statement).toContain('ORDER BY COUNT("q0"."published") DESC');
+    expect(statement).toContain("LIMIT");
+    for (const [query, clause] of [
+      [
+        { by: ["published"], _count: true, take: -1 },
+        "takes a negative window",
+      ],
+      [
+        { by: ["published"], _count: true, orderBy: { published: "asc" } },
+        "orders its rows without a take",
+      ],
+      [
+        { by: ["published"], _count: true, skip: 1 },
+        "skips rows without a take",
+      ],
+    ] as const) {
+      const bad = s.view(() => post, query as never).map("bad_view");
+      expect(() =>
+        viewBody(
+          { schema: { author, post, bad }, ...writer("postgresql") },
+          bad
+        )
+      ).toThrow(`View 'bad' cannot be created from a query that ${clause}`);
+    }
+  });
+
+  test("refuses a query groupBy does not take on its source, and a time step where the database has none, naming the view", () => {
+    const summed = s
+      .view(() => post, { by: ["published"], _sum: { title: true } } as never)
+      .map("bad_sum");
+    expect(() =>
+      viewBody(
+        { schema: { author, post, summed }, ...writer("postgresql") },
+        summed
+      )
+    ).toThrow(
+      "View 'summed' cannot be created from a query that its source does not take"
+    );
+    for (const dialect of ["mysql", "sqlite"] as const)
+      expect(() =>
+        viewBody({ schema: grouped, ...writer(dialect) }, daily)
+      ).toThrow(
+        "View 'daily' cannot be created from a query that this database cannot read: groupBy.timeStep is not supported. Grouping by a time step is supported on PostgreSQL only."
+      );
+    expect(
+      text(
+        viewBody({ schema: grouped, ...writer("postgresql") }, daily).statement
+      )
+    ).toContain("to_char(");
+  });
+});

@@ -483,4 +483,16 @@ describe("the body of an aggregated view, VIEW_REVISION 1", () => {
   it("reads its source alone: a count of rows crosses no relation", () => {
     expect(definition(sqlite3MigrationDriver).dependsOn).toEqual(["posts"]);
   });
+
+  it("keeps its hash when its source gains a to-many relation: a count of rows counts no relation", () => {
+    const hash = (extra?: Parameters<typeof models>[0]) =>
+      serialized(
+        ({ user }) => ({
+          tally: view(() => user, { by: ["name"], _count: true }).map("tally"),
+        }),
+        sqlite3MigrationDriver,
+        extra
+      ).views![0]!.hash;
+    expect(hash({ liked: true })).toBe(hash());
+  });
 });
