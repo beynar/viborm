@@ -320,6 +320,11 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   identifiers: DatabaseAdapter["identifiers"];
 
+  // In the bound schema, as every table this adapter names.
+  refresh(table: string, concurrently: boolean): Sql {
+    return sql`REFRESH MATERIALIZED VIEW ${sql.raw(concurrently ? "CONCURRENTLY " : "")}${this.identifiers.table(table)}`;
+  }
+
   literals = {
     ...createStandardLiterals(),
 

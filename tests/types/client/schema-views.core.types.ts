@@ -736,6 +736,90 @@ export const _variantCollection = async () => {
   await shelves.shelfIds.findMany({ include: { items: true } });
   // @ts-expect-error - without the row key, no member junction joins
   await shelves.shelfNames.findMany({ include: { items: true } });
+
+// A MATERIALIZED VIEW: $refresh on its delegate alone, .index() on its columns
+// =============================================================================
+
+const authorDigest = s
+  .view(() => author, {
+    select: { id: true, name: true, posts: { where: { published: true } } },
+  })
+  .materialized()
+  .index(["name"]);
+/** Keyless, and named after it was materialized. */
+const titles = s
+  .view(() => post, { select: { title: true } })
+  .materialized()
+  .map("titles");
+const stored = createClient({
+  schema: { author, post, publishedPost, authorDigest, titles },
+  driver: new PGliteDriver(),
+});
+
+type _refresh = Expect<
+  Equal<
+    (typeof stored.authorDigest)["$refresh"],
+    (options?: { readonly concurrently?: boolean }) => Promise<void>
+  >
+>;
+type _refreshKeyless = Expect<
+  Equal<"$refresh" extends keyof typeof stored.titles ? true : false, true>
+>;
+type _noRefreshOnAView = Expect<
+  Equal<
+    "$refresh" extends keyof typeof stored.publishedPost ? true : false,
+    false
+  >
+>;
+type _noRefreshOnATable = Expect<
+  Equal<"$refresh" extends keyof typeof stored.post ? true : false, false>
+>;
+
+export const _refreshes = async () => {
+  await stored.authorDigest.$refresh();
+  // Typed on any materialized view; refused when it runs on one without a key.
+  await stored.titles.$refresh({ concurrently: true });
+  await stored.$transaction(async (tx) => {
+    await tx.authorDigest.$refresh();
+  });
+  // An array transaction takes pending operations alone: a refresh is sent
+  // as it is called, so it is not one.
+  // @ts-expect-error - refused in the array form
+  await stored.$transaction([stored.authorDigest.$refresh()]);
+  // A materialized view keeps its reads, and its key.
+  await stored.authorDigest.findUnique({ where: { id: "a" } });
+  // @ts-expect-error - an ordinary view stores no rows to recompute
+  stored.publishedPost.$refresh;
+  // @ts-expect-error - nor a table
+  stored.post.$refresh;
+  // @ts-expect-error - a typo in the options
+  stored.authorDigest.$refresh({ concurently: true });
+};
+
+const storedChain = stored.$extends(
+  extension(
+    "stamps",
+    defaults(() => ({ post: { create: { published: false } } }))
+  )
+);
+export const _chainedRefresh = () => storedChain.authorDigest.$refresh();
+const storedCache = stored.$extends(cache({ driver: new MemoryCache() }));
+export const _cachedRefresh = () => {
+  // @ts-expect-error - a cached view reads, and recomputes nothing
+  storedCache.$withCache().authorDigest.$refresh;
+};
+
+export const _indexes = () => {
+  const view = s
+    .view(() => author, { select: { id: true, name: true, posts: true } })
+    .materialized();
+  view.index(["id", "name"], { unique: true });
+  // @ts-expect-error - a JSON column is no member of an index
+  view.index(["posts"]);
+  // @ts-expect-error - nor a column the view does not project
+  view.index(["balance"]);
+  // @ts-expect-error - only a view is materialized
+  author.materialized();
 };
 
 // =============================================================================

@@ -153,7 +153,7 @@ const MODEL_KEYS = [
 ];
 const INDEX_KEYS = ["fields", "name", "unique", "type", "where"];
 const COMPOUND_KEYS = ["fields", "name"];
-const VIEW_KEYS = ["source", "query", "table"];
+const VIEW_KEYS = ["source", "query", "table", "materialized", "indexes"];
 const NATIVE_KEYS = ["db", "type"];
 const GENERATE_KEYS = ["kind", "prefix", "length", "implicit", "generate"];
 const JUNCTION_KEYS = [
@@ -576,6 +576,9 @@ function readViewNode(
     const text = asString(table, pointer(path, "table"), issues, "`table`");
     if (text !== undefined) view.table = text;
   }
+  if (readTrue(node, "materialized", path, issues)) view.materialized = true;
+  const indexes = readIndexes(node, path, issues);
+  if (indexes !== undefined) view.indexes = indexes;
   return view;
 }
 
@@ -639,17 +642,22 @@ function readModelNode(
   if (uniques !== undefined) model.uniques = uniques;
   const omit = readOmit(node, path, issues);
   if (omit !== undefined) model.omit = omit;
-  const withoutRowid = member(node, "withoutRowid", path, issues);
-  if (withoutRowid !== undefined) {
-    const flag = asBoolean(
-      withoutRowid,
-      pointer(path, "withoutRowid"),
-      issues,
-      "`withoutRowid`"
-    );
-    if (flag === true) model.withoutRowid = true;
-  }
+  if (readTrue(node, "withoutRowid", path, issues)) model.withoutRowid = true;
   return model;
+}
+
+/** A flag written only when it is set: a boolean, of which `false` says nothing. */
+function readTrue(
+  node: Record<string, unknown>,
+  key: "withoutRowid" | "materialized",
+  path: string,
+  issues: DocumentIssues
+): boolean {
+  const value = member(node, key, path, issues);
+  return (
+    value !== undefined &&
+    asBoolean(value, pointer(path, key), issues, `\`${key}\``) === true
+  );
 }
 
 function readFields(

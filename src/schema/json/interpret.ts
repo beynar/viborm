@@ -37,6 +37,7 @@ import type {
   EnumDocument,
   EnumFieldDocument,
   GenerateDocument,
+  IndexDocument,
   ModelDocument,
   ModelTargetDocument,
   RelationFieldDocument,
@@ -177,17 +178,7 @@ function buildModel(
     const table = document.table;
     model = call(pointer(path, "table"), () => model.map(table));
   }
-  for (const [position, index] of (document.indexes ?? []).entries()) {
-    const indexPath = pointer(path, "indexes", String(position));
-    const indexOptions = {
-      ...(index.name === undefined ? {} : { name: index.name }),
-      ...(index.unique === undefined ? {} : { unique: index.unique }),
-      ...(index.type === undefined ? {} : { type: index.type }),
-    };
-    model = call(indexPath, () =>
-      Reflect.apply(model.index, model, [index.fields, indexOptions])
-    );
-  }
+  model = buildIndexes(model, document.indexes, path);
   for (const [position, compound] of (document.ids ?? []).entries()) {
     const idPath = pointer(path, "ids", String(position));
     model = call(idPath, () =>
@@ -215,6 +206,28 @@ function options(name: string | undefined): { name?: string } {
   return name === undefined ? {} : { name };
 }
 
+/** A model's or a view's `.index()` calls, in the document's order. */
+function buildIndexes(
+  model: AnyModel,
+  indexes: readonly IndexDocument[] | undefined,
+  path: string
+): AnyModel {
+  let indexed = model;
+  for (const [position, index] of (indexes ?? []).entries()) {
+    const indexPath = pointer(path, "indexes", String(position));
+    const indexOptions = {
+      ...(index.name === undefined ? {} : { name: index.name }),
+      ...(index.unique === undefined ? {} : { unique: index.unique }),
+      ...(index.type === undefined ? {} : { type: index.type }),
+    };
+    const into = indexed;
+    indexed = call(indexPath, () =>
+      Reflect.apply(into.index, into, [index.fields, indexOptions])
+    );
+  }
+  return indexed;
+}
+
 /**
  * One view, through `s.view`: its query with every tag decoded, as the
  * factory takes it from a human.
@@ -234,7 +247,10 @@ function buildView(
     const table = document.table;
     model = call(pointer(path, "table"), () => model.map(table));
   }
-  return model;
+  if (document.materialized === true) {
+    model = call(pointer(path, "materialized"), () => model.materialized());
+  }
+  return buildIndexes(model, document.indexes, path);
 }
 
 // =============================================================================

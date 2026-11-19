@@ -188,6 +188,27 @@ describe("a view's derived model", () => {
     expect(viewFacts(subject)?.source).toBe(post);
   });
 
+  it("is materialized by .materialized(), which every other modifier keeps, before or after it", () => {
+    const query = { select: { id: true, title: true } } as const;
+    expect(viewFacts(s.view(() => post, query))?.materialized).toBeUndefined();
+    const before = s
+      .view(() => post, query)
+      .map("titles")
+      .materialized();
+    const after = s
+      .view(() => post, query)
+      .materialized()
+      .map("titles")
+      .index(["title"]);
+    for (const subject of [before, after]) {
+      expect(viewFacts(subject)?.materialized).toBe(true);
+      expect(subject["~"].state.tableName).toBe("titles");
+    }
+    expect(after["~"].state.indexes).toEqual([
+      { fields: ["title"], options: {} },
+    ]);
+  });
+
   it("refuses a source that is not a model", () => {
     const subject = s.view(() => ({}) as typeof post, {});
     expect(() => subject["~"].state.scalars).toThrow(
@@ -204,31 +225,82 @@ describe("a view's derived model", () => {
  * and a refusal claimed here is proven by declaring it on a view.
  */
 type Verdict = "admitted" | "W002";
-const DECLARED_ON_A_VIEW: Record<
-  string,
-  { declare: (model: AnyModel) => AnyModel; verdict: Verdict }
-> = {
-  map: { declare: (model) => model.map("titles"), verdict: "admitted" },
-  extends: {
-    declare: (model) => model.extends({ extra: s.string() }),
-    verdict: "W002",
-  },
-  id: { declare: (model) => model.id(["title", "published"]), verdict: "W002" },
-  unique: {
-    declare: (model) => model.unique(["title", "published"]),
-    verdict: "W002",
-  },
-  index: { declare: (model) => model.index(["title"]), verdict: "W002" },
-  rawIndex: {
-    declare: (model) =>
-      model.rawIndex("by_title", {
-        pg: "CREATE INDEX {name} ON {table} ({title})",
-      }),
-    verdict: "W002",
-  },
-  withoutRowid: { declare: (model) => model.withoutRowid(), verdict: "W002" },
-  omit: { declare: (model) => model.omit({ title: true }), verdict: "W002" },
+interface Declaration {
+  readonly declare: (model: AnyModel) => AnyModel;
+  readonly verdict: Verdict;
+  /** Declared on a view alone: a table refuses it at the call. */
+  readonly viewOnly?: true;
+}
+
+const DECLARED_ON_A_VIEW: Record<string, readonly Declaration[]> = {
+  map: [{ declare: (model) => model.map("titles"), verdict: "admitted" }],
+  extends: [
+    {
+      declare: (model) => model.extends({ extra: s.string() }),
+      verdict: "W002",
+    },
+  ],
+  id: [
+    { declare: (model) => model.id(["title", "published"]), verdict: "W002" },
+  ],
+  unique: [
+    {
+      declare: (model) => model.unique(["title", "published"]),
+      verdict: "W002",
+    },
+  ],
+  materialized: [
+    {
+      declare: (model) => model.materialized(),
+      verdict: "admitted",
+      viewOnly: true,
+    },
+  ],
+  index: [
+    // A view that is not materialized stores no rows to index.
+    { declare: (model) => model.index(["title"]), verdict: "W002" },
+    {
+      declare: (model) =>
+        model
+          .materialized()
+          .index(["title", "published"], { name: "by_title" }),
+      verdict: "admitted",
+      viewOnly: true,
+    },
+    {
+      // A unique index is a key, and a view's keys are its source's.
+      declare: (model) =>
+        model.materialized().index(["title"], { unique: true }),
+      verdict: "W002",
+      viewOnly: true,
+    },
+    {
+      // A JSON column: a document has no order an index could keep.
+      declare: (model) => model.materialized().index(["author"]),
+      verdict: "W002",
+      viewOnly: true,
+    },
+  ],
+  rawIndex: [
+    {
+      declare: (model) =>
+        model.rawIndex("by_title", {
+          pg: "CREATE INDEX {name} ON {table} ({title})",
+        }),
+      verdict: "W002",
+    },
+  ],
+  withoutRowid: [{ declare: (model) => model.withoutRowid(), verdict: "W002" }],
+  omit: [{ declare: (model) => model.omit({ title: true }), verdict: "W002" }],
 };
+/** Every case of every method, named by its method. */
+const DECLARATIONS = Object.entries(DECLARED_ON_A_VIEW).flatMap(
+  ([method, cases]) =>
+    cases.map(
+      (declaration) =>
+        [`${method} (${declaration.verdict})`, declaration] as const
+    )
+);
 
 /**
  * What `model["~"]` answers. `state` is a view's derived state, whose keys
@@ -246,9 +318,12 @@ const FACTS_OF_A_MODEL: Record<string, Verdict> = {
   withoutRowid: "W002",
 };
 
-/** A view without a key, so that a key declared on it is the one thing refused. */
+/**
+ * A view without a key, so that a key declared on it is the one thing
+ * refused, and with a JSON column, which an index cannot name.
+ */
 const censused = s.view(() => post, {
-  select: { title: true, published: true },
+  select: { title: true, published: true, author: true },
 });
 
 describe("what a model can be told, classified for a view", () => {
@@ -273,10 +348,9 @@ describe("what a model can be told, classified for a view", () => {
 
   it("a table's state holds nothing a view neither derives nor is refused", () => {
     // Every method on one table: what its state can carry.
-    const told = Object.values(DECLARED_ON_A_VIEW).reduce<AnyModel>(
-      (model, { declare }) => declare(model),
-      post
-    );
+    const told = DECLARATIONS.filter(
+      ([, { viewOnly }]) => !viewOnly
+    ).reduce<AnyModel>((model, [, { declare }]) => declare(model), post);
     const derived = new Set(Object.keys(subject["~"].state));
     expect(
       Object.keys(told["~"].state)
@@ -286,17 +360,23 @@ describe("what a model can be told, classified for a view", () => {
   });
 
   it.each(
+    DECLARATIONS.filter(([, { viewOnly }]) => viewOnly)
+  )("a table refuses %s at the call", (_, { declare }) => {
+    expect(() => declare(post)).toThrow("Only a view is materialized");
+  });
+
+  it.each(
     refusedFacts
   )("a refused fact, %s, is one a refused method states", (fact) => {
-    const stated = Object.values(DECLARED_ON_A_VIEW).filter(
-      ({ declare }) =>
+    const stated = DECLARATIONS.filter(
+      ([, { declare }]) =>
         !isDeepStrictEqual(
           Reflect.get(declare(subject)["~"], fact),
           Reflect.get(subject["~"], fact)
         )
     );
     expect(stated.length).toBeGreaterThan(0);
-    expect(stated.map(({ verdict }) => verdict)).not.toContain("admitted");
+    expect(stated.map(([, { verdict }]) => verdict)).not.toContain("admitted");
   });
 });
 
@@ -320,9 +400,10 @@ describe("definition validation of a view", () => {
     expect(() => resolveSchemaOrThrow({ orphan })).not.toThrow();
   });
 
-  it.each(
-    Object.entries(DECLARED_ON_A_VIEW)
-  )("%s on a view is what the census says", (_, { declare, verdict }) => {
+  it.each(DECLARATIONS)("%s on a view is what the census says", (_, {
+    declare,
+    verdict,
+  }) => {
     const declared = declare(censused);
     expect(codes(validateSchema({ user, post, declared }))).toEqual(
       verdict === "admitted" ? [] : [verdict]
@@ -367,6 +448,43 @@ describe("definition validation of a view", () => {
     expect(codes(validateSchema({ user, post, mapped, once }))).not.toContain(
       "W004"
     );
+  });
+
+  it("says why an index is refused on a view, once", () => {
+    const authored = s.view(() => post, {
+      select: { id: true, title: true, author: true },
+    });
+    const messages = (declared: AnyModel) =>
+      validateSchema({ user, post, declared }).errors.map(
+        ({ code, message }) => [code, message]
+      );
+    expect(messages(authored.index(["title"]))).toEqual([
+      [
+        "W002",
+        "View 'declared' declares an index, and only a materialized view stores rows to index: declare it .materialized()",
+      ],
+    ]);
+    // A JSON column is a field of the view, which the type of `.index()`
+    // already refuses: W002 says why, I001 does not.
+    expect(
+      messages(authored.materialized().index(["author"] as never))
+    ).toEqual([
+      [
+        "W002",
+        "View 'declared' indexes its JSON column 'author': a document has no order an index could keep",
+      ],
+    ]);
+    // A name the view does not have is I001's, as on a table.
+    expect(
+      messages(authored.materialized().index(["published"] as never))
+    ).toEqual([["I001", "Index field 'published' not in 'declared'"]]);
+    expect(
+      messages(
+        authored
+          .materialized()
+          .index(["title"], { name: "by_title", where: "title <> ''" })
+      )
+    ).toEqual([]);
   });
 
   it("refuses a view under a table's name (M004)", () => {

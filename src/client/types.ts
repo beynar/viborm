@@ -18,6 +18,7 @@ import type {
   VariantEntries,
 } from "@schema/relation/static-membership";
 import type { Scalar, ScalarState, ScalarType } from "@schema/scalars";
+import type { MaterializedView } from "@schema/view/facts";
 import type { Prettify } from "@validation";
 import type {
   ModelArgsSchemas,
@@ -147,6 +148,17 @@ interface KeylessView {
 export type ViewOperations<M> = M extends KeylessView
   ? Exclude<CacheableOperations, "findUnique" | "findUniqueOrThrow">
   : CacheableOperations;
+
+/** What a materialized view's delegate has beside its reads. */
+export interface ViewRefresh {
+  /**
+   * Recomputes the view's stored rows (PostgreSQL's `REFRESH MATERIALIZED
+   * VIEW`), on the connection this client runs on: inside a transaction, in
+   * it. `concurrently` does not block the view's readers, and needs a view
+   * with a key. A database that stores no view's rows sends nothing.
+   */
+  $refresh(options?: { readonly concurrently?: boolean }): Promise<void>;
+}
 
 /**
  * Operations that mutate data (not cacheable)
@@ -568,7 +580,7 @@ export type Client<
           ClientDefaults,
           PlacedOperationArguments<Arguments, K, O>
         >;
-      };
+      } & (ClientSchema<C>[K] extends MaterializedView ? ViewRefresh : unknown);
 };
 
 /**

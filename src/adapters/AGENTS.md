@@ -211,6 +211,16 @@ date style or driver changes. Only PostgreSQL has it.
 Absence means the dialect groups by no time step, and the engine refuses the
 call before any statement; do not add a capability boolean beside it.
 
+### Rule 8c: A View Refresh Is One Optional Member
+
+`DatabaseAdapter.refresh(table, concurrently)` is the statement that
+recomputes a materialized view (`<view>.$refresh()`), its table written by
+`identifiers.table` so it is in the adapter's namespace. Only PostgreSQL has
+it. Absence means the database stores no view's rows (a materialized view is
+an ordinary one there, or the database keeps it current) and `$refresh()`
+sends nothing; its refusals (not a materialized view, `concurrently` without
+a key) are the client's, on every dialect.
+
 ### Rule 9: List Updates Receive One Complete Container
 
 `DatabaseAdapter.set.push()` and `.unshift()` receive one already encoded `Sql`

@@ -334,7 +334,8 @@ a query.
 ### Views
 
 A [view](/docs/schema/views) is stated in `views`, beside `models`, by what
-`s.view` takes: its source and its query.
+`s.view` takes: its source and its query, then whether it is materialized,
+and its indexes.
 
 ```json
 {
@@ -359,7 +360,9 @@ A [view](/docs/schema/views) is stated in `views`, beside `models`, by what
         },
         "select": { "id": true, "title": true }
       },
-      "table": "recent_posts"
+      "table": "recent_posts",
+      "materialized": true,
+      "indexes": [{ "fields": ["title"] }]
     },
     "recentTitle": {
       "source": "recentPost",
@@ -374,6 +377,8 @@ A [view](/docs/schema/views) is stated in `views`, beside `models`, by what
 | `source` | the model key or view key the view reads |
 | `query` | what `findMany` takes on the source |
 | `table` | `.map(viewName)` |
+| `materialized` | `.materialized()`, written only as `true` |
+| `indexes` | `.index(fields, options)` calls, as a model writes them: a materialized view's, on its scalar columns |
 
 A view's columns, key and relations are not written. `s.view` derives them
 from the source and the query, so the parser calls `s.view` and gets them back.
@@ -436,8 +441,9 @@ carrying a function default, a validator or a `where` rather than dropping it,
 so a round trip can never silently produce a different schema.
 
 A view's query is refused the same way when it holds a function or a caller
-`Sql` operand (`J009`). So is an index, `.withoutRowid()` or `.omit()` chained
-on a view: a view document states its source, its query and its name.
+`Sql` operand (`J009`). So is a raw index, `.withoutRowid()` or `.omit()`
+chained on a view: a view document states its source, its query, its name,
+whether it is materialized and its indexes.
 
 ## The canonical form
 

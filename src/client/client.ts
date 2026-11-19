@@ -83,6 +83,7 @@ import {
   RAW_METHOD_NAMES,
   type RawOperation,
   type RawSurface,
+  refreshView,
 } from "./raw";
 import type { ClientSchema, LinkedClientConfig } from "./schema-links";
 import type {
@@ -134,8 +135,8 @@ function createModelProxy<S extends Schema, R>(
     args: unknown;
   }) => R,
   modelMethods?: ExtensionMethods["model"],
-  /** A model's core members beside its operations: `$rows(alias)`, and `$sql` where no alias is given. */
-  rowsOf?: (model: keyof S, alias?: unknown) => unknown,
+  /** A model's core members beside its operations: `$sql`, `$rows(alias)` and `$refresh(options)`. */
+  core?: (model: keyof S, member: string, argument?: unknown) => unknown,
   path: string[] = [],
   /** The proxy's own target: a view that answers for a root hands its own. */
   target: object = path.length === 2 ? () => undefined : {}
@@ -149,7 +150,7 @@ function createModelProxy<S extends Schema, R>(
       : path.length === 1
         ? [
             ...ROUTED_OPERATIONS,
-            ...(rowsOf ? ["$rows", "$sql"] : []),
+            ...(core ? ["$rows", "$sql", "$refresh"] : []),
             ...Object.keys(methods ?? {}),
           ]
         : []
@@ -161,13 +162,13 @@ function createModelProxy<S extends Schema, R>(
     if (methods !== undefined && Object.hasOwn(methods, key)) {
       return methods[key];
     }
-    if (key === "$sql" && rowsOf) return rowsOf(path[0]!);
+    if (key === "$sql" && core) return core(path[0]!, key);
     let child = children.get(key);
     if (child === undefined) {
       child =
-        key === "$rows" && rowsOf
-          ? (alias: unknown) => rowsOf(path[0]!, alias)
-          : createModelProxy(schema, createOperation, modelMethods, rowsOf, [
+        (key === "$rows" || key === "$refresh") && core
+          ? (argument: unknown) => core(path[0]!, key, argument)
+          : createModelProxy(schema, createOperation, modelMethods, core, [
               ...path,
               key,
             ]);
@@ -865,13 +866,15 @@ export class VibORM<C extends VibORMConfig> {
           clientOmit
         ),
       modelMethods,
-      (modelName, ...alias) =>
-        alias.length === 0
+      (modelName, member, argument) =>
+        member === "$sql"
           ? renderers
               .get(this.#schema)!
               .get(engine.driver.adapter)!
               .spelling(this.#schema[modelName]!, engine.driver.dialect)
-          : createRowsFragment(engine, this.#schema[modelName]!, alias[0]),
+          : member === "$rows"
+            ? createRowsFragment(engine, this.#schema[modelName]!, argument)
+            : refreshView(engine, this.#schema[modelName]!, argument),
       [],
       target
     ) as Client<C>;
