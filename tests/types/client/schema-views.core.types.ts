@@ -742,8 +742,6 @@ export const _variantCollection = async () => {
 
 // =============================================================================
 // A MATERIALIZED VIEW: $refresh on its delegate alone, .index() on its columns
-// ======================================================================};
-
 // =============================================================================
 
 const authorDigest = s
@@ -829,7 +827,9 @@ export const _indexes = () => {
   view.index(["balance"]);
   // @ts-expect-error - only a view is materialized
   author.materialized();
-=======
+};
+
+// =============================================================================
 // AGGREGATED VIEWS: ONE ROW PER GROUP, FLAT TYPED COLUMNS, KEYED BY `by`
 // =============================================================================
 
