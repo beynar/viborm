@@ -6,8 +6,10 @@
  * column holding the key itself, unset, names no row, and a compound key's
  * integer part is looked up as the key holds it. A filtered column made
  * nullable replaces the view reading it, whose filter then admits a row
- * without a value. And the body one view is written as, which its identity
- * does not hold. Gated on SURREAL_TEST_URL.
+ * without a value, and the rename of the table a filtered foreign key
+ * targets replaces it too, since the links it compares are rewritten. And
+ * the body one view is written as, which its identity does not hold. Gated
+ * on SURREAL_TEST_URL.
  */
 
 import { createClient } from "@client/client";
@@ -34,9 +36,12 @@ async function freshDriver(): Promise<AnyDriver> {
 const clientOf = (schema: object, driver: AnyDriver): Client =>
   createClient({ schema: schema as never, driver: driver as never });
 
-/** A destructive change proceeds. */
-const resolve: ResolveCallback = (change) =>
-  change.type === "destructive" ? change.proceed() : undefined;
+/** A destructive change proceeds, and a table that left for one that came is a rename. */
+const resolve: ResolveCallback = (change) => {
+  if (change.type === "destructive") return change.proceed();
+  if (change.type === "ambiguous") return change.rename();
+  return;
+};
 
 /** Push `client`'s schema through preview and consent: the labels it ran, and its statements. */
 async function push(client: Client) {
@@ -239,6 +244,38 @@ function titles(nullable: boolean) {
  * The filter of the view whose body is pinned below: a string function, a
  * number comparison, a nullable column and an `in` list.
  */
+/**
+ * A view filtered by its source's foreign key, whose value is a record of the
+ * authors' table: `authors` names that table.
+ */
+function firsts(authors: string) {
+  const author = s
+    .model({
+      id: s.int().id(),
+      name: s.string(),
+      posts: s.toMany(() => post),
+    })
+    .map(authors);
+  const post = s
+    .model({
+      id: s.int().id(),
+      title: s.string(),
+      authorId: s.int(),
+      author: s
+        .toOne(() => author)
+        .fields("authorId")
+        .references("id"),
+    })
+    .map("svr_posts");
+  const first = s
+    .view(() => post, {
+      select: { id: true, title: true },
+      where: { authorId: 1 },
+    })
+    .map("svr_firsts");
+  return { author, post, first };
+}
+
 const SHELF_WHERE = {
   name: { startsWith: "a" },
   rank: { gte: 2 },
@@ -589,6 +626,41 @@ describe.skipIf(!surrealUrl)("views on SurrealDB, after review", () => {
         { id: "p4", score: 4 },
       ]);
       expect(await createMigrationClient(nullable).push()).toMatchObject({
+        outcome: "noop",
+      });
+    });
+  });
+
+  it("a view filtered by a foreign key follows the rename of the table that key targets", async () => {
+    const driver = await freshDriver();
+    const before = clientOf(firsts("svr_authors"), driver);
+    const after = clientOf(firsts("svr_scribes"), driver);
+    await using(after, async () => {
+      await push(before);
+      await before.author.createMany({
+        data: [
+          { id: 1, name: "a" },
+          { id: 2, name: "b" },
+        ],
+      });
+      await before.post.createMany({
+        data: [
+          { id: 1, title: "p1", authorId: 1 },
+          { id: 2, title: "p2", authorId: 2 },
+        ],
+      });
+      expect(ids(await before.first.findMany())).toEqual([1]);
+      await before.$disconnect();
+      const { labels } = await push(after);
+      expect(labels).toContain('- Drop view "svr_firsts"');
+      expect(labels.at(-1)).toBe('+ Create view "svr_firsts"');
+      // The rename rewrites each post's record of its author: the view's
+      // filter, written for the old table's record, would match none.
+      await after.post.create({ data: { id: 3, title: "p3", authorId: 1 } });
+      expect(
+        ids(await after.first.findMany({ orderBy: { id: "asc" } }))
+      ).toEqual([1, 3]);
+      expect(await createMigrationClient(after).push()).toMatchObject({
         outcome: "noop",
       });
     });

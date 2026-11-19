@@ -295,7 +295,7 @@ job.
   | --- | --- |
   | PostgreSQL, MySQL | a table renamed or dropped; a column dropped, renamed or given another type; a primary key changed (a view orders its rows by it) |
   | SQLite, D1, libSQL, Durable Objects | any change to the table except an index, because SQLite rebuilds the table |
-  | SurrealDB | what PostgreSQL's row lists; a foreign key added or dropped (the column then holds a record link, or stops holding one); and any change to a column, its nullability included, since a view's filter is written for the column as it was |
+  | SurrealDB | what PostgreSQL's row lists; a foreign key added or dropped (the column then holds a record link, or stops holding one); the rename of a table that a foreign key of a table it reads points to (the links held there are rewritten); and any change to a column, its nullability included, since a view's filter is written for the column as it was |
 
 - A view the schema no longer declares is dropped.
 

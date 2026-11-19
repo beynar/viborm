@@ -120,13 +120,17 @@ function isViewOperation(operation: DiffOperation): operation is ViewOperation {
  * nullable column, but a filter lowered for the column as it was (a column
  * that becomes nullable needs a guard its filter did not have, without
  * which every write of `NULL` to the table fails; measured), and the view's
- * hash holds neither the body nor a column the query only filters by. An index's creation or drop leaves
+ * hash holds neither the body nor a column the query only filters by. And there a table's rename changes
+ * every table holding a foreign key to it: the rename rewrites each link
+ * held as a record of the new table, and a view's filter on that column,
+ * written with a record of the old one, would match no row (measured). An index's creation or drop leaves
  * every view as it was, on every dialect. A materialized view is refused and
  * survives the same changes as an ordinary one (measured on PostgreSQL 18),
  * and keeps the rows it stored through the ones it survives.
  */
 function changedTables(
   operations: readonly DiffOperation[],
+  current: SchemaSnapshot,
   rebuilds: boolean,
   links: boolean
 ): Set<string> {
@@ -135,6 +139,14 @@ function changedTables(
     switch (operation.type) {
       case "renameTable":
         names.add(operation.from).add(operation.to);
+        if (links)
+          for (const table of current.tables)
+            if (
+              table.foreignKeys.some(
+                (key) => key.referencedTable === operation.from
+              )
+            )
+              names.add(table.name);
         break;
       case "createTable":
         names.add(operation.table.name);
@@ -234,6 +246,7 @@ export function withViewReplacements(
   );
   const changed = changedTables(
     operations.filter((operation) => !isViewOperation(operation)),
+    current,
     rebuilds,
     links
   );

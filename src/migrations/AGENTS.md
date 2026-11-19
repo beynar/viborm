@@ -1451,5 +1451,7 @@ defines a view as a table the database computes (`DEFINE TABLE … AS SELECT`,
 lowered by the read backend of the client the migration is bound to (no
 migrations bundle imports the SDK), and a foreign key added or dropped on a
 table it reads replaces it (`links` in `withViewReplacements`: the column
-then holds a record link, or stops holding one). Pull
+then holds a record link, or stops holding one), and so does the rename of a
+table one of its foreign keys targets (the rename rewrites the links held
+there, and a filter on one was written with the old table's record). Pull
 (`viborm/schema/introspect`) still skips every database view.

@@ -757,10 +757,7 @@ const stored = createClient({
 });
 
 type _refresh = Expect<
-  Equal<
-    (typeof stored.authorDigest)["$refresh"],
-    (options?: { readonly concurrently?: boolean }) => PromiseLike<void>
-  >
+  Equal<ReturnType<(typeof stored.authorDigest)["$refresh"]>, PromiseLike<void>>
 >;
 type _refreshKeyless = Expect<
   Equal<"$refresh" extends keyof typeof stored.titles ? true : false, true>
@@ -794,6 +791,12 @@ export const _refreshes = async () => {
   stored.post.$refresh;
   // @ts-expect-error - a typo in the options
   stored.authorDigest.$refresh({ concurently: true });
+  // Options held in a variable are checked as a literal is.
+  const blocking = { concurrently: false };
+  await stored.authorDigest.$refresh(blocking);
+  const misspelt = { concurrently: undefined, concurently: true };
+  // @ts-expect-error - a typo beside an option, in a held object
+  stored.authorDigest.$refresh(misspelt);
 };
 
 const storedChain = stored.$extends(

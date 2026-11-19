@@ -149,6 +149,11 @@ export type ViewOperations<M> = M extends KeylessView
   ? Exclude<CacheableOperations, "findUnique" | "findUniqueOrThrow">
   : CacheableOperations;
 
+/** The options of a materialized view's `$refresh`. */
+export interface RefreshOptions {
+  readonly concurrently?: boolean;
+}
+
 /** What a materialized view's delegate has beside its reads. */
 export interface ViewRefresh {
   /**
@@ -156,9 +161,13 @@ export interface ViewRefresh {
    * VIEW`), on the connection this client runs on: inside a transaction, in
    * it. `concurrently` does not block the view's readers, and needs a view
    * with a key. A database that stores no view's rows sends nothing. Sent
-   * when awaited, as an operation is.
+   * once, when first awaited, as an operation is. A key that is no option is
+   * refused, in a held object as in a literal.
    */
-  $refresh(options?: { readonly concurrently?: boolean }): PromiseLike<void>;
+  $refresh<Options extends RefreshOptions>(
+    options?: Options &
+      Record<Exclude<keyof Options, keyof RefreshOptions>, never>
+  ): PromiseLike<void>;
 }
 
 /**

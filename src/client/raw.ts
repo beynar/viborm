@@ -147,18 +147,24 @@ async function sendRefresh(
 }
 
 /**
- * `<view>.$refresh(options)`, sent when it is awaited, as an operation is:
- * one handed to the array form of `$transaction`, which takes operations
- * alone, is refused there with nothing sent outside the transaction.
+ * `<view>.$refresh(options)`, sent once, when it is first awaited, as an
+ * operation is: one handed to the array form of `$transaction`, which takes
+ * operations alone, is refused there with nothing sent outside the
+ * transaction.
  */
 export const refreshView = (
   engine: QueryEngine,
   model: AnyModel,
   options: unknown
-): PromiseLike<void> => ({
-  then: (resolve, reject) =>
-    sendRefresh(engine, model, options).then(resolve, reject),
-});
+): PromiseLike<void> => {
+  let sent: Promise<void> | undefined;
+  return {
+    then: (resolve, reject) => {
+      sent ??= sendRefresh(engine, model, options);
+      return sent.then(resolve, reject);
+    },
+  };
+};
 
 /**
  * The `FROM` item a `$rows` fragment stands for in a raw call of `engine`:

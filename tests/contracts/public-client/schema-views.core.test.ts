@@ -573,7 +573,7 @@ describe("a materialized view's $refresh", () => {
     ]);
   });
 
-  test("is sent when awaited: the array form of $transaction refuses it with nothing sent", async () => {
+  test("is sent once, when first awaited: the array form of $transaction refuses it with nothing sent", async () => {
     const driver = new BoundedDriver(new PostgresAdapter(), "postgresql");
     const client = createClient({ schema: stored, driver });
     const pending = client.digest.$refresh();
@@ -584,6 +584,7 @@ describe("a materialized view's $refresh", () => {
       "$transaction array must contain only pending operations"
     );
     expect(driver.sent).toEqual([]);
+    await pending;
     await pending;
     expect(driver.sent).toEqual([
       'REFRESH MATERIALIZED VIEW "public"."author_digest"',
