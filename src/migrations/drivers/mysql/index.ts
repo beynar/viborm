@@ -49,6 +49,8 @@ const SPATIAL_TYPE_PATTERNS = [
 const UNINDEXABLE_ORDINARY_TYPE =
   /^(?:(?:TINY|MEDIUM|LONG)?(?:TEXT|BLOB)|JSON|GEOMETRY|POINT|LINESTRING|POLYGON|MULTI(?:POINT|LINESTRING|POLYGON)|GEOMETRYCOLLECTION)\b/i;
 const BASE_TYPE_PATTERN = /[\s(]/;
+/** An integer column type, which a `CAST` spells `SIGNED`. */
+const INTEGER_TYPE = /^(?:TINY|SMALL|MEDIUM|BIG)?INT$/i;
 
 function classifyDecimalListDescriptorChange(
   source: NonNullable<ColumnDef["decimal"]>,
@@ -221,7 +223,7 @@ export class MySQLMigrationDriver
 
   /** Relative to the database a session selects, as every MySQL artifact is. */
   override viewWriter(): SqlViewWriter {
-    return { dialect: this.dialect, adapter: new MySQLAdapter() };
+    return { dialect: this.dialect, adapter: new MySQLAdapter(), columns: this };
   }
   readonly driverName = "mysql";
 
@@ -418,6 +420,12 @@ export class MySQLMigrationDriver
   // ===========================================================================
   // TYPE MAPPING
   // ===========================================================================
+
+  /** MySQL's `CAST` names no integer column type: `SIGNED` is its `BIGINT`. */
+  protected override viewCastType(scalar: Scalar): string {
+    const type = super.viewCastType(scalar);
+    return INTEGER_TYPE.test(type) ? "SIGNED" : type;
+  }
 
   mapScalarType(
     scalar: Scalar,

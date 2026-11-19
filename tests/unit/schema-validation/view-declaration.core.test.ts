@@ -44,8 +44,7 @@ const TWO_COLUMNS = /does not keep '.+', '.+', which the relation joins on$/;
 
 const codes = (result: ReturnType<typeof validateSchema>) =>
   result.errors.map(({ code }) => code);
-const scalarsOf = (model: typeof post | ReturnType<typeof s.view>) =>
-  Object.keys(model["~"].state.scalars);
+const scalarsOf = (model: AnyModel) => Object.keys(model["~"].state.scalars);
 
 describe("a view's derived model", () => {
   it("holds the scalars its selection names, by the source's own objects, in the source's order", () => {
@@ -91,8 +90,7 @@ describe("a view's derived model", () => {
   });
 
   it("has no column for a _count that counts no relation, as a read has no key", () => {
-    const documentsOf = (declared: ReturnType<typeof s.view>) =>
-      viewFacts(declared)?.documents;
+    const documentsOf = (declared: AnyModel) => viewFacts(declared)?.documents;
     expect(
       documentsOf(s.view(() => post, { include: { _count: true } }))
     ).toEqual([]);
@@ -177,8 +175,8 @@ describe("a view's derived model", () => {
   });
 
   it("refuses views that read each other in a cycle", () => {
-    const first: ReturnType<typeof s.view> = s.view(() => second, {});
-    const second: ReturnType<typeof s.view> = s.view(() => first, {});
+    const first: AnyModel = s.view(() => second, {});
+    const second: AnyModel = s.view(() => first, {});
     expect(() => first["~"].state.scalars).toThrow("A view cannot read itself");
   });
 

@@ -15,6 +15,7 @@ import {
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import { type Sql, sql } from "@sql";
 import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import { hasIdPrefix } from "@validation/primitives/id-formats";
 import type { AnyDriver } from "../../../drivers/driver";
@@ -404,7 +405,18 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
   override viewWriter(): SqlViewWriter {
     const adapter = new PostgresAdapter(this.namespace, true);
     adapter.capabilities.supportsVector = true;
-    return { dialect: this.dialect, adapter };
+    return { dialect: this.dialect, adapter, columns: this };
+  }
+
+  /**
+   * A period as `groupBy` publishes it, `YYYY-MM-DD`: `to_char` for a day
+   * of our era, and for one before it (a week of the year 0) the ISO year,
+   * 0 for 1 BC and -1 for 2 BC, as the read's decoder writes it. Two periods
+   * are never one text, so the text is a key.
+   */
+  viewDay(period: Sql): Sql {
+    const day = sql`CAST(${period} AS TIMESTAMP)`;
+    return sql`CASE WHEN ${period} < DATE '0001-01-01' THEN (CASE WHEN EXTRACT(YEAR FROM ${period}) = -1 THEN '0000' ELSE '-' || lpad(CAST(-1 - EXTRACT(YEAR FROM ${period}) AS TEXT), 4, '0') END) || to_char(${day}, '-MM-DD') ELSE to_char(${day}, 'YYYY-MM-DD') END`;
   }
 
   /** `CREATE MATERIALIZED VIEW`, on PostgreSQL and every server of its dialect. */

@@ -110,15 +110,17 @@ const WRITERS = {
 };
 const writing = (dialect: keyof typeof WRITERS) =>
   WRITERS[dialect].viewWriter().adapter;
+/** The adapter and the driver's column spelling a migration of `dialect` writes with. */
+const writer = (dialect: keyof typeof WRITERS) => ({
+  adapter: writing(dialect),
+  columns: WRITERS[dialect],
+});
 
 /** A declared query the body refuses, as the view that declares it. */
 const refused = (query: object) => {
   const bad = s.view(() => post, query as never).map("bad_view");
   return () =>
-    viewBody(
-      { schema: { author, post, bad }, adapter: writing("postgresql") },
-      bad
-    );
+    viewBody({ schema: { author, post, bad }, ...writer("postgresql") }, bad);
 };
 
 const text = (statement: Sql) => statement.toStatement("$n");
@@ -132,10 +134,7 @@ const WINDOW_ORDER = /ORDER BY .q0.\..id. DESC LIMIT/;
 
 describe("a view's body", () => {
   test("projects its root scalars as stored and its documents as a read carries them", () => {
-    const body = viewBody(
-      { schema, adapter: writing("postgresql") },
-      published
-    );
+    const body = viewBody({ schema, ...writer("postgresql") }, published);
     const statement = text(body.statement);
     // A bigint and a decimal column as stored, under their column names.
     expect(statement).toMatch(STORED_ROOT);
@@ -153,14 +152,14 @@ describe("a view's body", () => {
   test("keeps the root order of a window", () => {
     for (const dialect of ["postgresql", "mysql", "sqlite"] as const) {
       const statement = text(
-        viewBody({ schema, adapter: writing(dialect) }, latest).statement
+        viewBody({ schema, ...writer(dialect) }, latest).statement
       );
       expect(statement).toMatch(WINDOW_ORDER);
     }
   });
 
   test("reads a source view's documents as its plain columns", () => {
-    const body = viewBody({ schema, adapter: writing("sqlite") }, popular);
+    const body = viewBody({ schema, ...writer("sqlite") }, popular);
     expect(text(body.statement)).toBe(
       'SELECT "q0"."id" AS "id", "q0"."author" AS "author" FROM "published_posts" AS "q0"'
     );
@@ -169,13 +168,21 @@ describe("a view's body", () => {
 
   test("names its tables as the adapter it is written with names them", () => {
     const pg = viewBody(
-      { schema, adapter: new PostgresAdapter("app", true) },
+      {
+        schema,
+        adapter: new PostgresAdapter("app", true),
+        columns: postgresMigrationDriver,
+      },
       published
     );
     expect(text(pg.statement)).toContain('"app"."posts" AS "q0"');
     expect(text(pg.statement)).toContain('"app"."authors"');
     const mysql = viewBody(
-      { schema, adapter: new MySQLAdapter("shop") },
+      {
+        schema,
+        adapter: new MySQLAdapter("shop"),
+        columns: mysqlMigrationDriver,
+      },
       counted
     );
     expect(text(mysql.statement)).toContain("`shop`.`authors` AS `q0`");
@@ -183,10 +190,7 @@ describe("a view's body", () => {
   });
 
   test("states the shape a view row is decoded with, as JSON data", () => {
-    const { shape } = viewBody(
-      { schema, adapter: writing("sqlite") },
-      published
-    );
+    const { shape } = viewBody({ schema, ...writer("sqlite") }, published);
     expect(JSON.parse(JSON.stringify(shape))).toEqual(shape);
     expect(shape).toMatchObject({
       kind: "object",

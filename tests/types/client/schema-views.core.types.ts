@@ -742,6 +742,8 @@ export const _variantCollection = async () => {
 
 // =============================================================================
 // A MATERIALIZED VIEW: $refresh on its delegate alone, .index() on its columns
+// ======================================================================};
+
 // =============================================================================
 
 const authorDigest = s
@@ -827,6 +829,198 @@ export const _indexes = () => {
   view.index(["balance"]);
   // @ts-expect-error - only a view is materialized
   author.materialized();
+=======
+// AGGREGATED VIEWS: ONE ROW PER GROUP, FLAT TYPED COLUMNS, KEYED BY `by`
+// =============================================================================
+
+const shop = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  sales: s.toMany(() => sale),
+});
+const sale = s.model({
+  id: s.string().ulid().id(),
+  shopId: s.string(),
+  currency: s.enum(["EUR", "USD"]),
+  region: s.string().nullable(),
+  units: s.int(),
+  big: s.bigInt(),
+  ratio: s.number(),
+  amount: s.decimal({ precision: 10, scale: 2 }),
+  note: s.string().map("sale_note"),
+  soldAt: s.dateTime(),
+  shop: s
+    .toOne(() => shop)
+    .fields("shopId")
+    .references("id"),
+});
+const salesQuery = {
+  by: [{ soldAt: "day" }, "currency"],
+  timeZone: "Europe/Paris",
+  where: { units: { gt: 0 } },
+  _count: { _all: true, region: true },
+  _sum: { units: true, big: true, ratio: true, amount: true },
+  _avg: { units: true, amount: true },
+  _min: { id: true, note: true, soldAt: true, currency: true },
+  _max: { amount: true },
+} as const;
+const salesByDay = s.view(() => sale, salesQuery);
+/** One grouped field, not nullable: the view's key is that field alone. */
+const salesByShop = s
+  .view(() => sale, { by: ["shopId"], _sum: { amount: true } })
+  .extends({
+    shop: s
+      .toOne(() => shop)
+      .fields("shopId")
+      .references("id"),
+  });
+/** A nullable grouped field: no key. */
+const salesByRegion = s.view(() => sale, { by: "region", _count: true });
+/** A view of an aggregated view, and an aggregated view of a view. */
+const busyDays = s.view(() => salesByDay, {
+  where: { count: { gt: 1 } },
+  select: { soldAt: true, currency: true, count: true },
+});
+const wordsByWriter = s.view(() => livePiece, {
+  by: ["writerId"],
+  _sum: { words: true },
+});
+const aggregatedSchema = {
+  shop,
+  sale,
+  salesByDay,
+  salesByShop,
+  salesByRegion,
+  busyDays,
+  writer,
+  piece,
+  note,
+  livePiece,
+  wordsByWriter,
+};
+const aggregated = createClient({
+  schema: aggregatedSchema,
+  driver: new PGliteDriver(),
+});
+
+type SalesRow = {
+  soldAt: string;
+  currency: "EUR" | "USD";
+  count: number;
+  countRegion: number;
+  avgUnits: number | null;
+  avgAmount: Decimal | null;
+  sumUnits: number | null;
+  sumBig: bigint | null;
+  sumRatio: number | null;
+  sumAmount: Decimal | null;
+  minId: string | null;
+  minNote: string | null;
+  minSoldAt: Date | null;
+  minCurrency: "EUR" | "USD" | null;
+  maxAmount: Decimal | null;
+};
+type _salesRow = Expect<Equal<RowOf<typeof aggregated.salesByDay>, SalesRow>>;
+
+/**
+ * What `groupBy` answers for the same selection, column by column (its `by`
+ * takes a mutable list).
+ */
+type Grouped = Awaited<
+  ReturnType<
+    typeof aggregated.sale.groupBy<
+      Omit<typeof salesQuery, "by"> & { by: [{ soldAt: "day" }, "currency"] }
+    >
+  >
+>[number];
+type _asGroupBy = Expect<
+  Equal<
+    [
+      SalesRow["soldAt"],
+      SalesRow["count"],
+      SalesRow["sumUnits"],
+      SalesRow["sumBig"],
+      SalesRow["sumAmount"],
+      SalesRow["avgUnits"],
+      SalesRow["avgAmount"],
+      SalesRow["minSoldAt"],
+      SalesRow["minCurrency"],
+    ],
+    [
+      Grouped["soldAt"],
+      Grouped["_count"]["_all"],
+      Grouped["_sum"]["units"],
+      Grouped["_sum"]["big"],
+      Grouped["_sum"]["amount"],
+      Grouped["_avg"]["units"],
+      Grouped["_avg"]["amount"],
+      Grouped["_min"]["soldAt"],
+      Grouped["_min"]["currency"],
+    ]
+  >
+>;
+type _shopRow = Expect<
+  Equal<
+    RowOf<typeof aggregated.salesByShop>,
+    { shopId: string; sumAmount: Decimal | null }
+  >
+>;
+type _overAggregated = Expect<
+  Equal<
+    RowOf<typeof aggregated.busyDays>,
+    { soldAt: string; currency: "EUR" | "USD"; count: number }
+  >
+>;
+type _aggregatedOverView = Expect<
+  Equal<
+    RowOf<typeof aggregated.wordsByWriter>,
+    { writerId: string; sumWords: number | null }
+  >
+>;
+// No key where a grouped field is nullable.
+type _noGroupKey = Expect<
+  Equal<
+    "findUnique" extends keyof typeof aggregated.salesByRegion ? true : false,
+    false
+  >
+>;
+
+export const _aggregatedReads = async () => {
+  // A filter, an order and an aggregate on the flat columns.
+  await aggregated.salesByDay.findMany({
+    where: { sumAmount: { gt: "1000" }, count: { gte: 2 }, minNote: null },
+    orderBy: [{ soldAt: "desc" }, { sumUnits: "asc" }],
+  });
+  const max = await aggregated.salesByDay.aggregate({
+    _max: { sumAmount: true },
+    _sum: { count: true },
+  });
+  type _max = Expect<Equal<typeof max._max.sumAmount, Decimal | null>>;
+  // The key: the `by` list, as `.id([...])` would name it; one field alone.
+  const day = await aggregated.salesByDay.findUnique({
+    where: { soldAt_currency: { soldAt: "2024-01-01", currency: "EUR" } },
+  });
+  type _day = Expect<Equal<NonNullable<typeof day>, SalesRow>>;
+  await aggregated.salesByShop.findUnique({ where: { shopId: "s" } });
+  // A relation from a grouped column, read from either side.
+  await aggregated.salesByShop.findMany({ include: { shop: true } });
+  aggregated.salesByDay.findMany({
+    // @ts-expect-error - a source column the view does not group is none of its own
+    where: { units: { gt: 1 } },
+  });
+  // @ts-expect-error - no key where a grouped field is nullable
+  aggregated.salesByRegion.findUnique;
+  // @ts-expect-error - an aggregated view is never written
+  aggregated.salesByDay.create;
+};
+
+export const _refusedAggregatedQueries = () => {
+  // @ts-expect-error - a field the source does not have
+  s.view(() => sale, { by: ["nope"], _count: true });
+  // @ts-expect-error - a sum of a string
+  s.view(() => sale, { by: ["currency"], _sum: { note: true } });
+  // @ts-expect-error - a time step of a column that holds no date
+  s.view(() => sale, { by: [{ units: "day" }] });
 };
 
 // =============================================================================

@@ -6,20 +6,28 @@
  * stored, under their column names, and its root states no order unless it
  * takes a window. Its documents (relations, `_count`, `_aggregate`) are
  * projected as a read carries them, so the client decodes a view's JSON
- * column with the decoder of the read that carried it.
+ * column with the decoder of the read that carried it. An aggregated view's
+ * body is the read compiler's `groupBy`, its root projected as flat columns:
+ * each grouped field as stored, each aggregate cast to its column's scalar.
  *
  * Only the migrations import this module: nothing the client or the engine
  * imports reaches it, so no application bundle carries it.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { UnsupportedOperationError } from "@errors";
+import { FeatureNotSupportedError, UnsupportedOperationError } from "@errors";
 import type { Schema } from "@schema/hydration";
 import type { AnyModel } from "@schema/model";
-import { viewFacts } from "@schema/view/facts";
+import type { Scalar } from "@schema/scalars/base";
+import { type ViewAggregate, viewFacts } from "@schema/view/facts";
 import type { Sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
-import { type PreparedProjection, refusesWhileDecoding } from "./shared/query";
+import { aggregatedIdentifier, isCompact } from "./shared/identifier";
+import {
+  type PreparedAggregates,
+  type PreparedProjection,
+  refusesWhileDecoding,
+} from "./shared/query";
 import {
   type Arguments,
   EngineSchema,
@@ -27,7 +35,21 @@ import {
   type ResolvedSchemaViews,
 } from "./shared/schema";
 import { SqlQueries, type SqlSelectControls } from "./shared/sql-queries";
-import { nameOf, tableOf } from "./shared/terms";
+import { nameOf, scalarsOf, tableOf } from "./shared/terms";
+
+/**
+ * How a view's dialect makes an expression one of the view's columns: what
+ * its migration driver states, as it states each scalar's column type.
+ */
+export interface ViewColumnSql {
+  /** `expression` cast to the type the dialect stores a column of `scalar` in. */
+  viewCast(expression: Sql, scalar: Scalar): Sql;
+  /**
+   * A time step's period, a date, as the `YYYY-MM-DD` text `groupBy`
+   * publishes for it: where the dialect has periods.
+   */
+  viewDay?(period: Sql): Sql;
+}
 
 export interface ViewBodyContext {
   /** The schema the view and every model its query reads belong to. */
@@ -42,6 +64,8 @@ export interface ViewBodyContext {
    * estate's PostgreSQL schema.
    */
   readonly adapter: DatabaseAdapter;
+  /** How the same driver makes an expression a column of the view. */
+  readonly columns: ViewColumnSql;
 }
 
 export interface ViewBody {
@@ -115,12 +139,22 @@ function refuseRoot(view: string, query: Arguments): void {
  */
 class ViewBodyQueries extends SqlQueries {
   readonly #view: string;
+  /** The view's model: its columns' scalars. */
+  readonly #model: AnyModel;
+  readonly #columns: ViewColumnSql;
   /** The alias the root row is read under, set as the statement opens. */
   #root: string | undefined;
 
-  constructor(schema: EngineSchema, adapter: DatabaseAdapter, view: string) {
+  constructor(
+    schema: EngineSchema,
+    adapter: DatabaseAdapter,
+    view: AnyModel,
+    columns: ViewColumnSql
+  ) {
     super(schema, adapter);
-    this.#view = view;
+    this.#view = nameOf(view);
+    this.#model = view;
+    this.#columns = columns;
   }
 
   override rootAlias(): string {
@@ -168,6 +202,80 @@ class ViewBodyQueries extends SqlQueries {
     return columns;
   }
 
+  /** A grouped field at the root, as stored: the view's column is the table's. */
+  override projectedColumn(
+    model: AnyModel,
+    field: string,
+    alias?: string
+  ): Sql {
+    return alias !== undefined && alias === this.#root
+      ? this.column(model, field, alias)
+      : super.projectedColumn(model, field, alias);
+  }
+
+  /**
+   * A grouped root's aggregates, each its own column under the view's name
+   * for it (`count`, `sumAmount`), read off the view's facts. A carried
+   * aggregate below the root (a relation's `_aggregate`) is a read's.
+   */
+  protected override aggregateColumns(
+    model: AnyModel,
+    selection: PreparedAggregates,
+    alias: string
+  ): [string, Sql][] {
+    const aggregated = viewFacts(this.#model)?.aggregated;
+    if (alias !== this.#root || aggregated === undefined)
+      return super.aggregateColumns(model, selection, alias);
+    return Object.entries(aggregated.origins).flatMap(
+      ([name, { aggregate, field }]): [string, Sql][] =>
+        aggregate === undefined
+          ? []
+          : [[name, this.#aggregate(model, aggregate, field, alias, name)]]
+    );
+  }
+
+  /**
+   * One aggregate as a column of its scalar. The provider's own `SUM`, cast:
+   * where a read splits a sum into parts its provider cannot overflow, the
+   * view's column holds the sum its scalar holds. `MIN` and `MAX` answer
+   * their column's type: a compact identifier is picked in the text it
+   * travels in and stored back as its column stores it.
+   */
+  #aggregate(
+    model: AnyModel,
+    aggregate: ViewAggregate,
+    field: string | undefined,
+    alias: string,
+    name: string
+  ): Sql {
+    const a = this.adapter;
+    const column =
+      field === undefined ? undefined : this.column(model, field, alias);
+    const state =
+      field === undefined ? undefined : scalarsOf(model)[field]?.["~"].state;
+    if (aggregate === "_min" || aggregate === "_max") {
+      const { id } = this.scalarShape(model, field!);
+      const operand = aggregatedIdentifier(a, id, column!);
+      const boolean = state?.type === "boolean";
+      const picked =
+        aggregate === "_min"
+          ? a.aggregates.min(operand, boolean)
+          : a.aggregates.max(operand, boolean);
+      return isCompact(id)
+        ? a.expressions.idCast(picked, id.representation)
+        : picked;
+    }
+    const value =
+      aggregate === "_count"
+        ? a.aggregates.count(column)
+        : aggregate === "_sum"
+          ? a.aggregates.sum(column!)
+          : state?.decimal === undefined
+            ? a.aggregates.avg(column!)
+            : a.aggregates.decimalAvg(column!, state.decimal);
+    return this.#columns.viewCast(value, scalarsOf(this.#model)[name]!);
+  }
+
   /** Every caller's SQL operand is settled here before it is lowered. */
   override settleRows(): Sql {
     return refuse(
@@ -195,12 +303,12 @@ function asData(this: unknown, key: string, value: unknown): unknown {
  * hold what it says (plan §2.2).
  */
 export function viewBody(context: ViewBodyContext, view: AnyModel): ViewBody {
-  const { source, query } = viewFacts(view)!;
+  const { source, query, aggregated } = viewFacts(view)!;
   const schema = new EngineSchema(context.schema, context.resolved);
-  const { adapter } = context;
+  const { adapter, columns } = context;
   // Every persistent table a lowering names goes through this one renderer.
   const reads = new Set<string>([tableOf(source)]);
-  const { identifiers } = adapter;
+  const { identifiers, period } = adapter;
   adapter.identifiers = {
     ...identifiers,
     table: (name, alias) => {
@@ -208,13 +316,20 @@ export function viewBody(context: ViewBodyContext, view: AnyModel): ViewBody {
       return identifiers.table(name, alias);
     },
   };
+  // A period is stored as the day a read publishes for it, not as the text
+  // the read decodes that day from.
+  if (period && columns.viewDay)
+    Object.assign(adapter, {
+      period: { ...period, text: (day: Sql) => columns.viewDay!(day) },
+    });
   const name = nameOf(view);
-  const queries = new ViewBodyQueries(schema, adapter, name);
+  const queries = new ViewBodyQueries(schema, adapter, view, columns);
+  const operation = aggregated ? "groupBy" : "findMany";
   // The refusal of a query its source does not take names the view, not
   // only the read of the source that would have taken it.
   let admitted: Arguments;
   try {
-    admitted = schema.admit(source, "findMany", query);
+    admitted = schema.admit(source, operation, query);
   } catch (cause) {
     refuse(
       name,
@@ -223,10 +338,21 @@ export function viewBody(context: ViewBodyContext, view: AnyModel): ViewBody {
     );
   }
   refuseRoot(name, admitted);
-  const statement =
-    admitted.take === undefined && admitted.distinct === undefined
-      ? queries.select(source, admitted, undefined, UNORDERED).sql
-      : queries.read(source, "findMany", admitted).query.sql;
+  let statement: Sql;
+  try {
+    statement =
+      aggregated === undefined &&
+      admitted.take === undefined &&
+      admitted.distinct === undefined
+        ? queries.select(source, admitted, undefined, UNORDERED).sql
+        : queries.read(source, operation, admitted).query.sql;
+  } catch (cause) {
+    // What the read compiler refuses on this dialect (a time step outside
+    // PostgreSQL) is refused with the view named.
+    if (cause instanceof FeatureNotSupportedError)
+      refuse(name, "this database cannot read", cause.message);
+    throw cause;
+  }
   return {
     statement,
     shape: JSON.parse(

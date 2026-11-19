@@ -409,7 +409,7 @@ export class SQLite3MigrationDriver extends SqlMigrationDriver {
   readonly dialect = "sqlite" as const;
 
   override viewWriter(): SqlViewWriter {
-    return { dialect: this.dialect, adapter: new SQLiteAdapter() };
+    return { dialect: this.dialect, adapter: new SQLiteAdapter(), columns: this };
   }
   readonly driverName: string = "sqlite3";
 

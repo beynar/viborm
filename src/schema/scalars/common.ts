@@ -480,3 +480,13 @@ export const untypedKeyedScalarChain =
 export const scalarChain = ScalarChain as unknown as Chain;
 export const listScalarChain = ListScalarChain as unknown as Chain;
 export const keyedScalarChain = KeyedScalarChain as unknown as Chain;
+
+/**
+ * A scalar of `scalar`'s class, in its state with `update` applied and its
+ * base validator rebuilt: a column a schema object derives from a declared
+ * one (an aggregated view's, `s.view`), built as a modifier builds one.
+ */
+export const derivedScalar = (
+  scalar: Scalar,
+  update: Partial<ScalarState>
+): Scalar => next(scalar as unknown as ScalarChain, update, true);

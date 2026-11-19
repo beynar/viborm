@@ -4512,14 +4512,16 @@ export class SqlQueries extends Queries {
     return {
       fields,
       fields_: selection.shape,
-      columns: (alias) => this.#aggregateColumns(model, selection, alias),
+      columns: (alias) => this.aggregateColumns(model, selection, alias),
     };
   }
   /**
    * Each selected aggregate as its column: `_count: true`'s row count, or the
    * carrier of the fields it selects, members in the order its shape lists them.
+   * A view's body holds a grouped root's aggregates as flat columns instead
+   * (`raptor3/view-body.ts`).
    */
-  #aggregateColumns(
+  protected aggregateColumns(
     model: AnyModel,
     { shape, members }: PreparedAggregates,
     alias: string
@@ -5025,7 +5027,7 @@ export class SqlQueries extends Queries {
       entry.selector && this.lowerSelector(entry.selector, childAlias);
     return this.#scalar({
       columns: this.carriedDocument(
-        this.#aggregateColumns(target, entry.selection, childAlias)
+        this.aggregateColumns(target, entry.selection, childAlias)
       ),
       from: this.table(target, childAlias),
       where: this.#and(

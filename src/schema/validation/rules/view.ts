@@ -21,9 +21,10 @@ function sameMembers(
 
 /**
  * W001: a view's source is a model of the same schema, so the read that
- * defines it can be compiled. W002: every scalar and key of a view is its
- * source's own, and it takes no raw index and no omission: `.extends()` with
- * a scalar, `.id()`, `.unique()`, `.rawIndex()`, `.withoutRowid()` and
+ * defines it can be compiled. W002: every scalar and key of a view is the
+ * one its query derives (its source's own, or an aggregated view's column
+ * and key), and it takes no raw index and no omission: `.extends()` with a
+ * scalar, `.id()`, `.unique()`, `.rawIndex()`, `.withoutRowid()` and
  * `.omit()` state what a view cannot hold (a column a view should not return
  * is one its query does not project). Only a materialized view takes
  * `.index()`, on its scalar columns and never unique: a JSON column has no
@@ -31,7 +32,8 @@ function sameMembers(
  * index names a field of the view at all is I001's). W003: a view's
  * relations are its source's, which it inherits where it keeps their key
  * columns: `.extends()` declares none. W004: a JSON column takes its
- * selection's name, which no scalar's column may share.
+ * selection's name, which no scalar's column may share, and two columns of
+ * an aggregated view take two names.
  *
  * W002 is the one owner of what a view cannot hold, and it reads each such
  * fact by name. `view-declaration.core.test.ts` lists every method and every
@@ -52,14 +54,25 @@ export function viewIsItsRead(
   if (!facts) return [];
   const state = view["~"].state;
   const source = facts.source["~"].state;
+  // What the query derives: the source's own scalars and keys, or the
+  // columns and key an aggregated view derives of them.
+  const derived = facts.aggregated ?? source;
   const refused: [code: string, what: string][] = [];
   if (!ctx.modelToName.has(facts.source))
     refused.push(["W001", "reads a model outside this schema"]);
   if (
     !(
-      sameMembers(state.scalars, source.scalars) &&
-      sameMembers(state.compoundId, source.compoundId) &&
-      sameMembers(state.compoundUniques, source.compoundUniques)
+      sameMembers(state.scalars, derived.scalars) &&
+      // The source's own scalar, and one the query projects: any other
+      // names a column the view does not have.
+      Object.keys(state.scalars).every((name) =>
+        facts.columns.includes(name)
+      ) &&
+      sameMembers(state.compoundId, derived.compoundId) &&
+      sameMembers(
+        state.compoundUniques,
+        facts.aggregated ? undefined : source.compoundUniques
+      )
     ) ||
     view["~"].rawIndexes.length > 0 ||
     view["~"].withoutRowid ||
@@ -104,6 +117,14 @@ export function viewIsItsRead(
     refused.push([
       "W004",
       `selects '${twice}' and a field stored in a column of that name: two columns of one name`,
+    ]);
+  const repeated = facts.columns.find(
+    (column, at) => facts.columns.indexOf(column) !== at
+  );
+  if (repeated !== undefined)
+    refused.push([
+      "W004",
+      `holds two columns named '${repeated}', a grouped field's and an aggregate's or two aggregates': two columns of one name`,
     ]);
   return refused.map(([code, what]) => ({
     code,

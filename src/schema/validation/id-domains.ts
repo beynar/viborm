@@ -47,7 +47,7 @@ import {
   idDomainOfState,
   idStorageOf,
 } from "../scalars/string/id-domain";
-import { viewFacts } from "../view/facts";
+import { heldField, viewFacts } from "../view/facts";
 import type { ResolvedRelationIndex } from "./relation-resolution";
 import { resolvedEdges } from "./relation-resolution";
 import type { SchemaValidationIssue, ValidationContext } from "./types";
@@ -279,15 +279,32 @@ function deriveDeclaredIdDomains(
     for (const field of byField.keys()) resolve(model, field);
   }
 
-  // A view's column is its source's: the same scalar under the same name, and
-  // the same stored value. A view has no foreign key to inherit through, so
-  // it takes what its source's fields inherit, through every view between.
+  // A view's column holds its source's values: the same scalar, the same
+  // stored value, under the field it holds (`heldField`: its own name, or the
+  // one an aggregated view groups by or picks a `_min` or `_max` of). A view
+  // has no foreign key to inherit through, so each column takes what the
+  // table field under it inherits, through every view between. A count, a
+  // sum, an average or a period holds no source value.
   for (const model of index.keys()) {
-    let source = model;
-    for (let facts = viewFacts(source); facts; facts = viewFacts(source))
-      source = facts.source;
-    const inherited = source === model ? undefined : domains.get(source);
-    if (inherited !== undefined) domains.set(model, inherited);
+    if (viewFacts(model) === undefined) continue;
+    const byField = new Map<string, IdDomain>();
+    for (const column of Object.keys(model["~"].state.scalars)) {
+      let held: { model: Model<any>; field: string } | undefined = {
+        model,
+        field: column,
+      };
+      for (
+        let facts = viewFacts(held.model);
+        facts && held;
+        facts = held && viewFacts(held.model)
+      ) {
+        const field = heldField(facts, held.field);
+        held = field === undefined ? undefined : { model: facts.source, field };
+      }
+      const domain = held && domains.get(held.model)?.get(held.field);
+      if (domain !== undefined) byField.set(column, domain);
+    }
+    if (byField.size > 0) domains.set(model, byField);
   }
 
   // The same question asked of the COLUMN rather than the values: a foreign
