@@ -36,6 +36,7 @@ import { viewFacts, viewTable } from "@schema/view/facts";
 import { Sql, sql } from "@sql";
 import { timeStepUnsupported } from "@validation/model/args/time-step";
 import { Decimal, GeometryPoint, RecordId } from "surrealdb";
+import { quantized } from "./quantized";
 import type { SurrealQueries } from "./queries";
 
 type AnyModel = PreparedProjection["model"];
@@ -77,9 +78,30 @@ function tableOf(model: AnyModel): string {
   return model["~"].names.sql!;
 }
 
+/**
+ * Whether a model's records are groups: an aggregated view's, or those of a
+ * view of rows over one, which keeps its source's ids.
+ */
+function isGroup(model: AnyModel): boolean {
+  const facts = viewFacts(model);
+  return (
+    facts !== undefined &&
+    (facts.aggregated !== undefined || isGroup(facts.source))
+  );
+}
+
+/**
+ * Whether a record's id is its key's one value (`t:1`), not the list of its
+ * parts (`t:[1, 'a']`). The database ids a group by the list of the values it
+ * groups by, even of one (`v:['EUR']`, measured on SurrealDB 4.0).
+ */
+function idIsValue(keys: readonly string[], model: AnyModel): boolean {
+  return keys.length === 1 && !isGroup(model);
+}
+
 function isSingleKey(queries: Queries, model: AnyModel, field: string) {
   const keys = queries.keyOrder(model);
-  return keys.length === 1 && keys[0] === field;
+  return idIsValue(keys, model) && keys[0] === field;
 }
 
 function reference(edge: Membership): Reference {
@@ -200,17 +222,6 @@ function recordKey(model: AnyModel, field: string, value: Sql): Sql {
   return textKeyType(model, field) === "datetime"
     ? sql`(IF ${value} { time::format(${value}, "%Y-%m-%dT%H:%M:%S%.3fZ") })`
     : keyCast(model, field, value);
-}
-
-/** An exact decimal lands back on its scale, ties to even as `numeric` does here. */
-export function quantized(
-  state: { readonly decimal?: { readonly scale: number } } | undefined,
-  value: Sql
-): Sql {
-  const scale = state?.decimal?.scale;
-  if (scale === undefined) return value;
-  const factor = sql.raw(`1${"0".repeat(scale)}dec`);
-  return sql`(math::round(${value} * ${factor}) / ${factor})`;
 }
 
 /** One step of a JSON path: a key, bound, or both of what a number can name. */
@@ -606,14 +617,14 @@ export class SurrealReadBackend implements ReadBackend {
 
   /**
    * Where a field is stored. A record's key is its id: a single key is `id`
-   * whatever the field is called, and a compound key is an array id, read by
-   * position.
+   * whatever the field is called, and a compound key or a group's is an array
+   * id, read by position.
    */
   physical(model: AnyModel, field: string): Sql {
     const keys = this.#queries.keyOrder(model);
     const position = keys.indexOf(field);
     if (position < 0) return name(this.#queries.columnName(model, field));
-    return sql.raw(keys.length === 1 ? "id" : `id[${position}]`);
+    return sql.raw(idIsValue(keys, model) ? "id" : `id[${position}]`);
   }
 
   /**
@@ -737,9 +748,18 @@ export class SurrealReadBackend implements ReadBackend {
       else others.push(arm);
     }
     if (!keys.every((key) => named.has(key))) return undefined;
+    // A group's double is a float in its id, which an integral value of the
+    // call names as an int: that group is found by its fields, not fetched.
+    if (
+      isGroup(model) &&
+      keys.some(
+        (key) => model["~"].state.scalars[key]?.["~"].state.type === "number"
+      )
+    )
+      return undefined;
     const [only] = keys;
     let record: Sql | undefined;
-    if (keys.length > 1)
+    if (!idIsValue(keys, model))
       record = sql`${this.recordOf(model, Object.fromEntries(named) as Input)}`;
     else if (isSingleKey(q, model, only!))
       record = this.value(model, only!, named.get(only!));
@@ -1621,7 +1641,7 @@ export class SurrealReadBackend implements ReadBackend {
   /** The record a row's key fields name, however many there are. */
   recordOfRow(model: AnyModel, row: Input): Sql {
     const keys = this.#queries.keyOrder(model);
-    return keys.length === 1
+    return idIsValue(keys, model)
       ? this.value(model, keys[0]!, row[keys[0]!])
       : sql`${this.recordOf(model, row)}`;
   }
@@ -1643,12 +1663,14 @@ export class SurrealReadBackend implements ReadBackend {
 
   /**
    * One part of an array id: a link stays a record, as its field holds it. A
-   * view's record is its source's, under its own table: its parts are too.
+   * view's record is its source's, under its own table: its parts are too. A
+   * group's part is a value of its column's scalar.
    */
   #part(model: AnyModel, field: string, value: unknown): unknown {
     const facts = viewFacts(model);
-    if (facts) return this.#part(facts.source, field, value);
-    const link = this.#linkOf(model, field);
+    if (facts && !facts.aggregated)
+      return this.#part(facts.source, field, value);
+    const link = facts ? undefined : this.#linkOf(model, field);
     if (link) return new RecordId(tableOf(link.target), value as string);
     return stored(model["~"].state.scalars[field]?.["~"].state, value);
   }
@@ -1739,7 +1761,7 @@ export class SurrealReadBackend implements ReadBackend {
   }
 
   /** Whether a field reads as a record: a key, or a link to one. */
-  #isRecord(model: AnyModel, field: string): boolean {
+  isRecord(model: AnyModel, field: string): boolean {
     return (
       isSingleKey(this.#queries, model, field) || this.holdsRecord(model, field)
     );
@@ -1748,11 +1770,13 @@ export class SurrealReadBackend implements ReadBackend {
   /**
    * Whether a model's field holds a record rather than the key's own value. A
    * view's field holds what its source's holds (`DEFINE TABLE … AS SELECT`
-   * copies it).
+   * copies it). An aggregated view holds no record: its body groups by a
+   * key's or a link's value.
    */
   holdsRecord(model: AnyModel, field: string): boolean {
     const facts = viewFacts(model);
-    if (facts) return this.holdsRecord(facts.source, field);
+    if (facts)
+      return !facts.aggregated && this.holdsRecord(facts.source, field);
     return this.#linkOf(model, field) !== undefined;
   }
 
@@ -1765,7 +1789,12 @@ export class SurrealReadBackend implements ReadBackend {
   #heldTable(model: AnyModel, field: string): string | undefined {
     if (isSingleKey(this.#queries, model, field)) return tableOf(model);
     const facts = viewFacts(model);
-    if (facts) return this.#heldTable(facts.source, field);
+    // An aggregated view holds values: its body groups by a key's or a
+    // link's value, never by the record.
+    if (facts)
+      return facts.aggregated
+        ? undefined
+        : this.#heldTable(facts.source, field);
     const link = this.#linkOf(model, field);
     // A variant relation's column holds the key itself, whichever model it names.
     return link && !link.discriminator ? tableOf(link.target) : undefined;
@@ -2497,7 +2526,7 @@ export class SurrealReadBackend implements ReadBackend {
   #namesDecimal(model: AnyModel, field: string): boolean {
     return (
       model["~"].state.scalars[field]?.["~"].state.type === "decimal" &&
-      this.#isRecord(model, field)
+      this.isRecord(model, field)
     );
   }
 
@@ -2808,7 +2837,7 @@ export class SurrealReadBackend implements ReadBackend {
 
   /** A record's key as the identity tuple the recursive decoder reads. */
   #identityOf(model: AnyModel, record: Sql): Sql {
-    return this.#queries.keyOrder(model).length === 1
+    return idIsValue(this.#queries.keyOrder(model), model)
       ? sql`[record::id(${record})]`
       : sql`record::id(${record})`;
   }
@@ -2880,8 +2909,9 @@ export class SurrealReadBackend implements ReadBackend {
    */
   #heldRecord(edge: Reference): Sql | undefined {
     if (edge.many || edge.owner !== "source") return undefined;
+    const keys = this.#queries.keyOrder(edge.target);
     const parts: Sql[] = [];
-    for (const key of this.#queries.keyOrder(edge.target)) {
+    for (const key of keys) {
       const pair = edge.pairs.find(({ target }) => target === key);
       if (!pair) return undefined;
       const part = this.#heldAs(
@@ -2898,10 +2928,11 @@ export class SurrealReadBackend implements ReadBackend {
           : part
       );
     }
-    const record =
-      parts.length === 1
-        ? parts[0]!
-        : sql`type::record(${tableOf(edge.target)}, [${sql.join(parts, ", ")}])`;
+    // A single key's part is the record already; a compound key's, and a
+    // group's of any length, is the list its record is named by.
+    const record = idIsValue(keys, edge.target)
+      ? parts[0]!
+      : sql`type::record(${tableOf(edge.target)}, [${sql.join(parts, ", ")}])`;
     // An arm another row's type names reads nothing; an unset part names no record.
     const { discriminator } = edge;
     return discriminator
@@ -3046,7 +3077,7 @@ export class SurrealReadBackend implements ReadBackend {
         );
         if (read.physical.nullable) guards.push(sql`${other} != NONE`);
         // A key is a record and a plain column its text: they compare by the text.
-        return this.#isRecord(read.model, read.field)
+        return this.isRecord(read.model, read.field)
           ? sql`record::id(${other})`
           : other;
       }
@@ -3066,7 +3097,7 @@ export class SurrealReadBackend implements ReadBackend {
     const fold = (text: Sql) =>
       predicate.insensitive ? sql`string::lowercase(${text})` : text;
     // A key or a link is a record, and its text is what a pattern or a case reads.
-    const isRecord = this.#isRecord(scalar.model, scalar.field);
+    const isRecord = this.isRecord(scalar.model, scalar.field);
     const asText = isRecord
       ? sql`<string>record::id(${column})`
       : this.#queries.keyOrder(scalar.model).includes(scalar.field)
@@ -3329,10 +3360,13 @@ export class SurrealReadBackend implements ReadBackend {
           ? Number(value)
           : keyPart(model, field, value)) as string
       )}`;
-    // A view's field holds what its source's holds, bound as the source's is.
+    // A view's field holds what its source's holds, bound as the source's
+    // is. An aggregated view's columns hold values of their own scalars, its
+    // key parts included (a key or a link of its source as the key's value).
     const facts = viewFacts(model);
-    if (facts) return this.value(facts.source, field, value);
-    const link = this.#linkOf(model, field);
+    if (facts && !facts.aggregated)
+      return this.value(facts.source, field, value);
+    const link = facts ? undefined : this.#linkOf(model, field);
     // A variant relation's column holds the key itself, whichever model it names.
     if (link && !link.discriminator)
       return sql`${new RecordId(

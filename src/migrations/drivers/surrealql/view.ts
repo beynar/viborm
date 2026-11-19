@@ -23,9 +23,24 @@
  * is there: the database reads it of a deleted row too. Nothing here imports that
  * driver or its SDK: every dialect's migrations load this module, and the SDK
  * is an optional peer.
+ *
+ * An aggregated view (`by`) is `SELECT <by fields>, <aggregates> FROM
+ * <source> [WHERE …] GROUP BY <by fields>`, which the database keeps current
+ * for every write to its source, a group that empties going with its last
+ * row (measured on SurrealDB 4.0). Its row is a group, idded by the list of
+ * the values it groups by, in `by` order (`v:[1, 'EUR']`), so a read finds
+ * each grouped field in the id. A key or a link of the source is a record
+ * there, and the group is by its key's value (`record::id(…)`), which is
+ * what the view's column holds and what a table's column naming the view's
+ * key holds; the server groups by an expression's alias. An integer is an
+ * int there, as a record's integer key is, so that a lookup by its value
+ * finds the group's record: a field of `s.int()` is stored as an i32, which
+ * a record id holds apart (a nullable one is left as stored: `<int>` refuses
+ * NONE, and the view then has no key to look up).
  */
 
 import type { AnyDriver } from "@drivers/driver";
+import { quantized } from "@drivers/surrealdb/quantized";
 import type { SurrealQueries } from "@drivers/surrealdb/queries";
 import { UnsupportedOperationError } from "@errors";
 import type {
@@ -38,7 +53,12 @@ import {
   EngineSchema,
 } from "@query-engine/raptor3/shared/schema";
 import { nameOf, tableOf } from "@query-engine/raptor3/shared/terms";
-import { viewFacts } from "@schema/view/facts";
+import type { AnyModel } from "@schema/model";
+import {
+  type ViewAggregate,
+  type ViewColumnOrigin,
+  viewFacts,
+} from "@schema/view/facts";
 import { Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import type { ViewBodyWriter } from "../base";
@@ -49,6 +69,29 @@ const STALE =
 /** Why a view here holds every row of its query, in no order. */
 const UNORDERED =
   "SurrealDB keeps no order and no window in a view (ORDER BY, LIMIT and START do not parse in DEFINE TABLE … AS)";
+
+/** Why a view here holds no filter of its groups. */
+const UNFILTERED =
+  "SurrealDB keeps a view's groups current from its source's rows and has no filter of the groups themselves (no HAVING); filter them in a view over this one";
+/** Why a view here groups by fields and not by periods. */
+const NO_STEP = "groupBy reads no time step on SurrealDB, so no view holds one";
+/** Why a view here holds no sum or average of doubles. */
+const DRIFT =
+  "SurrealDB keeps a view's sum by adding and subtracting each write, which on doubles drifts from the sum groupBy reads (0.1 + 0.2 + 0.3 - 0.2 is not 0.1 + 0.3)";
+/** Why a view here holds no aggregate of a record. */
+const RECORD =
+  "a key or a link is a record there, which a view's math reads as no number";
+/** Why a view here holds a least or greatest value of numbers and dateTimes only. */
+const EXTREMES =
+  "SurrealDB keeps a view's least and greatest values current for numbers (math::min, math::max) and dateTimes (time::min, time::max) only";
+
+/** What a refusal says an aggregate of a value does. */
+const VERBS: Readonly<Record<Exclude<ViewAggregate, "_count">, string>> = {
+  _sum: "sums",
+  _avg: "averages",
+  _min: "takes the least",
+  _max: "takes the greatest",
+};
 
 /** A query clause a view cannot hold on SurrealDB, and why, named with the view. */
 function refuse(clause: string, view: string, reason: string): never {
@@ -113,6 +156,62 @@ function refuseFilter(view: string, predicate: PreparedPredicate): void {
     default:
       refuse("filters through a relation", view, STALE);
   }
+}
+
+/**
+ * One column of an aggregated view's group, as the database keeps it current
+ * for every write to its source: `count`, `math::sum`, `math::mean`,
+ * `math::min`, `math::max`, `time::min` and `time::max`, and expressions over
+ * them (measured on SurrealDB 4.0). Each is what groupBy reads on the source,
+ * so the view's row decodes what groupBy answers: a sum of bigints and their
+ * average are kept in a decimal, which no write carries past 64 bits (an int
+ * would refuse the write that does); an average of decimals lands on the
+ * field's scale as groupBy's does; a group of no value is NULL, where the
+ * database's sum is 0 and its average NaN.
+ */
+function aggregateOf(
+  view: string,
+  source: AnyModel,
+  low: SurrealQueries["lowering"],
+  { field, aggregate }: ViewColumnOrigin
+): Sql {
+  if (field === undefined) return sql.raw("count()");
+  const column = low.physical(source, field);
+  if (aggregate === "_count") return sql`count(${column} != NONE)`;
+  const verb = VERBS[aggregate!];
+  if (low.isRecord(source, field))
+    refuse(`${verb} '${field}', which holds a record`, view, RECORD);
+  const state = source["~"].state.scalars[field]!["~"].state;
+  const { type } = state;
+  let value: Sql;
+  if (aggregate === "_min" || aggregate === "_max") {
+    const least = aggregate === "_min";
+    if (type === "datetime")
+      value = sql`${sql.raw(least ? "time::min" : "time::max")}(${column})`;
+    else if (
+      type === "int" ||
+      type === "bigint" ||
+      type === "number" ||
+      type === "decimal"
+    )
+      value = sql`${sql.raw(least ? "math::min" : "math::max")}(${column})`;
+    else
+      refuse(
+        `${verb} '${field}', which is no number and no dateTime`,
+        view,
+        EXTREMES
+      );
+  } else {
+    if (type === "number") refuse(`${verb} the double '${field}'`, view, DRIFT);
+    const operand = type === "bigint" ? sql`<decimal> ${column}` : column;
+    value =
+      aggregate === "_sum"
+        ? sql`math::sum(${operand})`
+        : quantized(state, sql`math::mean(${operand})`);
+  }
+  return state.nullable
+    ? sql`(IF count(${column} != NONE) = 0 { NULL } ELSE { ${value} })`
+    : value;
 }
 
 /** What a refusal of a value names it by. */
@@ -257,8 +356,8 @@ export function surrealViewWriter(
 ): ViewBodyWriter {
   return {
     write(context, view) {
-      const { source, query, documents } = viewFacts(view)!;
-      const columns = Object.keys(view["~"].state.scalars);
+      const { source, query, columns, documents, aggregated } =
+        viewFacts(view)!;
       const schema = new EngineSchema(context.schema, context.resolved);
       const name = nameOf(view);
       const queries =
@@ -273,7 +372,11 @@ export function surrealViewWriter(
       // only the read of the source that would have taken it.
       let admitted: Arguments;
       try {
-        admitted = schema.admit(source, "findMany", query);
+        admitted = schema.admit(
+          source,
+          aggregated ? "groupBy" : "findMany",
+          query
+        );
       } catch (cause) {
         refuse(
           "its source does not take",
@@ -282,18 +385,42 @@ export function surrealViewWriter(
         );
       }
       refuseRoot(name, admitted);
+      if (admitted.having !== undefined)
+        refuse("keeps the groups a having holds", name, UNFILTERED);
       // A relation, `_count` and `_aggregate` are documents read of other rows.
       const [document] = documents;
       if (document !== undefined)
         refuse(`selects '${document}' through a relation`, name, STALE);
       const low = queries.lowering;
       const keys = queries.keyOrder(view);
-      const fields = [
-        sql.raw("id"),
-        ...columns
-          .filter((field) => !keys.includes(field))
-          .map((field) => low.physical(source, field)),
-      ];
+      const grouped: Sql[] = [];
+      const fields = aggregated
+        ? Object.entries(aggregated.origins).map(([column, origin]) => {
+            if (origin.step !== undefined)
+              refuse("groups by a time step", name, NO_STEP);
+            const alias = sql.raw(identifier(column));
+            if (origin.aggregate !== undefined)
+              return sql`${aggregateOf(name, source, low, origin)} AS ${alias}`;
+            const stored = low.physical(source, origin.field!);
+            const held = low.isRecord(source, origin.field!)
+              ? sql`record::id(${stored})`
+              : stored;
+            const { type, nullable } = aggregated.scalars[column]!["~"].state;
+            const value =
+              (type === "int" || type === "bigint") && !nullable
+                ? sql`<int> ${held}`
+                : held;
+            grouped.push(alias);
+            return value.toStatement() === alias.toStatement()
+              ? value
+              : sql`${value} AS ${alias}`;
+          })
+        : [
+            sql.raw("id"),
+            ...columns
+              .filter((field) => !keys.includes(field))
+              .map((field) => low.physical(source, field)),
+          ];
       const predicate =
         admitted.where === undefined
           ? undefined
@@ -306,9 +433,12 @@ export function surrealViewWriter(
         predicate === undefined
           ? sql.raw("")
           : sql` WHERE id != NONE AND (${low.predicate(predicate, true)})`;
+      const grouping = grouped.length
+        ? sql` GROUP BY ${sql.join(grouped, ", ")}`
+        : sql.raw("");
       return {
         sql: inlined(
-          sql`SELECT ${sql.join(fields, ", ")} FROM ${sql.raw(identifier(tableOf(source)))}${filter}`
+          sql`SELECT ${sql.join(fields, ", ")} FROM ${sql.raw(identifier(tableOf(source)))}${filter}${grouping}`
         ),
         shape: JSON.parse(
           JSON.stringify(queries.prepareProjection(view, {}).shape, asData)

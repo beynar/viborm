@@ -44,10 +44,14 @@ export class SurrealQueries extends Queries {
    * 4.0: `v:p1` for `t:p1`, an array id kept whole). So a view's record holds
    * its source's key, whether or not its query projects it, and every key
    * part is read where the source's is: a view's key order is its source's.
+   * An aggregated view's row is a group, which the database ids by the list
+   * of its `by` values (`v:[1, 'EUR']`): its key order is its `by` list, a
+   * nullable member included (a group of NONE is `v:[NONE]`).
    */
   override keyOrder(model: AnyModel): readonly string[] {
     const facts = viewFacts(model);
-    return facts ? this.keyOrder(facts.source) : super.keyOrder(model);
+    if (facts === undefined) return super.keyOrder(model);
+    return facts.aggregated?.by ?? this.keyOrder(facts.source);
   }
 
   /** `id` is the record's: a field of that name beside a key of another lives apart. */
