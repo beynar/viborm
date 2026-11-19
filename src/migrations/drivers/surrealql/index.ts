@@ -34,7 +34,15 @@ import type {
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
+  ViewDef,
 } from "../../types";
+import {
+  declaredViewSql,
+  type LiveRelation,
+  readViewComment,
+  refuseRelationCollision,
+  viewMarker,
+} from "../../view";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -43,6 +51,7 @@ import {
   type AlterColumnOperation,
   type CreateIndexOperation,
   type CreateTableOperation,
+  type CreateViewOperation,
   type DDLContext,
   type DerivedRename,
   type DropColumnOperation,
@@ -51,11 +60,14 @@ import {
   type DropPrimaryKeyOperation,
   type DropTableOperation,
   type DropUniqueConstraintOperation,
+  type DropViewOperation,
   MigrationDriver,
   type RenameColumnOperation,
   type RenameTableOperation,
+  type ViewWriter,
 } from "../base";
 import type { MigrationCapabilities } from "../types";
+import { surrealViewWriter } from "./view";
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const RECORD_TARGET = /record<(.+)>/;
@@ -180,14 +192,25 @@ type TableInfo = {
   readonly fields: readonly FieldInfo[];
   readonly indexes: readonly IndexInfo[];
   readonly events: readonly EventInfo[];
+  /** The views (`DEFINE TABLE … AS SELECT … FROM` this table) it feeds. */
+  readonly tables: readonly string[];
 };
+/**
+ * A table of the database: a view (`DEFINE TABLE … AS`) states its body. What
+ * a table does not state reads as null.
+ */
+type CatalogTable = {
+  readonly name: string;
+  readonly comment?: string | null;
+  readonly view?: string | null;
+};
+/** Whether a table of the catalog is a view: one defined `AS SELECT`. */
+const isView = (
+  table: CatalogTable
+): table is CatalogTable & { view: string } => typeof table.view === "string";
 type DatabaseInfo = {
   readonly sequences: readonly { readonly name: string }[];
-  readonly tables: readonly {
-    readonly name: string;
-    readonly comment?: string;
-    readonly kind: { readonly kind: string };
-  }[];
+  readonly tables: readonly CatalogTable[];
 };
 
 /** A comment's JSON, `{}` where there is none, `undefined` where it is not JSON. */
@@ -422,6 +445,17 @@ export class SurrealMigrationDriver extends MigrationDriver {
     return { ...table, junction: true };
   }
 
+  /**
+   * A view's body is lowered by the read backend of the SurrealDB driver this
+   * migration is bound to (`./view`), which no import brings here: every
+   * dialect's migrations load this driver, and the SDK is an optional peer.
+   */
+  override viewWriter(): ViewWriter {
+    return surrealViewWriter(this.executionDriver, (name) =>
+      this.escapeIdentifier(name)
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Introspection
   // ---------------------------------------------------------------------------
@@ -436,7 +470,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
     // and the number the server gave each table and sequence, which a
     // transaction run again after a refused commit gets anew.
     const database = await one<DatabaseInfo>(
-      "(INFO FOR DB STRUCTURE).{ tables: tables.{ name, comment, kind }, sequences: sequences.{ name } }"
+      "(INFO FOR DB STRUCTURE).{ tables: tables.{ name, comment, view }, sequences: sequences.{ name } }"
     );
     const sequences = new Set(database.sequences.map(({ name }) => name));
     const known = database.tables.filter(
@@ -449,7 +483,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
     for (const { name } of known) {
       const table = this.escapeIdentifier(name);
       const info = await one<TableInfo>(
-        `(INFO FOR TABLE ${table} STRUCTURE).{ fields, indexes: indexes.map(|$i| $i + (INFO FOR INDEX $i.name ON ${table}).building), events }`
+        `(INFO FOR TABLE ${table} STRUCTURE).{ fields, indexes: indexes.map(|$i| $i + (INFO FOR INDEX $i.name ON ${table}).building), events, tables: tables.name }`
       );
       // A failed build leaves its table refusing every write, which its
       // definition does not show: refused before effects, as PostgreSQL
@@ -459,16 +493,33 @@ export class SurrealMigrationDriver extends MigrationDriver {
       if (failed) throw unbuilt(failed, `failed to build: ${failed.error}`);
       infos.set(name, info);
     }
-    const tables = known.map((table) => {
+    // A view is a table the database computes: VibORM's when its comment is
+    // the marker, and never a table. It reads what lists it among the views
+    // it feeds, which `REMOVE TABLE` refuses to remove under it.
+    const views: ViewDef[] = [];
+    for (const table of known) {
+      const hash = isView(table) ? readViewComment(table.comment) : undefined;
+      if (hash === undefined) continue;
+      const dependsOn = [...infos]
+        .flatMap(([name, info]) =>
+          info.tables.includes(table.name) ? [name] : []
+        )
+        .sort();
+      views.push({ name: table.name, hash, dependsOn });
+    }
+    const tables = known.flatMap((table) => {
+      if (isView(table)) return [];
       const info = infos.get(table.name)!;
       const facts = parsed<TableFacts>(
-        table.comment,
+        table.comment ?? undefined,
         managed(table.name),
         `table "${table.name}"`
       );
-      return facts.junction
-        ? { ...facts.junction, junction: true as const }
-        : tableFrom(table.name, info, facts, sequences, managed(table.name));
+      return [
+        facts.junction
+          ? { ...facts.junction, junction: true as const }
+          : tableFrom(table.name, info, facts, sequences, managed(table.name)),
+      ];
     });
     // A link names its target's whole key, which only the target's comment says.
     for (const table of tables)
@@ -486,7 +537,47 @@ export class SurrealMigrationDriver extends MigrationDriver {
           .find(({ name }) => name === facts.table)
           ?.foreignKeys.push(facts.fk);
       }
-    return { tables };
+    return { tables, ...(views.length > 0 ? { views } : {}) };
+  }
+
+  /**
+   * Refuses, before effects, a declared name the database holds as something
+   * VibORM cannot take over (`refuseRelationCollision`): a view table without
+   * the marker under a declared name, and a table under a declared view's.
+   */
+  override async preflightSchemaRequirements(
+    snapshots: readonly SchemaSnapshot[],
+    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<boolean> {
+    const names = new Set(
+      snapshots.flatMap((snapshot) => [
+        ...snapshot.tables.map(({ name }) => name),
+        ...(snapshot.views ?? []).map(({ name }) => name),
+      ])
+    );
+    if (names.size === 0) return false;
+    const { rows } = await executeRaw<CatalogTable>(
+      "RETURN (INFO FOR DB STRUCTURE).tables.{ name, comment, view }"
+    );
+    refuseRelationCollision(
+      "SurrealDB",
+      snapshots,
+      rows.flatMap((table): LiveRelation[] =>
+        names.has(table.name)
+          ? [
+              isView(table)
+                ? {
+                    name: table.name,
+                    kind: "view",
+                    definition: table.view,
+                    comment: table.comment ?? undefined,
+                  }
+                : { name: table.name, kind: "table" },
+            ]
+          : []
+      )
+    );
+    return false;
   }
 
   // ---------------------------------------------------------------------------
@@ -1944,13 +2035,18 @@ export class SurrealMigrationDriver extends MigrationDriver {
     return [];
   }
 
-  // Views on SurrealDB arrive with materialized views (DEFINE TABLE … AS).
-  generateCreateView(): string[] {
-    return refuse("a view", VibORMErrorCode.FEATURE_NOT_SUPPORTED);
+  /**
+   * A view is a table the database computes and keeps current, its identity
+   * the table's comment (`INFO FOR DB` reports it beside the body). A view
+   * declared `.materialized()` is this one too: SurrealDB stores every view.
+   */
+  generateCreateView({ view }: CreateViewOperation): string {
+    return `DEFINE TABLE ${this.escapeIdentifier(view.name)} AS ${declaredViewSql(view)} COMMENT ${JSON.stringify(viewMarker(view.hash))};`;
   }
 
-  generateDropView(): string[] {
-    return refuse("a view", VibORMErrorCode.FEATURE_NOT_SUPPORTED);
+  /** `REMOVE TABLE` refuses a table a view reads: the program drops those first. */
+  generateDropView({ viewName }: DropViewOperation): string {
+    return `REMOVE TABLE ${this.escapeIdentifier(viewName)};`;
   }
 
   generateCreateEnum(): string[] {
@@ -1973,9 +2069,10 @@ export class SurrealMigrationDriver extends MigrationDriver {
     return null;
   }
 
+  /** A view is no table here: reset removes VibORM's from the snapshot, first. */
   generateInventoryTables(): { sql: string; params: unknown[] } {
     return {
-      sql: `RETURN (INFO FOR DB STRUCTURE).tables.filter(|$t| $t.name != "${LOCK_TABLE}").map(|$t| { name: $t.name })`,
+      sql: `RETURN (INFO FOR DB STRUCTURE).tables.filter(|$t| $t.name != "${LOCK_TABLE}" AND $t.view = NONE).map(|$t| { name: $t.name })`,
       params: [],
     };
   }

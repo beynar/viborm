@@ -32,6 +32,7 @@ import type {
 } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
 import { jsonNullKindOf } from "@schema/json-null";
+import { viewFacts } from "@schema/view/facts";
 import { Sql, sql } from "@sql";
 import { timeStepUnsupported } from "@validation/model/args/time-step";
 import { Decimal, GeometryPoint, RecordId } from "surrealdb";
@@ -754,6 +755,9 @@ export class SurrealReadBackend implements ReadBackend {
 
   #linked(edge: Reference): boolean {
     if (edge.pairs.length !== 1 || edge.discriminator) return false;
+    // A view's relation is no link: no foreign key holds it, and `<~` reads a
+    // field a table's `REFERENCE` defines, which a view has none of.
+    if (viewFacts(edge.source) || viewFacts(edge.target)) return false;
     const q = this.#queries;
     const { source, target } = edge.pairs[0]!;
     return edge.owner === "source"
@@ -1612,21 +1616,15 @@ export class SurrealReadBackend implements ReadBackend {
     return sql`${this.#part(model, field, value)}`;
   }
 
-  /** One part of an array id: a link stays a record, as its field holds it. */
+  /**
+   * One part of an array id: a link stays a record, as its field holds it. A
+   * view's record is its source's, under its own table: its parts are too.
+   */
   #part(model: AnyModel, field: string, value: unknown): unknown {
-    for (const slot of Object.keys(model["~"].state.relations)) {
-      const { edges } = this.#queries.countedMemberships(model, slot);
-      const edge = edges[0];
-      if (
-        edges.length === 1 &&
-        edge?.kind === "reference" &&
-        edge.owner === "source" &&
-        edge.pairs.length === 1 &&
-        edge.pairs[0]!.source === field &&
-        isSingleKey(this.#queries, edge.target, edge.pairs[0]!.target)
-      )
-        return new RecordId(tableOf(edge.target), value as string);
-    }
+    const facts = viewFacts(model);
+    if (facts) return this.#part(facts.source, field, value);
+    const link = this.#linkOf(model, field);
+    if (link) return new RecordId(tableOf(link.target), value as string);
     return stored(model["~"].state.scalars[field]?.["~"].state, value);
   }
 
@@ -1716,21 +1714,39 @@ export class SurrealReadBackend implements ReadBackend {
     );
   }
 
-  /** Whether a model's field holds a record rather than the key's own value. */
+  /**
+   * Whether a model's field holds a record rather than the key's own value. A
+   * view's field holds what its source's holds (`DEFINE TABLE … AS SELECT`
+   * copies it): a relation declared on a view stores nothing.
+   */
   holdsRecord(model: AnyModel, field: string): boolean {
+    const facts = viewFacts(model);
+    if (facts) return this.holdsRecord(facts.source, field);
+    return this.#linkOf(model, field) !== undefined;
+  }
+
+  /**
+   * The relation whose link a table's field holds as a record: one it owns,
+   * naming another table's single key. A reference to a view holds the key
+   * itself: no foreign key reaches a view, so no field names its records.
+   */
+  #linkOf(model: AnyModel, field: string): Reference | undefined {
     const q = this.#queries;
-    return Object.keys(model["~"].state.relations).some((slot) => {
+    for (const slot of Object.keys(model["~"].state.relations)) {
       const { edges } = q.countedMemberships(model, slot);
       const edge = edges[0];
-      return (
+      if (
         edges.length === 1 &&
         edge?.kind === "reference" &&
         edge.owner === "source" &&
         edge.pairs.length === 1 &&
         edge.pairs[0]!.source === field &&
-        isSingleKey(q, edge.target, edge.pairs[0]!.target)
-      );
-    });
+        isSingleKey(q, edge.target, edge.pairs[0]!.target) &&
+        viewFacts(edge.target) === undefined
+      )
+        return edge;
+    }
+    return undefined;
   }
 
   /** This link's columns against the row a variable holds, one side of it. */
@@ -2778,11 +2794,22 @@ export class SurrealReadBackend implements ReadBackend {
     });
     if (parts.some((part) => part === undefined)) return undefined;
     const held = parts as Sql[];
+    // A field holding the record (a view's copy of its source's link, which
+    // no `<~` follows) is the record; a key part is the row's own id, and a
+    // variant's column the key itself.
+    const field = edge.pairs.find(({ target }) => target === keys[0])!.source;
+    const recorded =
+      held.length === 1 &&
+      !edge.discriminator &&
+      !this.#queries.keyOrder(edge.source).includes(field) &&
+      this.holdsRecord(edge.source, field);
     const key =
       held.length === 1
         ? keyCast(edge.target, keys[0]!, held[0]!)
         : sql`[${sql.join(held, ", ")}]`;
-    const record = sql`type::record(${tableOf(edge.target)}, ${key})`;
+    const record = recorded
+      ? held[0]!
+      : sql`type::record(${tableOf(edge.target)}, ${key})`;
     // An arm another row's type names reads nothing; an unset part names no record.
     const { discriminator } = edge;
     return discriminator
@@ -3210,24 +3237,16 @@ export class SurrealReadBackend implements ReadBackend {
           ? Number(value)
           : keyPart(model, field, value)) as string
       )}`;
-    for (const slot of Object.keys(model["~"].state.relations)) {
-      const { edges } = q.countedMemberships(model, slot);
-      const edge = edges[0];
-      if (
-        edges.length === 1 &&
-        edge?.kind === "reference" &&
-        edge.owner === "source" &&
-        // A variant relation's column holds the key itself, whichever model it names.
-        !edge.discriminator &&
-        edge.pairs.length === 1 &&
-        edge.pairs[0]!.source === field &&
-        isSingleKey(q, edge.target, edge.pairs[0]!.target)
-      )
-        return sql`${new RecordId(
-          tableOf(edge.target),
-          keyPart(edge.target, edge.pairs[0]!.target, value) as string
-        )}`;
-    }
+    // A view's field holds what its source's holds, bound as the source's is.
+    const facts = viewFacts(model);
+    if (facts) return this.value(facts.source, field, value);
+    const link = this.#linkOf(model, field);
+    // A variant relation's column holds the key itself, whichever model it names.
+    if (link && !link.discriminator)
+      return sql`${new RecordId(
+        tableOf(link.target),
+        keyPart(link.target, link.pairs[0]!.target, value) as string
+      )}`;
     const sentinel = jsonNullKindOf(value);
     if (sentinel)
       return sentinel === "JsonNull" ? sql`${null}` : sql.raw("NONE");

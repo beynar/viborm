@@ -49,10 +49,23 @@ const CENSUS: Readonly<Record<string, string>> = {
   // Migrations: a snapshot that does not hold together, which the differ never plans.
   "a field of type '…'": NEVER_ASKED,
   "a native enum": "NEVER: supportsNativeEnums is false",
-  "a view":
-    "NOT YET: views on SurrealDB arrive with materialized views (DEFINE TABLE … AS)",
-  // The client: a schema holding a view, refused as the client is created.
-  view: "NOT YET: views on SurrealDB arrive with materialized views (DEFINE TABLE … AS)",
+  // A view (DEFINE TABLE … AS SELECT) follows writes to its source table alone.
+  "selects '…' through a relation":
+    "LIMIT: a view follows writes to its source table only, so what it reads of another goes stale",
+  "filters through a relation":
+    "LIMIT: a view follows writes to its source table only, so what it reads of another goes stale",
+  "takes a window":
+    "LIMIT: ORDER BY, LIMIT and START do not parse in DEFINE TABLE … AS",
+  "skips rows":
+    "LIMIT: ORDER BY, LIMIT and START do not parse in DEFINE TABLE … AS",
+  "orders its rows":
+    "LIMIT: ORDER BY, LIMIT and START do not parse in DEFINE TABLE … AS",
+  "keeps one row per distinct value":
+    "LIMIT: a view holds one row per row of its source",
+  "pages from a cursor": "SAME AS SQL: a paging anchor is not a row set",
+  "filters with an SQL fragment":
+    "SAME AS SQL: a view's query holds plain values, written as literals",
+  "its source does not take": "SAME AS SQL: its source's findMany refuses it",
   "the junction '…'": NEVER_ASKED,
   "a junction over anything but a record's own key":
     "a generated junction is over each record's key; a declared one is a model",
@@ -93,6 +106,7 @@ const SOURCES = [
   "src/drivers/surrealdb/writer.ts",
   "src/drivers/surrealdb/read-backend.ts",
   "src/migrations/drivers/surrealql/index.ts",
+  "src/migrations/drivers/surrealql/view.ts",
 ];
 const REFUSAL = /\brefuse(?:Until)?\(\s*(`[^`]*`|"[^"]*")/g;
 const INTERPOLATION = /\$\{(?:[^{}]|\{[^{}]*\})*\}/g;
