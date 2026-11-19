@@ -1461,5 +1461,8 @@ migrations bundle imports the SDK), and a foreign key added or dropped on a
 table it reads replaces it (`links` in `withViewReplacements`: the column
 then holds a record link, or stops holding one), and so does the rename of a
 table one of its foreign keys targets (the rename rewrites the links held
-there, and a filter on one was written with the old table's record). Pull
+there, and a filter on one was written with the old table's record). An
+aggregated view there is a grouped table (`… GROUP BY`): its writer admits
+the aggregates SurrealDB keeps equal to `groupBy`'s and refuses the others
+with the view named. Pull
 (`viborm/schema/introspect`) still skips every database view.

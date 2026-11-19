@@ -348,6 +348,20 @@ column is text):
   doubles only: its `CAST` to `SIGNED` or `DECIMAL` clamps an out-of-range
   value with a warning, where its own `COUNT` and `SUM` are exact. A total
   past what its column holds is a refused read, never another number.
+- **On SurrealDB** an aggregated view is `DEFINE TABLE … AS SELECT <by>,
+  <aggregates> FROM <source> [WHERE …] GROUP BY <by>`, which the database
+  keeps current through an insert, an update of an aggregated, grouped or
+  filtered field, and a delete down to an empty group (measured). A group's
+  record id is the list of its `by` values, even of one, so the view's key
+  order is its `by` list and `findUnique` fetches the record; a key or a
+  link in `by` is grouped by its value (`record::id`), a non-nullable
+  integer as an `int`. Each aggregate is written so that the view holds what
+  `groupBy` answers (a bigint sum on a decimal accumulator, which a write
+  never overflows; a decimal average rounded as the read rounds it; `NULL`
+  for a group with no value). Refused, with the view named: a `having`, a
+  time step, a sum or an average of doubles (the stored total drifts after
+  deletes), a minimum or a maximum of text, an enum or a boolean, and any
+  aggregate of a key or a link (a record there).
 - **A list in a query** (`in: [...]`, `orderBy: [...]`, `OR: [...]`) is a
   read-only tuple under `const`. The constraint of both overloads takes
   every list read-only (`ReadonlyLists`): with a mutable one the inference

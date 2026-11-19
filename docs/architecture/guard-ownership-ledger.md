@@ -3705,3 +3705,21 @@ Not guards: the cast a view body puts around an aggregate
 a total past the column's range is refused by the database or by the
 column's decoder, which exist already. A time step outside PostgreSQL is the
 read compiler's refusal; `viewBody` raises it again with the view named.
+
+On SurrealDB the writer of a view's body (`src/migrations/drivers/surrealql/view.ts`)
+owns five more refusals, each for a total the database would not keep equal
+to `groupBy`'s, each named in `surrealdb-refusal-census.test.ts` and proven
+in `surrealdb-aggregated-views.test.ts`:
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `surrealViewWriter` · "keeps the groups a having holds" | No `having` in a SurrealDB view. | The writer, which `viewDefinition` and `viborm check` (W005) call. | SurrealQL has no `HAVING`: the view would hold every group. | the refusal cases of `surrealdb-aggregated-views.test.ts` (each removed once: the case fails). |
+| same · "groups by a time step" | No time step. | same | The body would group by each raw instant under a column typed as a period's text; the read backend's own refusal fires only on a read, which the writer never asks. | same |
+| same · a `_sum` or `_avg` of a double | A stored total equals `groupBy`'s. | same | The database updates a float total incrementally: 0.4000000000000001 after a delete (measured). | same |
+| same · an aggregate of a key or a link | same | same | The field is a record there: `math::sum` gives 0, `math::mean` and `math::min` give NaN. | same |
+| same · a `_min`/`_max` of what is no number and no dateTime | same | same | `math::min` gives NaN, and `time::min` makes every write to the source fail. | same |
+
+Not guards: `record::id` around a grouped key or link, the `<int>` cast of a
+grouped integer, the decimal accumulator of a bigint total and the `NULL` a
+group with no value answers: they are what makes the body hold `groupBy`'s
+values.

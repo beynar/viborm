@@ -70,7 +70,10 @@ Versioning.
     cursors follow, and a materialized one has its unique index, so
     `$refresh({ concurrently: true })` works. Its columns are not its
     source's, so it inherits no relation. Time steps are PostgreSQL's, as in
-    `groupBy`.
+    `groupBy`. On SurrealDB an aggregated view is a grouped table the
+    database keeps current; a sum or an average of doubles, a minimum or a
+    maximum of text and a `having` are refused there, since SurrealDB would
+    not keep them equal to `groupBy`.
   - Snowflake refuses a schema that holds a view.
   - **`viborm/schema/json`** documents state a view in a `views` section, and
     Studio lists views as read-only.

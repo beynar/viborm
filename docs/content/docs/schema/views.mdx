@@ -570,7 +570,7 @@ facts.
 | MySQL | ✅ JSON columns are `JSON` | an ordinary view |
 | SQLite | ✅ JSON columns are text | an ordinary view |
 | libSQL, D1, Durable Objects | The SQL is SQLite's. Not run with views in VibORM's test suite yet; D1 takes them through `migrate`, since it refuses a live `push` | an ordinary view |
-| SurrealDB | ✅ the source's own fields only, see [below](#surrealdb) | every view is kept current by the database |
+| SurrealDB | ✅ the source's own fields and its totals, see [below](#surrealdb) | every view is kept current by the database |
 | Snowflake | A schema holding a view is refused | |
 
 ### SurrealDB
@@ -602,6 +602,23 @@ A view row keeps the record id of its source row, so a view that selects its
 source's key has `findUnique` and cursors, as on the other databases.
 `.materialized()` and `.index()` change nothing, and `$refresh()` sends
 nothing.
+
+An [aggregated view](#aggregated-views) is a grouped table
+(`DEFINE TABLE … AS SELECT … GROUP BY`), which the database also keeps
+current: a row that enters a group, leaves it or changes group moves its
+totals, and a group that empties goes. Its key is its `by` list, as
+elsewhere. SurrealDB keeps a total equal to what `groupBy` answers for these
+aggregates only:
+
+| In an aggregated view on SurrealDB | |
+| --- | --- |
+| `_count` of rows or of a field | ✅ |
+| `_sum`, `_avg` of an int, a bigint or a decimal | ✅ |
+| `_min`, `_max` of a number or a dateTime | ✅ |
+| `_sum`, `_avg` of a double | refused: the stored total drifts after deletes |
+| `_min`, `_max` of a string, an enum, a boolean | refused: SurrealDB has no minimum of text it keeps current |
+| any aggregate of a key or of a foreign-key field | refused: it is a record there, not a number |
+| `having`, a time step, `orderBy`, `take`, `skip` | refused: a grouped table has no `HAVING`, and `groupBy` has no time step on SurrealDB |
 
 ### MySQL string values
 
