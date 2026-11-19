@@ -1230,8 +1230,15 @@ const dailyQuery = {
   _sum: { amount: true },
 } as const;
 const aggDaily = s.view(() => aggSale, dailyQuery).map("va_daily");
+/** A bigint column whose sum passes 2^63. */
+const aggHuge = s
+  .model({ id: s.int().id(), part: s.string(), big: s.bigInt() })
+  .map("va_huge");
+const aggHugeTotals = s
+  .view(() => aggHuge, { by: ["part"], _sum: { big: true } })
+  .map("va_huge_totals");
 
-const AGG_TABLES = ["va_stores", "va_sales"];
+const AGG_TABLES = ["va_stores", "va_sales", "va_huge"];
 const AGG_VIEWS = [
   "va_totals",
   "va_by_store",
@@ -1240,6 +1247,7 @@ const AGG_VIEWS = [
   "va_big_sales",
   "va_big_by_store",
   "va_daily",
+  "va_huge_totals",
 ];
 
 /** A `groupBy` row as an aggregated view holds it: each aggregate a column. */
@@ -1283,6 +1291,8 @@ function runAggregatedViewsBehavior({
       aggBusy,
       aggBigSales,
       aggBigByStore,
+      aggHuge,
+      aggHugeTotals,
       ...(periods ? { aggDaily } : {}),
     };
     const client = createClient({ schema, driver });
@@ -1299,6 +1309,11 @@ function runAggregatedViewsBehavior({
       await syncLiveSchema(client, { tables: SCOPE });
       await client.aggSale.deleteMany({});
       await client.aggStore.deleteMany({});
+      await client.aggHuge.deleteMany({});
+      for (const id of [1, 2])
+        await client.aggHuge.create({
+          data: { id, part: "a", big: 9_000_000_000_000_000_000n },
+        });
       for (const [id, label] of [
         [1, "North"],
         [2, "South"],
@@ -1577,6 +1592,21 @@ function runAggregatedViewsBehavior({
       );
     });
 
+    test("a bigint sum past 2^63: MySQL reads it as groupBy does, PostgreSQL and SQLite refuse the read, never a wrong number", async () => {
+      const grouped = await client.aggHuge.groupBy({
+        by: ["part"],
+        _sum: { big: true },
+      });
+      expect(grouped).toEqual([
+        { part: "a", _sum: { big: 18_000_000_000_000_000_000n } },
+      ]);
+      if (dialect === "mysql")
+        expect(await client.aggHugeTotals.findMany()).toEqual(
+          grouped.map(flattened)
+        );
+      else await expect(client.aggHugeTotals.findMany()).rejects.toThrow();
+    });
+
     test("a time step: the day groupBy answers in the view's time zone, on PostgreSQL alone", async () => {
       if (periods) {
         const daily = client as unknown as {
@@ -1654,8 +1684,11 @@ function runAggregatedViewsBehavior({
         });
       };
       const plainScope = ["va_plain", "va_plain_totals"];
+      // A database a run left behind holds the column under its new name.
+      const renames: ResolveCallback = (change) =>
+        change.type === "ambiguous" ? change.rename() : undefined;
       const before = plainOf("plain_label");
-      await syncLiveSchema(before, { tables: plainScope });
+      await syncLiveSchema(before, { tables: plainScope, resolve: renames });
       await before.aggPlain.deleteMany({});
       for (const [id, units, label] of [
         [1, 2, "x"],
@@ -1666,8 +1699,7 @@ function runAggregatedViewsBehavior({
       const after = plainOf("plain_note");
       const moved = await syncLiveSchema(after, {
         tables: plainScope,
-        resolve: (change) =>
-          change.type === "ambiguous" ? change.rename() : undefined,
+        resolve: renames,
       });
       const types = moved.operations.map(({ type }) => type);
       expect(types[0]).toBe("dropView");

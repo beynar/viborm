@@ -11,6 +11,7 @@ import type { IdDomain } from "@validation/primitives/id-codec";
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import type { Sql } from "@sql";
 import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
@@ -49,8 +50,6 @@ const SPATIAL_TYPE_PATTERNS = [
 const UNINDEXABLE_ORDINARY_TYPE =
   /^(?:(?:TINY|MEDIUM|LONG)?(?:TEXT|BLOB)|JSON|GEOMETRY|POINT|LINESTRING|POLYGON|MULTI(?:POINT|LINESTRING|POLYGON)|GEOMETRYCOLLECTION)\b/i;
 const BASE_TYPE_PATTERN = /[\s(]/;
-/** An integer column type, which a `CAST` spells `SIGNED`. */
-const INTEGER_TYPE = /^(?:TINY|SMALL|MEDIUM|BIG)?INT$/i;
 
 function classifyDecimalListDescriptorChange(
   source: NonNullable<ColumnDef["decimal"]>,
@@ -421,10 +420,18 @@ export class MySQLMigrationDriver
   // TYPE MAPPING
   // ===========================================================================
 
-  /** MySQL's `CAST` names no integer column type: `SIGNED` is its `BIGINT`. */
-  protected override viewCastType(scalar: Scalar): string {
-    const type = super.viewCastType(scalar);
-    return INTEGER_TYPE.test(type) ? "SIGNED" : type;
+  /**
+   * Only an aggregate a double holds is cast. A `CAST` to an integer or a
+   * fixed decimal clamps a value past its range to the range's end, with a
+   * warning, in a SELECT whatever the SQL mode (measured on 8.4: a bigint sum
+   * past 2^63 read 9223372036854775807). MySQL's own count is a `BIGINT`, and
+   * its sum or average of integers or decimals a `DECIMAL` at the column's
+   * scale and of a wider range, which the column's decoder reads exactly.
+   */
+  override viewCast(expression: Sql, scalar: Scalar): Sql {
+    return scalar["~"].state.type === "number"
+      ? super.viewCast(expression, scalar)
+      : expression;
   }
 
   mapScalarType(

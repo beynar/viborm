@@ -37,12 +37,8 @@ export abstract class SqlMigrationDriver
    * aggregate on the view reads it as it reads that scalar's column.
    */
   viewCast(expression: Sql, scalar: Scalar): Sql {
-    return sql`CAST(${expression} AS ${sql.raw(this.viewCastType(scalar))})`;
-  }
-
-  /** The type {@link viewCast} names: the scalar's column type. */
-  protected viewCastType(scalar: Scalar): string {
-    return this.mapScalarType(scalar, scalar["~"].state);
+    const type = this.mapScalarType(scalar, scalar["~"].state);
+    return sql`CAST(${expression} AS ${sql.raw(type)})`;
   }
 
   override async tableHoldsRows(

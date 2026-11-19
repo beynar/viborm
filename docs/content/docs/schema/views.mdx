@@ -144,6 +144,88 @@ const recentTitle = s.view(() => publishedPost, {
 
 `author` stays a JSON column: it is the JSON column of `publishedPost`.
 
+## Aggregated views
+
+A query that groups makes an aggregated view. Its query is what `groupBy`
+takes on its source (`by`, `where`, `having`, `_count`, `_sum`, `_avg`,
+`_min`, `_max`, `timeZone`), typed and refused like a `groupBy` call, and each
+of its rows is one group.
+
+```ts
+const order = s.model({
+  id: s.string().id(),
+  customerId: s.string(),
+  currency: s.enum(["EUR", "USD"]),
+  status: s.string(),
+  amount: s.decimal({ precision: 10, scale: 2 }),
+  createdAt: s.dateTime(),
+});
+
+const salesByDay = s
+  .view(() => order, {
+    by: [{ createdAt: "day" }, "currency"],
+    timeZone: "Europe/Paris",
+    where: { status: "paid" },
+    _sum: { amount: true },
+    _count: true,
+  })
+  .map("sales_by_day");
+// columns: createdAt, currency, sumAmount, count
+// key: (createdAt, currency)
+```
+
+Its columns are flat, so a total is filtered, ordered and aggregated like any
+column:
+
+```ts
+await db.salesByDay.findMany({
+  where: { sumAmount: { gt: "1000" } },
+  orderBy: { createdAt: "desc" },
+});
+// { createdAt: string; currency: "EUR" | "USD"; sumAmount: Decimal | null; count: number }[]
+
+await db.salesByDay.aggregate({ _max: { sumAmount: true } });
+
+await db.salesByDay.findUnique({
+  where: { createdAt_currency: { createdAt: "2024-03-02", currency: "EUR" } },
+});
+```
+
+Each column holds what `groupBy` answers for the same selection, under a
+name of its own:
+
+| In the query | Column | Value |
+| --- | --- | --- |
+| a field in `by` | the field's name | the field's value |
+| `{ field: step }` in `by` | the field's name | the first day of the period, `YYYY-MM-DD` |
+| `_count: true`, `_count: { _all: true }` | `count` | a number |
+| `_count: { field: true }` | `countField` | a number |
+| `_sum: { field: true }` | `sumField` | a number for an int or a double, a bigint for a bigint, a `Decimal` at the field's scale for a decimal; `null` for a group with no value |
+| `_avg: { field: true }` | `avgField` | a number, a `Decimal` at the field's scale for a decimal; `null` for no value |
+| `_min`, `_max` | `minField`, `maxField` | the field's type; `null` for no value |
+
+A column is named by the view, never by a `.map()` of the field it reads.
+Two columns of one name, as a grouped field named `count` beside
+`_count: true`, are refused (`W004`).
+
+The key is the `by` list when none of its fields is nullable: one field is a
+key of its own (`findUnique({ where: { currency } })`), several a compound key
+named as `.id([...])` names one. With a nullable field, the view has no key.
+
+An aggregated view reads a view and is read by one. Its columns are not its
+source's, so it inherits none of its source's relations.
+
+Each total is held in a column of its value's type. A sum of decimals keeps
+the field's scale and at least 18 digits (more where the field declares
+more); a sum of ints is a double, exact up to 2^53 as `groupBy`'s is. A total
+past what its column holds is never read as another number: PostgreSQL and
+SQLite refuse the read (a bigint sum past 2^63, for instance), and MySQL keeps
+its own exact sum, which the client reads as `groupBy` does or refuses past
+the decimal's precision.
+
+Time steps exist on PostgreSQL only, as in `groupBy`; elsewhere a migration
+refuses the view, naming it.
+
 ## Reading a view
 
 ```ts
@@ -399,9 +481,6 @@ facts.
 | libSQL, D1, Durable Objects | The SQL is SQLite's. Not run with views in VibORM's test suite yet; D1 takes them through `migrate`, since it refuses a live `push` | an ordinary view |
 | SurrealDB | ✅ the source's own fields only, see [below](#surrealdb) | every view is kept current by the database |
 | Snowflake | A schema holding a view is refused | |
-
-Not supported yet, on any database: aggregated views (a view over a
-`groupBy`).
 
 ### SurrealDB
 
