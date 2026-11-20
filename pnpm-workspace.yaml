@@ -45,3 +45,9 @@ auditConfig:
     # site (blume, and astro > unstorage > anymatch), which matches its own
     # build globs, never user input. Drop this once a fixed picomatch exists.
     - GHSA-fc5q-39xc-vjpf
+    # effect ReDoS in Schema.TemplateLiteral (published 2026-11-20). It reaches
+    # the audit only through the Astro docs site (blume > astro > unstorage >
+    # db0 > drizzle-orm > prisma > @prisma/config > effect), which compiles no
+    # template literal schema from user input. Drop this once that chain takes
+    # effect 3.22.1.
+    - GHSA-7589-6fvf-x4pw
