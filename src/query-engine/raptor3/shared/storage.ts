@@ -203,9 +203,12 @@ export function buildMembershipView(
         : undefined,
     };
   }
+  // The slot's own model says which end it is: a view reads its source's
+  // slot, at its own rows (`buildIndex`).
+  const at = resolved.slot.source;
   const endpoint = edge.endpoints[0];
   const opposite =
-    endpoint.source === source && endpoint.field === name
+    endpoint.source === at && endpoint.field === name
       ? edge.endpoints[1]
       : endpoint;
   const base = {
@@ -217,7 +220,7 @@ export function buildMembershipView(
     many,
   };
   if (edge.kind === "foreignKey") {
-    const owns = edge.owner.source === source && edge.owner.field === name;
+    const owns = edge.owner.source === at && edge.owner.field === name;
     return {
       ...base,
       kind: "reference",

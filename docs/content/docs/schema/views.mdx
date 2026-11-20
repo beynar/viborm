@@ -109,9 +109,11 @@ Inside a relation, everything stays allowed: `where`, `orderBy`, `take`,
 `skip`, `cursor` and nested relations. They shape the document, not the rows.
 
 A view declares nothing beside its query. `.id()`, `.unique()`, `.index()`,
-`.rawIndex()`, `.withoutRowid()`, `.omit()`, `.extends()` and relations are
-refused (`W002`, `W003`), and so are a view whose source is not in the schema
-(`W001`) and a selection named like the column of a selected field (`W004`).
+`.rawIndex()`, `.withoutRowid()`, `.omit()` and `.extends()` are refused
+(`W002`), and so is a relation declared on a view (`W003`): its relations are
+its source's, [inherited](#relations). A view whose source is not in the schema
+(`W001`) and a selection named like the column of a selected field (`W004`) are
+refused too.
 `viborm check`, `push` and `migrate` run these rules; creating a client does
 not, since a view exists only where a migration created it. To keep a column
 out of a view, leave it out of the query.
@@ -164,6 +166,44 @@ A JSON column is returned by default, and `select` and `omit` take it. Nothing
 else does: it is not in `where`, `orderBy`, `by`, `cursor` or `distinct`, and it
 takes no nested arguments. The document is fixed when the view is read, and a
 comparison on it would mean a different thing on each database.
+
+## Relations
+
+A view inherits each relation of its source whose key columns it keeps: the
+`.fields()` of a to-one, and for a to-many or a many-to-many the source columns
+the relation references (usually its `id`). There is nothing to declare.
+
+```ts
+const livePost = s.view(() => post, {
+  where: { published: true },
+  select: { id: true, title: true, authorId: true },
+});
+
+await db.livePost.findMany({
+  where: { author: { name: "Ann" }, comments: { some: { likes: { gt: 0 } } } },
+  orderBy: { author: { name: "asc" } },
+  include: { author: true, comments: { take: 3 }, _count: true },
+});
+```
+
+On those relations a view reads exactly as its source does: a relation filter
+(`is`, `some`, `every`, `none`), an order by a relation, `include`, a nested
+`select` and `_count`, typed as on the source. The related rows are joined when
+the view is read, from the live tables: nothing is copied into the view, and
+no row is repeated. On a view over a view, the same holds for what the source
+view inherits and the view keeps.
+
+- **A relation whose key columns the view does not keep** is not available: it
+  is absent from the view's type, and a call that names it is refused with the
+  missing column named. Select the column in the view's query to read it.
+- **A JSON column takes its name.** `select: { author: { select: { name: true } } }`
+  makes `author` a [JSON column](#columns), fixed when the view is read, and
+  the `author` relation is not inherited.
+- **Read only.** A view has no write operation, so nothing is written through
+  its relations.
+- **One way.** The target model gains no relation to the view, and a model
+  cannot declare one (`R002`): `db.author.findMany({ include: { livePost: true } })`
+  does not exist. Read the view from its own delegate.
 
 ## Migrations
 
@@ -263,8 +303,8 @@ facts.
 | Snowflake | A schema holding a view is refused |
 | SurrealDB | Not supported yet |
 
-Not supported yet, on any database: materialized views, relations between a
-view and a model, and aggregated views (a view over a `groupBy`).
+Not supported yet, on any database: materialized views and aggregated views
+(a view over a `groupBy`).
 
 ### MySQL string values
 

@@ -117,27 +117,79 @@ nested arguments: the document is frozen. On PostgreSQL the column is `json`,
 which has no equality, and on MySQL and SQLite it is text or a JSON value with
 other comparison rules; a filter on it would mean three things.
 
-### 2.5 Relations to and from a view (PR 2)
+### 2.5 Relations of a view (PR 2)
+
+Decided by the maintainer on 2026-11-20, replacing the first draft (relations
+declared with `.extends()` on the view and on its targets): a view inherits
+its source's relations.
 
 ```ts
-const publishedPost = s
-  .view(() => post, { where: { published: true }, select: { id: true, title: true, authorId: true } })
-  .relations({ author: s.toOne(() => user).fields("authorId").references("id") });
+const livePost = s.view(() => post, {
+  where: { published: true },
+  select: { id: true, title: true, authorId: true },
+});
 
-const user = s.model({ id: s.string().id(), publishedPosts: s.toMany(() => publishedPost) });
-
-await db.user.findMany({
-  where: { publishedPosts: { some: {} } },
-  include: { publishedPosts: { take: 5 } },
+await db.livePost.findMany({
+  where: { author: { name: "Ann" }, comments: { some: {} } },
+  include: { author: true, comments: { take: 5 }, _count: true },
 });
 ```
 
-Declared like between two models, resolved by the same owner
-(`relation-resolution.ts`): both sides declare their slot, one side holds
-`.fields().references()`. The referenced side needs a key (a model's, or the
-view's derived one). An edge with a view at either end creates no foreign key,
-no delete action and no restriction; a many-to-many with a view is refused (no
-junction table); no write verb reaches a view through a relation.
+1. A view inherits each relation of its source whose key columns it keeps:
+   the `.fields()` of a to-one, and for a to-many the source columns it
+   references. Nothing is declared.
+2. On those relations a view reads exactly as its source: relation filters,
+   an order by a relation, `include`, nested `select`, `_count`, joined when
+   the view is read (no JSON, no repeated row).
+3. A relation whose key columns the view does not keep is not available:
+   absent from the types, refused at run time with the missing column named.
+4. Read only: the view has no write operation, so nothing writes through it.
+5. No inverse on the target models.
+6. No `.extends()` on a view.
+7. A `select` of a relation in the view's definition stays a JSON column.
+8. Aggregated views (PR 4) inherit nothing.
+9. Materialized views (PR 3) inherit the same way, joined to the live source
+   tables; on SurrealDB too.
+
+**As built.**
+
+- **The slot is the source's.** `s.view` holds, in its derived state, every
+  relation of its source whose name none of its columns takes (the targets
+  are not read there: `.map()` derives the state at declaration, before they
+  exist). The resolver declares no slot for a view (`collectSlotNodes`) and,
+  once the schema's slots are resolved, gives each view the source's
+  `ResolvedSlot` for each of those relations whose key columns it keeps
+  (`buildIndex`, `slotKeyFields`), in its source's order, a view after the
+  view it reads. No edge is published for it: no constraint, no snapshot
+  change, no id-domain edge, no migration.
+- **Read at the slot's own model.** Every reader that tells a slot's two ends
+  apart asks the slot's model (`resolved.slot.source`), not the model it is
+  read at: the engine's membership (`buildMembershipView`), `slotTarget`, and
+  the identity's crossing walk. A view's membership is its source's with the
+  view's rows in place of the source's, under the same field names.
+- **Refused with its reason.** A relation the view names but does not inherit
+  has refusing schemas for every use (`refusedRelationSchemas`, from
+  `uninheritedRelationMessage`), and `_count: true` counts the slots the view
+  has. A relation declared with `.extends()` on a view is `W003`; one that
+  targets a view is `R002`, with a message that says why.
+- **Types.** `ViewState` picks the source relations whose key fields
+  (`SlotKeyFields`, the type twin of `slotKeyFields`, proven at the source
+  table) the view keeps, under a name no column takes. A view's to-one is as
+  nullable as its source's: the client relinks a view's source with it
+  (`ViewSourceLink`, `LinkedView`), and the emptiness of a slot read at a view
+  is asked at that source (`StateSlotOwner`). A junction or a variant inverse
+  whose source references a non-primary key is typed as joining on the row
+  key; a widened or unproven graph inherits nothing in the types.
+- **Cost.** A schema without views, on the packed 50- and 100-model fixtures
+  (TypeScript 5.9.3): `base` +0, `deep` +103, `filter` +132, `create` +55,
+  and `extended` +313 at 50 models, +763 at 100. A schema with three views,
+  checked from source against the first draft (`.extends()`): +7,175
+  instantiations (+3 %) where no relation is read, the views now holding
+  their source's relations in their types; the same relation read through a
+  view, +13,275 (+5.7 %), with one more relation inherited (the junction).
+- **Bytes.** The pg application +555 B and the D1 Worker +532 B (gzip): the
+  resolver's inheritance, the refusal of an uninherited relation with its
+  reason (about 220 B of it), and `_count: true` counted from the slots.
 
 ### 2.6 Materialized views (PR 3)
 
@@ -383,7 +435,7 @@ fact by name; the list is kept closed in two places, neither of them a guard:
    the body compile, identity, migrations (snapshot, differ, DDL, marker,
    introspection, reset) on PostgreSQL, MySQL and the SQLite family, refusals
    on Snowflake and (until PR 3) SurrealDB, schema JSON, Studio, docs.
-2. **Relations between views and models.**
+2. **Relations a view inherits from its source.**
 3. **Materialized views, `$refresh`, SurrealDB.**
 4. **Aggregated views.**
 

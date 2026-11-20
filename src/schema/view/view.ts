@@ -17,12 +17,18 @@
 import type { ObjectSchema, VibSchema } from "@validation";
 import type { ModelOperationInput } from "@validation/model";
 import {
+  type DeclaredDocumentKeys,
   type ProjectableScalarKeys,
   projectableScalarNames,
 } from "@validation/model/core/projection";
 import { isRecord } from "@validation/value-guards";
 import { type AnyModel, Model, type ModelState } from "../model";
 import { emptyRecord, put } from "../record";
+import type {
+  SlotKeyFields,
+  SlotOwnerModel,
+} from "../relation/static-membership";
+import type { AnyRelation } from "../relation/types";
 import type { Scalar } from "../scalars/base";
 import { type ViewFacts, viewFacts } from "./facts";
 
@@ -65,6 +71,31 @@ type ProjectedCompoundKeys<Keys, Projected> = Keys extends CompoundKeys
     }
   : undefined;
 
+type SourceRelations<M extends AnyModel> = M["~"]["state"]["relations"];
+
+/** The source relations whose name no column of the view takes. */
+type CandidateRelationKeys<M extends AnyModel, Q> = Exclude<
+  keyof SourceRelations<M>,
+  ViewScalarKeys<M, Q> | DeclaredDocumentKeys<M, Q>
+>;
+
+/**
+ * The relations a view inherits: its source's whose key fields it keeps
+ * (`SlotKeyFields`, asked of the table whose slot it is), under a name no
+ * column of the view takes. Any other is no member of the view's type, as
+ * the runtime refuses it.
+ */
+type InheritedRelationKeys<M extends AnyModel, Q> = {
+  [K in CandidateRelationKeys<M, Q>]: [
+    Exclude<
+      SlotKeyFields<SlotOwnerModel<M>, K, SourceRelations<M>[K]>,
+      ViewScalarKeys<M, Q>
+    >,
+  ] extends [never]
+    ? K
+    : never;
+}[CandidateRelationKeys<M, Q>];
+
 /** What the client types read of a view's declaration. */
 export interface ViewDeclaration<M extends AnyModel, Q> {
   readonly source: M;
@@ -72,10 +103,10 @@ export interface ViewDeclaration<M extends AnyModel, Q> {
 }
 
 export interface ViewState<M extends AnyModel, Q> extends ModelState {
-  shape: Pick<M["~"]["state"]["scalars"], ViewScalarKeys<M, Q>>;
+  shape: Pick<M["~"]["state"]["scalars"], ViewScalarKeys<M, Q>> &
+    Pick<SourceRelations<M>, InheritedRelationKeys<M, Q>>;
   scalars: Pick<M["~"]["state"]["scalars"], ViewScalarKeys<M, Q>>;
-  // biome-ignore lint/complexity/noBannedTypes: a view declares no relation
-  relations: {};
+  relations: Pick<SourceRelations<M>, InheritedRelationKeys<M, Q>>;
   uniques: Pick<
     M["~"]["state"]["uniques"],
     Extract<keyof M["~"]["state"]["uniques"], ViewScalarKeys<M, Q>>
@@ -232,10 +263,19 @@ function deriveViewState(
     put(scalars, name, from.scalars[name]);
     if (name in from.uniques) put(uniques, name, from.uniques[name]);
   }
+  // Each relation of the source whose name no column of the view takes. The
+  // schema's resolution keeps those whose key columns the view holds; the
+  // targets are not read here, where they may not exist yet.
+  const relations = emptyRecord<AnyRelation>();
+  for (const [name, relation] of Object.entries(
+    from.relations as Record<string, AnyRelation>
+  ))
+    if (!(projected.has(name) || documents.includes(name)))
+      put(relations, name, relation);
   return {
-    shape: scalars,
+    shape: { ...scalars, ...relations },
     scalars,
-    relations: emptyRecord(),
+    relations,
     uniques,
     compoundId: projectedCompoundKeys(from.compoundId, projected),
     compoundUniques: projectedCompoundKeys(from.compoundUniques, projected),

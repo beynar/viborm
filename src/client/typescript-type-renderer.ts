@@ -591,6 +591,7 @@ function schemaModelType(
   declarations: AliasDeclaration[]
 ): TypeNode {
   const state = model["~"].state;
+  const facts = viewFacts(model);
   const fields: TypeField[] = [];
   for (const fieldName of Object.keys(state.shape)) {
     const scalar = Object.hasOwn(state.scalars, fieldName)
@@ -604,6 +605,9 @@ function schemaModelType(
       ? state.relations[fieldName]
       : undefined;
     if (relation) {
+      // A view holds the relations of its source it inherits: those whose
+      // key columns it keeps, the index's.
+      if (facts && !index.get(model)?.has(fieldName)) continue;
       fields.push({
         name: fieldName,
         type: schemaRelationType(model, fieldName, relation, index),
@@ -615,7 +619,6 @@ function schemaModelType(
       `Model '${modelName}' has unknown field '${fieldName}'.`
     );
   }
-  const facts = viewFacts(model);
   if (facts) fields.push(...documentFields(facts, admit, index, declarations));
   return objectOf(fields);
 }

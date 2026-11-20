@@ -7,6 +7,7 @@ import {
 import type { VariantEntries } from "@schema/relation/static-membership";
 import { lazyRecord } from "@validation/lazy";
 import type { ModelSchemas } from "@validation/model";
+import { refusedRelationSchemas } from "@validation/relations/helpers";
 import type { VibSchema } from "@validation/types";
 
 export {
@@ -291,7 +292,9 @@ function getTargetSchemas<State extends VariantRelationState>(
 
 export function getPolymorphicRelationsSchemas<Source extends AnyModel>(
   source: Source,
-  resolve: (model: AnyModel) => ModelSchemas<AnyModel>
+  resolve: (model: AnyModel) => ModelSchemas<AnyModel>,
+  slots: ReadonlyMap<string, unknown>,
+  uninherited?: (field: string) => string
 ): GetPolymorphicRelationsSchemas<Source> {
   const builders: Record<string, () => unknown> = {};
   const relations: Record<string, AnyRelation> = source["~"].state.relations;
@@ -299,6 +302,11 @@ export function getPolymorphicRelationsSchemas<Source extends AnyModel>(
     const relation = relations[relationKey]!;
     const state = relation["~"].state;
     if (!isVariantRelationState(state)) continue;
+    if (uninherited && !slots.has(relationKey)) {
+      builders[relationKey] = () =>
+        refusedRelationSchemas(uninherited(relationKey));
+      continue;
+    }
     builders[relationKey] = () => {
       const targets = getTargetSchemas<typeof state>(relation, state, resolve);
       if (state.cardinality === "many") {

@@ -48,6 +48,7 @@ import {
 import {
   type JunctionSchemas,
   junctionModelOf,
+  refusedRelationSchemas,
   type SchemaGetter,
 } from "./helpers";
 import {
@@ -288,7 +289,8 @@ export const getRelationsSchemas = <Source extends AnyModel>(
   createSchemasGetter: <S extends RelationState>(
     relation: AnyRelation
   ) => SchemaGetter<S>,
-  slots: ReadonlyMap<string, ResolvedSlot>
+  slots: ReadonlyMap<string, ResolvedSlot>,
+  uninherited?: (field: string) => string
 ) => {
   // Build each relation's schemas lazily: a relation's filter/create/update/
   // select/include schemas are only constructed when that relation is first
@@ -299,6 +301,10 @@ export const getRelationsSchemas = <Source extends AnyModel>(
   for (const field in relations) {
     const relation = relations[field]!;
     if (isVariantRelationState(relation["~"].state)) continue;
+    if (uninherited && !slots.has(field)) {
+      builders[field] = () => refusedRelationSchemas(uninherited(field));
+      continue;
+    }
     const resolved = resolvedSlotOrThrow(source, field, slots);
     builders[field] = () => {
       const targetSchemas = createSchemasGetter(relation);

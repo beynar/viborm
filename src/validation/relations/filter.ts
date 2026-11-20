@@ -5,6 +5,7 @@ import { slotMayBeEmpty } from "@schema/relation/clearability";
 import type {
   JunctionModelOf,
   SlotMayBeEmpty,
+  StateSlotOwner,
 } from "@schema/relation/static-membership";
 import type { RelationState } from "@schema/relation/types";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
@@ -79,7 +80,13 @@ type MayBeEmpty<
   Source extends AnyModel,
   Key,
   S extends RelationState,
-> = SlotMayBeEmpty<Source, Key, S> extends false ? false : true;
+> = SlotMayBeEmpty<
+  StateSlotOwner<Source["~"]["state"], Source>,
+  Key,
+  S
+> extends false
+  ? false
+  : true;
 
 type ToOneFilterObjectSchema<
   Source extends AnyModel,

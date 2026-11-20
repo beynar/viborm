@@ -571,6 +571,74 @@ export type StaticResolvedMembership<SourceModel, FieldKey, R> =
         : never;
 
 /**
+ * The model whose slots a model reads: a database view reads its source's,
+ * down to the table (`buildIndex`), and any other model its own. Asked where
+ * a slot's partner is proven from the reading model.
+ */
+export type SlotOwnerModel<M> = M extends {
+  readonly "~": {
+    readonly state: { readonly view: { readonly source: infer Source } };
+  };
+}
+  ? SlotOwnerModel<Source>
+  : M;
+
+/**
+ * {@link SlotOwnerModel} asked of a model's state: the source of a view's,
+ * or the model the state is. A table's state has no `view` member, so it is
+ * answered by one property test.
+ */
+export type StateSlotOwner<State, M> = State extends {
+  readonly view: { readonly source: infer Source };
+}
+  ? SlotOwnerModel<Source>
+  : M;
+
+/** A model's row key fields: its scalar id, or its compound id's members. */
+type RowKeyFields<M> =
+  | ScalarPrimaryKeyKeys<M>
+  | (CompoundIdsOf<M> extends infer Ids
+      ? [Ids] extends [Record<PropertyKey, unknown>]
+        ? string extends keyof Ids
+          ? never
+          : {
+              [Name in keyof Ids]: Ids[Name] extends {
+                readonly entries: infer Entries;
+              }
+                ? keyof Entries
+                : never;
+            }[keyof Ids]
+        : never
+      : never);
+
+/**
+ * The fields of the row it is read at that a slot joins on, as the runtime's
+ * `slotKeyFields` reads them off the resolved edge: a foreign key's own
+ * members at its owner, the members its partner references at the other end,
+ * the row key a junction or a variant member references, and `string` (no
+ * set of columns holds it) for a variant carrier's private columns and for
+ * an unproven graph. A view inherits the slot where it keeps these fields.
+ */
+export type SlotKeyFields<SourceModel, FieldKey, R> =
+  TargetKind<R> extends "variants"
+    ? string
+    : ForeignKeyOf<R> extends ForeignKeyDeclaration
+      ? ForeignKeyOf<R>["fields"][number]
+      : ProvenPartner<SourceModel, FieldKey, R> extends infer Partner
+        ? [Partner] extends [never]
+          ? string
+          : TargetKind<Partner> extends "variants"
+            ? RowKeyFields<SourceModel>
+            : ForeignKeyOf<Partner> extends ForeignKeyDeclaration
+              ? ForeignKeyOf<Partner>["references"][number]
+              : Cardinality<R> extends "many"
+                ? Cardinality<Partner> extends "many"
+                  ? RowKeyFields<SourceModel>
+                  : string
+                : string
+        : string;
+
+/**
  * May this slot be empty? A to-many ALWAYS — an empty collection is `[]`, and
  * a junction membership is always removable; a variant singular slot exactly
  * when it is `.optional()`; a foreign-key OWNER when any local member accepts

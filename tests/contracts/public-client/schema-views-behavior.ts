@@ -234,6 +234,23 @@ const bookmarkRefOver = s
   .view(() => bookmarkRef, { select: { id: true, readerId: true } })
   .map("vw_bookmark_refs_over");
 
+/**
+ * Published posts, with the columns `author` and `comments` join on: the view
+ * inherits both relations of its source, read by joins when it is read.
+ */
+const livePostQuery = {
+  where: { published: true },
+  select: { id: true, title: true, authorId: true },
+} as const;
+const livePost = s.view(() => post, livePostQuery).map("vw_live_posts");
+/** A view over it whose query selects a relation it inherits: a JSON column. */
+const liveBylineQuery = {
+  select: { id: true, author: { select: { name: true } } },
+} as const;
+const liveByline = s
+  .view(() => livePost, liveBylineQuery)
+  .map("vw_live_bylines");
+
 const TABLE_NAMES = [
   "vw_authors",
   "vw_posts",
@@ -254,6 +271,8 @@ const views = {
   trimmedOver,
   bookmarkRef,
   bookmarkRefOver,
+  livePost,
+  liveByline,
 };
 const schema = { ...tables, ...views };
 
@@ -270,6 +289,8 @@ const CREATED = [
   "trimmedOver",
   "bookmarkRef",
   "bookmarkRefOver",
+  "livePost",
+  "liveByline",
 ] as const;
 
 const NAMES: Record<(typeof CREATED)[number], string> = {
@@ -284,6 +305,8 @@ const NAMES: Record<(typeof CREATED)[number], string> = {
   trimmedOver: "vw_trimmed_over",
   bookmarkRef: "vw_bookmark_refs",
   bookmarkRefOver: "vw_bookmark_refs_over",
+  livePost: "vw_live_posts",
+  liveByline: "vw_live_bylines",
 };
 
 const hex = (bytes: Uint8Array) =>
@@ -877,6 +900,89 @@ export function runSchemaViewsBehavior({
       expect(Number(rows[0]!.n)).toBe(all);
       expect(client.publishedPost.$sql.table().toStatement("?")).toContain(
         "vw_published_posts"
+      );
+    });
+
+    test("a view reads its source's relations where it keeps their key columns", async () => {
+      const where = {
+        author: { role: "editor" },
+        comments: { some: { likes: { gte: 1 } } },
+      } as const;
+      const orderBy = [
+        { author: { name: "desc" as const } },
+        { id: "asc" as const },
+      ];
+      const select = {
+        id: true,
+        title: true,
+        authorId: true,
+        author: { select: { name: true, role: true } },
+        comments: { orderBy: { id: "asc" }, select: { body: true } },
+        _count: { select: { comments: true } },
+      } as const;
+      const read = await client.livePost.findMany({ where, orderBy, select });
+      expect(read.map(({ id }) => id)).toEqual([3, 4]);
+      expect(plain(read)).toEqual(
+        plain(
+          await client.post.findMany({
+            where: { AND: [livePostQuery.where, where] },
+            orderBy,
+            select,
+          })
+        )
+      );
+      // A filter on each form, a count through one, and a unique read.
+      expect(
+        (
+          await client.livePost.findMany({
+            where: { comments: { every: { likes: { gte: 1 } } } },
+            orderBy: { id: "asc" },
+            select: { id: true },
+          })
+        ).map(({ id }) => id)
+      ).toEqual([3, 4, 5]);
+      expect(
+        await client.livePost.count({
+          where: { comments: { none: {} }, author: { name: "Cy" } },
+        })
+      ).toBe(1);
+      expect(
+        plain(
+          await client.livePost.findUnique({
+            where: { id: 1 },
+            include: { author: { select: { name: true } }, _count: true },
+          })
+        )
+      ).toEqual({
+        id: 1,
+        title: "first 'post'",
+        authorId: 1,
+        author: { name: "Ann" },
+        _count: { comments: 3 },
+      });
+      // A view whose query selects one: the document is the relation's read.
+      expect(plain(await client.liveByline.findMany())).toEqual(
+        plain(await client.livePost.findMany(liveBylineQuery))
+      );
+      // A view of a view: what its source inherits and it keeps.
+      const reader = {
+        select: { id: true, reader: { select: { uid: true } } },
+      };
+      expect(plain(await client.bookmarkRefOver.findMany(reader))).toEqual(
+        plain(await client.bookmark.findMany(reader))
+      );
+    });
+
+    test("a relation whose key columns the view does not keep is refused, its missing column named", async () => {
+      await expect(
+        client.kinds.findMany({ include: { comments: true } } as never)
+      ).rejects.toThrow(
+        "The view 'kinds' does not read 'comments': it does not keep 'id', which the relation joins on"
+      );
+      await expect(
+        client.latest.findMany({ where: { author: { name: "Ann" } } } as never)
+      ).rejects.toThrow(
+        "The view 'latest' does not read 'author': it does not keep 'authorId', which the relation joins on"
       );
     });
 

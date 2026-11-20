@@ -108,7 +108,7 @@ function planNode(
         (value !== true && !isRecord(value))
       )
         continue;
-      const target = slotTarget(resolved, model);
+      const target = slotTarget(resolved);
       const childArgs = value === true ? undefined : value;
       const child = planNode(fields, relations, target, childArgs);
       if (child === undefined) continue;

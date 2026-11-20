@@ -15,10 +15,12 @@ import type { AnyRelation } from "@schema/relation";
 import type { RelationState } from "@schema/relation/types";
 import { resolveSchemaOrThrow } from "@schema/validation";
 import { idDomainsOf } from "@schema/validation/id-domains";
-import type {
-  ResolvedRelationIndex,
-  ResolvedSlot,
+import {
+  type ResolvedRelationIndex,
+  type ResolvedSlot,
+  uninheritedRelationMessage,
 } from "@schema/validation/relation-resolution";
+import { viewFacts } from "@schema/view/facts";
 import { getModelSchemas, type ModelSchemas } from "./model";
 import { validateSchema } from "./primitives/helpers";
 import { getRelationsSchemas } from "./relations";
@@ -84,9 +86,7 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
     };
   };
 
-  readonly #buildModelSchemas = (
-    model: AnyModel
-  ): ModelSchemas<AnyModel> => {
+  readonly #buildModelSchemas = (model: AnyModel): ModelSchemas<AnyModel> => {
     // The identifier domains a foreign-key member DERIVES, from the same
     // resolved index the registry already threads. A field that declares its
     // own reads it from the declaration; this is only the inheritance.
@@ -98,14 +98,22 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
     // schema. Every registered model therefore has one slot map, including an
     // empty map for a model with no relations.
     const slots: ReadonlyMap<string, ResolvedSlot> = this.#index.get(model)!;
+    // A view's relations are its source's: one it names without inheriting
+    // it is refused wherever a call uses it.
+    const uninherited = viewFacts(model)
+      ? (field: string) => uninheritedRelationMessage(model, field, this.#index)
+      : undefined;
     const relations = getRelationsSchemas(
       model,
       this.#createSchemasGetter,
-      slots
+      slots,
+      uninherited
     );
     const polymorphic = getPolymorphicRelationsSchemas(
       model,
-      this.getModelSchemas
+      this.getModelSchemas,
+      slots,
+      uninherited
     );
     const { args, core } = getModelSchemas(
       model,

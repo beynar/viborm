@@ -8,9 +8,11 @@
 
 import { isDeepStrictEqual } from "node:util";
 import { s } from "@src/schema";
+import { hydrateSchemaNames } from "@src/schema/hydration";
 import { type AnyModel, Model } from "@src/schema/model";
 import { getModelKeyCatalog } from "@src/schema/model/keys";
 import { resolveSchemaOrThrow, validateSchema } from "@src/schema/validation";
+import { uninheritedRelationMessage } from "@src/schema/validation/relation-resolution";
 import { viewFacts } from "@src/schema/view/facts";
 import { describe, expect, it } from "vitest";
 
@@ -38,6 +40,8 @@ const membership = s
   .id(["userId", "teamId"])
   .unique(["teamId", "role"], { name: "seat" });
 
+const TWO_COLUMNS = /does not keep '.+', '.+', which the relation joins on$/;
+
 const codes = (result: ReturnType<typeof validateSchema>) =>
   result.errors.map(({ code }) => code);
 const scalarsOf = (model: typeof post | ReturnType<typeof s.view>) =>
@@ -52,8 +56,16 @@ describe("a view's derived model", () => {
     expect(subject["~"].state.scalars.title).toBe(
       post["~"].state.scalars.title
     );
-    expect(subject["~"].state.shape).toBe(subject["~"].state.scalars);
-    expect(subject["~"].state.relations).toEqual({});
+    // Every relation of the source whose name no column takes: which of
+    // them the view inherits, the schema's resolution says (below).
+    expect(subject["~"].state.relations).toEqual({
+      author: post["~"].state.relations.author,
+    });
+    expect(Object.keys(subject["~"].state.shape)).toEqual([
+      "id",
+      "title",
+      "author",
+    ]);
   });
 
   it("holds every scalar a read projects when it selects nothing: not the omitted ones", () => {
@@ -317,7 +329,7 @@ describe("definition validation of a view", () => {
     );
   });
 
-  it("refuses a relation on a view (W003)", () => {
+  it("refuses a relation a view declares: its relations are its source's (W003)", () => {
     const related = s
       .view(() => post, {
         select: { id: true, authorId: true },
@@ -329,6 +341,11 @@ describe("definition validation of a view", () => {
           .references("id"),
       });
     expect(codes(validateSchema({ user, post, related }))).toContain("W003");
+    // The relation it inherits is its source's own: none declared.
+    const inheriting = s.view(() => post, {
+      select: { id: true, authorId: true },
+    });
+    expect(codes(validateSchema({ user, post, inheriting }))).toEqual([]);
   });
 
   it("refuses a JSON column under the name of a scalar's column (W004)", () => {
@@ -355,5 +372,116 @@ describe("definition validation of a view", () => {
   it("refuses a view under a table's name (M004)", () => {
     const clash = s.view(() => post, {}).map("post");
     expect(codes(validateSchema({ user, post, clash }))).toContain("M004");
+  });
+});
+
+/**
+ * A view inherits each relation of its source whose key columns it keeps
+ * (`buildIndex`, `slotKeyFields`): the slot is the source's own, read at the
+ * view's rows. Its targets are not touched, nor given an inverse.
+ */
+describe("the relations a view inherits", () => {
+  const owner = s.model({
+    id: s.string().id(),
+    name: s.string(),
+    items: s.toMany(() => item),
+  });
+  const item = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    ownerId: s.string(),
+    owner: s
+      .toOne(() => owner)
+      .fields("ownerId")
+      .references("id"),
+    reviews: s.toMany(() => review),
+    badges: s.toMany(() => badge),
+    pins: s.toMany(() => pin).name("pinned"),
+  });
+  const review = s.model({
+    id: s.string().id(),
+    itemId: s.string(),
+    item: s
+      .toOne(() => item)
+      .fields("itemId")
+      .references("id"),
+  });
+  const badge = s.model({
+    id: s.string().id(),
+    items: s.toMany(() => item),
+  });
+  /** A polymorphic carrier: its `(type, id)` columns are its own. */
+  const pin = s.model({
+    id: s.string().id(),
+    pinned: s.toOne({ item: () => item }).name("pinned"),
+  });
+  const kept = s.view(() => item, {
+    select: { id: true, title: true, ownerId: true },
+  });
+  const titles = s.view(() => item, { select: { title: true, ownerId: true } });
+  const named = s.view(() => item, {
+    select: { id: true, ownerId: true, owner: { select: { name: true } } },
+  });
+  const over = s.view(() => kept, { select: { id: true } });
+  const pinView = s.view(() => pin, {});
+  const schema = {
+    owner,
+    item,
+    review,
+    badge,
+    pin,
+    kept,
+    titles,
+    named,
+    over,
+    pinView,
+  };
+  hydrateSchemaNames(schema);
+  const index = resolveSchemaOrThrow(schema);
+  const fields = (model: AnyModel) => [...index.get(model)!.keys()];
+
+  it("keeps the source's slot where the view holds its key columns", () => {
+    expect(fields(kept)).toEqual(["owner", "reviews", "badges", "pins"]);
+    for (const field of fields(kept))
+      expect(index.get(kept)!.get(field)).toBe(index.get(item)!.get(field));
+    // A foreign key needs its own columns; a to-many, a junction and a
+    // variant inverse the key they reference.
+    expect(fields(titles)).toEqual(["owner"]);
+    // A JSON column takes the name.
+    expect(fields(named)).toEqual(["reviews", "badges", "pins"]);
+    // A view of a view, what its source inherits and it keeps.
+    expect(fields(over)).toEqual(["reviews", "badges", "pins"]);
+    // A carrier's columns are no view's.
+    expect(fields(pinView)).toEqual([]);
+    // No target gains an inverse.
+    expect(fields(owner)).toEqual(["items"]);
+  });
+
+  it("names the columns a relation it does not inherit joins on", () => {
+    expect(uninheritedRelationMessage(titles, "reviews", index)).toBe(
+      "The view 'titles' does not read 'reviews': it does not keep 'id', which the relation joins on"
+    );
+    expect(uninheritedRelationMessage(over, "owner", index)).toBe(
+      "The view 'over' does not read 'owner': it does not keep 'ownerId', which the relation joins on"
+    );
+    expect(uninheritedRelationMessage(pinView, "pinned", index)).toMatch(
+      TWO_COLUMNS
+    );
+  });
+
+  it("refuses a relation to a view, which no relation reaches (R002)", () => {
+    const reader = s.model({
+      id: s.string().id(),
+      kept: s.toMany(() => kept),
+    });
+    const result = validateSchema({ ...schema, reader });
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: "R002",
+        message: expect.stringContaining(
+          "'reader.kept' targets the view 'kept', which no relation reaches"
+        ),
+      })
+    );
   });
 });

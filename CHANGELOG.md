@@ -31,11 +31,20 @@ Versioning.
     `take`, `orderBy` or `skip` without `take`, an SQL fragment as an
     operand, a recursive or polymorphic relation, a distance. `viborm
     check` reports it (`W005`).
+  - **Relations.** A view inherits each relation of its source whose key
+    columns it keeps (a to-one's `.fields()`, the columns a to-many or a
+    many-to-many references), with nothing to declare, and reads it as its
+    source does: relation filters, an order by a relation, `include`, a nested
+    `select`, `_count`, joined from the live tables when the view is read. A
+    relation whose key columns it does not keep is absent from its type and
+    refused with the missing column named; a JSON column takes the name of
+    the relation it selects. A view is not written through its relations, and
+    no model holds a relation to a view.
   - **Extensions** act when a view is read, on the view as its own model: a
     view over a soft-deleted model shows deleted rows unless its query filters
     them, and a permissions policy that does not list the view refuses it.
-  - **Not yet:** materialized views, relations between a view and a model,
-    aggregated views, SurrealDB. Snowflake refuses a schema that holds a view.
+  - **Not yet:** materialized views, aggregated views, SurrealDB. Snowflake
+    refuses a schema that holds a view.
   - **`viborm/schema/json`** documents state a view in a `views` section, and
     Studio lists views as read-only.
 - **Aggregates of a relation's rows: `_aggregate`, and an `orderBy` by

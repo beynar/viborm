@@ -77,3 +77,21 @@ test("a view's JSON columns are typed as its query reads them", () => {
   };
 };`);
 });
+
+test("a view's inherited relations are typed as its source's, and no other", () => {
+  // Keeps `authorId`: it reads `author` as `post` does.
+  const authored = s.view(() => post, {
+    select: { id: true, authorId: true },
+  });
+  // Keeps neither `authorId` nor `id`: no relation of `post`.
+  const titled = s.view(() => post, { select: { title: true } });
+  const rendered = renderSchemaType({ user, post, authored, titled });
+  expect(rendered).toContain(`  authored: {
+    id: string;
+    authorId: string;
+    author: VibORMSchema["user"];
+  };
+  titled: {
+    title: string;
+  };`);
+});

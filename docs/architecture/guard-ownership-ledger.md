@@ -3632,3 +3632,24 @@ key (validation's "Unknown key").
 | same · `refuse(…, "selects a distance", …)` | No root `_distance` selection. | same | Binds a query value per call, and the column would hold a number under a vector or point field's name. | same |
 | `src/query-engine/raptor3/view-body.ts` `ViewBodyQueries.settleRows` · `refuse(…, "filters with an SQL fragment", …)` | No caller `Sql` operand (written, or returned by a filter callback). | Every caller fragment is settled there before it is lowered (`value`, `#scalarValue`, the `sql` operand). | A fragment has no literal to render and no value to hash; the body would carry text nobody admitted. | same ("filters with an SQL fragment", and the callback case) |
 | `src/drivers/snowflake/queries.ts` `SnowflakeQueries` constructor · `FeatureNotSupportedError("snowflake", "view", …)`; `src/drivers/surrealdb/queries.ts` `SurrealQueries` constructor · `refuseUntil("view", …)` | A schema holding a view is refused on these drivers when a client is created. | The engine's own (undomained) `Queries`, made once per schema, adapter and driver parser in `createCommandEngine`, whichever factory made the client (the driver's `createClient` or the root one with a driver instance). | No migration creates the view there: SurrealDB would read a missing table as empty (a silent wrong answer), Snowflake fail at the first read. | `schema-views.core.test.ts` "SurrealDB refuses …", "Snowflake refuses …"; SurrealDB census entry `view`. |
+
+## Addendum — relations a view inherits (views plan §2.5, 2026-11-20)
+
+One site added, one rule changed. A view inherits the source's slots whose
+key columns it keeps (`relation-resolution.ts` `buildIndex`): the index holds
+those and no other, so a read reaches no slot the view has not, whatever the
+call says. What is left to guard is the reason given for one it names.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/validation/relations/index.ts` `getRelationsSchemas` and `src/validation/relations/polymorphic/index.ts` `getPolymorphicRelationsSchemas` · `refusedRelationSchemas(uninherited(field))` (`uninheritedRelationMessage`) | A relation of its source that a view names without inheriting it is refused in every use (filter, selection, include, order, count) with the key columns the view lacks named. | The view's operation schemas, built per relation from the index the registry holds. | The types already leave the relation out; a held or untyped call reaches admission, where, without it, the view's schemas have no entry for the name and refuse it as an unknown key, which says nothing of the column to select. | `schema-views-behavior.ts` "a relation whose key columns the view does not keep is refused, its missing column named" (site removed: "expected … 'The view 'kinds' does not read 'comments'…' but got 'Validation failed for kinds.findMany: …'"); `view-declaration.core.test.ts` "names the columns a relation it does not inherit joins on". |
+
+`W003` (`rules/view.ts`) changed from "a view declares no relation" to "a
+view's relations are its source's" (`sameMembers` over `state.relations`, as
+`W002` reads its scalars): a view's derived state now holds its source's
+relations, and only one `.extends()` adds is refused. It stays advice: the
+resolver declares no slot for a view, so such a relation is no slot and is
+refused at its first use by the site above. `select.ts` `toManyRelationNames`
+reading `slots.has` is no guard: `_count: true` counts the slots a model has,
+which for a table are all its relations. The message `R002` gives for a
+relation that targets a view is the existing rule, worded for the case.

@@ -28,7 +28,11 @@ const publishedPost = s
   })
   .map("published_posts");
 const postTitle = s.view(() => post, { select: { title: true } });
-const schema = { user, post, publishedPost, postTitle };
+/** Keeps `authorId`: it inherits `author` from its source. */
+const authoredPost = s.view(() => post, {
+  select: { id: true, authorId: true },
+});
+const schema = { user, post, publishedPost, postTitle, authoredPost };
 // What the loaded config's client did when it was created.
 hydrateSchemaNames(schema);
 
@@ -52,6 +56,11 @@ function recordingClient() {
 }
 
 describe("a database view in the studio", () => {
+  test("lists the relations it inherits as its source's, and no other", () => {
+    expect(model("authoredPost").relations).toEqual(model("post").relations);
+    expect(model("postTitle").relations).toEqual([]);
+  });
+
   test("is described as a view, with its derived key and its JSON columns", () => {
     expect(model("publishedPost")).toMatchObject({
       kind: "view",

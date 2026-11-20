@@ -176,9 +176,11 @@ function crossedRelations(
                 : [variant.topology.source.model, variant.topology.target.model]
             ),
           ];
-    const self = targets.every((target) => target === model);
+    // Asked at the slot's own model: a view reads its source's slot.
+    const at = slot.slot.source;
+    const self = targets.every((target) => target === at);
     for (const target of new Set(targets))
-      if (self || target !== model)
+      if (self || target !== at)
         crossedRelations(target, member, relations, crossed);
   };
   for (const [key, member] of Object.entries(value)) {
