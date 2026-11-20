@@ -958,6 +958,99 @@ describe.skipIf(!surrealUrl)("views on SurrealDB", () => {
     });
   });
 
+  it("a view walks its source's junctions, declared or generated, and recurses from its rows through them", async () => {
+    const seat = s
+      .model({
+        roomId: s.string(),
+        guestId: s.string(),
+        room: s
+          .toOne(() => room)
+          .fields("roomId")
+          .references("id"),
+        guest: s
+          .toOne(() => guest)
+          .fields("guestId")
+          .references("id"),
+      })
+      .id(["roomId", "guestId"])
+      .map("sv_seats");
+    const room = s
+      .model({
+        id: s.string().id(),
+        guests: s
+          .toMany(() => guest)
+          .through(() => seat)
+          .source("room")
+          .target("guest"),
+      })
+      .map("sv_rooms");
+    const guest = s
+      .model({
+        id: s.string().id(),
+        name: s.string(),
+        rooms: s.toMany(() => room),
+        links: s.toMany(() => guest).name("graph"),
+        linkedFrom: s.toMany(() => guest).name("graph"),
+      })
+      .map("sv_guests");
+    const liveRoom = s.view(() => room, {}).map("sv_live_rooms");
+    const liveGuest = s
+      .view(() => guest, { select: { id: true, name: true } })
+      .map("sv_live_guests");
+    const driver = await freshDriver();
+    const client = clientOf({ seat, room, guest, liveRoom, liveGuest }, driver);
+    await using(client, async () => {
+      await push(client);
+      await client.room.createMany({ data: [{ id: "r1" }, { id: "r2" }] });
+      await client.guest.createMany({
+        data: [
+          { id: "a", name: "Ann" },
+          { id: "b", name: "Bob" },
+          { id: "c", name: "Cy" },
+        ],
+      });
+      await client.seat.create({ data: { roomId: "r1", guestId: "a" } });
+      await client.guest.update({
+        where: { id: "a" },
+        data: { links: { connect: { id: "b" } } },
+      });
+      await client.guest.update({
+        where: { id: "b" },
+        data: { links: { connect: { id: "c" } } },
+      });
+      // A declared junction: its links name the rooms' records.
+      for (const args of [
+        { select: { id: true, guests: { select: { id: true } } } },
+        { where: { guests: { some: {} } }, select: { id: true } },
+        { where: { guests: { none: {} } }, select: { id: true } },
+        { select: { id: true, _count: { select: { guests: true } } } },
+      ])
+        expect(
+          await client.liveRoom.findMany({ ...args, orderBy: { id: "asc" } })
+        ).toEqual(
+          await client.room.findMany({ ...args, orderBy: { id: "asc" } })
+        );
+      // A generated self junction, walked to a depth and exhaustively.
+      for (const recurse of [{ depth: 1 }, { depth: false }] as const) {
+        const walked = {
+          where: { id: "a" },
+          select: { id: true, links: { recurse, select: { id: true } } },
+        };
+        expect(await client.liveGuest.findMany(walked)).toEqual(
+          await client.guest.findMany(walked)
+        );
+      }
+      const reaching = {
+        where: { links: { recurse: { depth: false }, some: { name: "Cy" } } },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      } as const;
+      expect(await client.liveGuest.findMany(reaching)).toEqual(
+        await client.guest.findMany(reaching)
+      );
+    });
+  });
+
   it("a view declared materialized is the same view, and $refresh sends nothing", async () => {
     const { author, post } = models();
     const plainFeed = s.view(() => post, feedQuery).map("sv_feed");

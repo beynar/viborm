@@ -1827,10 +1827,19 @@ export class SurrealReadBackend implements ReadBackend {
     const link = edge.declared!.model;
     return side.members.map((pair) => {
       const field = this.#linkField(edge, pair.junctionField);
-      const held = sql`${sql.raw(row)}.${this.physical(side.model, pair.referencedField)}`;
-      const plainKey =
-        isSingleKey(this.#queries, side.model, pair.referencedField) &&
-        !this.holdsRecord(link, field);
+      const read = sql`${sql.raw(row)}.${this.physical(side.model, pair.referencedField)}`;
+      const singleKey = isSingleKey(
+        this.#queries,
+        side.model,
+        pair.referencedField
+      );
+      const plainKey = singleKey && !this.holdsRecord(link, field);
+      // A view's row is its source record under the view's own table: the
+      // link names the source's.
+      const held =
+        singleKey && side === edge.sourceSide && viewFacts(edge.source)
+          ? sql`type::record(${tableOf(side.model)}, record::id(${read}))`
+          : read;
       return sql`${this.physical(link, field)} = ${plainKey ? sql`record::id(${held})` : held}`;
     });
   }
@@ -2749,8 +2758,7 @@ export class SurrealReadBackend implements ReadBackend {
         .clauses;
     if (edge.kind === "junction") {
       if (edge.declared) return undefined;
-      const { from, hop } = this.edgeOf(edge);
-      return sql`${from}${hop}(SELECT * FROM ${name(tableOf(target))} ${sql.join(narrowed(), " ")}).id`;
+      return sql`${this.edgeOf(edge).hop}(SELECT * FROM ${name(tableOf(target))} ${sql.join(narrowed(), " ")}).id`;
     }
     const held = reference(edge);
     if (!this.#linked(held)) return undefined;
@@ -2772,6 +2780,19 @@ export class SurrealReadBackend implements ReadBackend {
   }
 
   /** A walk's own statements in a block: `$w`, and the refusal an endless one owes. */
+  /**
+   * The record a walk from this row starts at: the row's own, or, for a
+   * view's, its source record, whose links the tables hold.
+   */
+  #walkRoot(edge: Membership): Sql {
+    let table = edge.source;
+    for (let facts = viewFacts(table); facts; facts = viewFacts(table))
+      table = facts.source;
+    return table === edge.source
+      ? sql.raw("$this.id")
+      : sql`type::record(${tableOf(table)}, record::id($this.id))`;
+  }
+
   #walked(walk: Sql, root: Sql = sql.raw("$this.id")): Sql {
     return sql`LET $root = ${root}; LET $w = ${walk}; IF array::len($w.level) > 0 AND $w.seen != NONE { THROW ${`A recursive read walked past ${MAX_WALK} levels.`} };`;
   }
@@ -2807,7 +2828,7 @@ export class SurrealReadBackend implements ReadBackend {
       depth === false ? sql.raw("") : sql.raw(", __rq_depth: $e.d");
     // A block answers with its last expression: a `RETURN` in one would leave
     // whatever expression holds the block, negations included.
-    return sql`({ ${this.#walked(walk)} { __rq_root: ${this.#identityOf(source, sql.raw("$root"))}, __rq_nodes: array::distinct($w.edges.c).map(|$n| { __rq_key: ${this.#identityOf(target, sql.raw("$n"))}, __rq_row: $n${members} }), __rq_edges: $w.edges.map(|$e| { __rq_parent: ${this.#identityOf(source, sql.raw("$e.p"))}, __rq_child: ${this.#identityOf(target, sql.raw("$e.c"))}${labelled} }) } })`;
+    return sql`({ ${this.#walked(walk, this.#walkRoot(edge))} { __rq_root: ${this.#identityOf(source, sql.raw("$root"))}, __rq_nodes: array::distinct($w.edges.c).map(|$n| { __rq_key: ${this.#identityOf(target, sql.raw("$n"))}, __rq_row: $n${members} }), __rq_edges: $w.edges.map(|$e| { __rq_parent: ${this.#identityOf(source, sql.raw("$e.p"))}, __rq_child: ${this.#identityOf(target, sql.raw("$e.c"))}${labelled} }) } })`;
   }
 
   /** Whether a `distinct` narrows at all: one holding the whole key does not. */
@@ -3633,11 +3654,10 @@ export class SurrealReadBackend implements ReadBackend {
     const args = (scope ? { selector: { predicate: scope } } : {}) as never;
     // Without `self`, a link's first step is the row's own value: a judged row's
     // is the one it would leave, not the one stored.
-    const root = sql.raw(
+    const root =
       edge.kind === "reference" && edge.owner === "source" && !closure.self
-        ? "$this"
-        : "$this.id"
-    );
+        ? sql.raw("$this")
+        : this.#walkRoot(edge);
     const recursion =
       closure.depth === false
         ? this.#reached(edge, args, sql.raw("$root"))
