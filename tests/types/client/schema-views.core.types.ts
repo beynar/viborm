@@ -877,6 +877,8 @@ const busyDays = s.view(() => salesByDay, {
   where: { count: { gt: 1 } },
   select: { soldAt: true, currency: true, count: true },
 });
+/** Grouped by its key: a to-many of its source is no relation of a group. */
+const shopCounts = s.view(() => shop, { by: ["id"], _count: true });
 const liveSale = s.view(() => sale, {
   where: { units: { gt: 0 } },
   select: { id: true, shopId: true, units: true },
@@ -894,6 +896,7 @@ const aggregatedSchema = {
   busyDays,
   liveSale,
   unitsByShop,
+  shopCounts,
 };
 const aggregated = createClient({
   schema: aggregatedSchema,
@@ -999,10 +1002,22 @@ export const _aggregatedReads = async () => {
   });
   type _day = Expect<Equal<NonNullable<typeof day>, SalesRow>>;
   await aggregated.salesByShop.findUnique({ where: { shopId: "s" } });
-  // Its columns are not its source's: it inherits no relation.
-  // @ts-expect-error - no `shop` relation on an aggregated view
-  aggregated.salesByShop.findMany({ include: { shop: true } });
-  await aggregated.liveSale.findMany({ include: { shop: true } });
+  // A to-one whose fields are all grouped: read as the source reads it.
+  const shopped = await aggregated.salesByShop.findMany({
+    where: { shop: { name: "North" } },
+    orderBy: { shop: { name: "asc" } },
+    include: { shop: true },
+  });
+  const sold = await aggregated.sale.findMany({ include: { shop: true } });
+  type _shop = Expect<
+    Equal<(typeof shopped)[number]["shop"], (typeof sold)[number]["shop"]>
+  >;
+  // No to-many: a group stands for many rows of its source.
+  // @ts-expect-error - `sales` is a to-many of `shop`
+  aggregated.shopCounts.findMany({ include: { sales: true } });
+  // Nor a to-one whose foreign key is not grouped.
+  // @ts-expect-error - `salesByDay` groups no `shopId`
+  aggregated.salesByDay.findMany({ include: { shop: true } });
   aggregated.salesByDay.findMany({
     // @ts-expect-error - a source column the view does not group is none of its own
     where: { units: { gt: 1 } },

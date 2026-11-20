@@ -760,7 +760,12 @@ describe("an aggregated view", () => {
       "sumUnits",
       "maxAmount",
     ]);
-    expect(state(totals).shape).toBe(state(totals).scalars);
+    // Its relations are its source's, kept by the schema's resolution where
+    // a to-one's fields are all grouped.
+    expect(state(totals).shape).toEqual({
+      ...state(totals).scalars,
+      ...state(totals).relations,
+    });
     expect(viewFacts(totals)?.documents).toEqual([]);
     expect(viewFacts(totals)?.aggregated).toMatchObject({
       by: ["placedAt", "customerId"],
@@ -981,5 +986,69 @@ describe("a view's relations through a self junction whose sides reference diffe
   it("joins each end on its own side's key, as the types read it", () => {
     expect([...index.get(ids)!.keys()]).toEqual(["parents"]);
     expect([...index.get(slugs)!.keys()]).toEqual(["children"]);
+  });
+});
+
+/**
+ * An aggregated view inherits a to-one of its source whose own foreign key
+ * fields are all in its `by`, without a step: every row of a group shares
+ * that value. No to-many, no to-one it groups only part of, or by a period.
+ */
+describe("the relations an aggregated view inherits", () => {
+  const region = s
+    .model({
+      code: s.string(),
+      zone: s.int(),
+      sales: s.toMany(() => sale),
+    })
+    .id(["code", "zone"]);
+  const shop = s.model({
+    id: s.string().id(),
+    sales: s.toMany(() => sale),
+  });
+  const sale = s.model({
+    id: s.string().id(),
+    shopId: s.string(),
+    regionCode: s.string(),
+    regionZone: s.int(),
+    soldAt: s.dateTime(),
+    amount: s.int(),
+    shop: s
+      .toOne(() => shop)
+      .fields("shopId")
+      .references("id"),
+    region: s
+      .toOne(() => region)
+      .fields("regionCode", "regionZone")
+      .references("code", "zone"),
+  });
+  const byShop = s.view(() => sale, { by: ["shopId"], _sum: { amount: true } });
+  const byRegion = s.view(() => sale, {
+    by: ["regionCode", "regionZone"],
+    _count: true,
+  });
+  const byCode = s.view(() => sale, { by: ["regionCode"], _count: true });
+  const shopCounts = s.view(() => shop, { by: ["id"], _count: true });
+  const schema = { region, shop, sale, byShop, byRegion, byCode, shopCounts };
+  hydrateSchemaNames(schema);
+  const index = resolveSchemaOrThrow(schema);
+  const fields = (model: AnyModel) => [...index.get(model)!.keys()];
+
+  it("keeps the source's to-one whose foreign key it groups by, and no other", () => {
+    expect(fields(byShop)).toEqual(["shop"]);
+    expect(index.get(byShop)!.get("shop")).toBe(index.get(sale)!.get("shop"));
+    expect(fields(byRegion)).toEqual(["region"]);
+    expect(fields(byCode)).toEqual([]);
+    expect(fields(shopCounts)).toEqual([]);
+    expect(validateSchema(schema).errors).toEqual([]);
+  });
+
+  it("says why it does not read the others", () => {
+    expect(uninheritedRelationMessage(byCode, "region", index)).toBe(
+      "The view 'byCode' does not read 'region': an aggregated view reads a to-one of its source whose fields are all in its `by`, and 'regionZone' is not"
+    );
+    expect(uninheritedRelationMessage(shopCounts, "sales", index)).toBe(
+      "The view 'shopCounts' does not read 'sales': an aggregated view reads no relation of its source but a to-one whose fields are all in its `by`"
+    );
   });
 });

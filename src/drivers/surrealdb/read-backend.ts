@@ -79,6 +79,14 @@ function tableOf(model: AnyModel): string {
 }
 
 /**
+ * A table's name as a string literal, not a bound value: an order term reads a
+ * relation through a path written as text, which keeps no bound value.
+ */
+function tableText(table: string): Sql {
+  return sql.raw(JSON.stringify(table));
+}
+
+/**
  * Whether a model's records are groups: an aggregated view's, or those of a
  * view of rows over one, which keeps its source's ids.
  */
@@ -1819,7 +1827,7 @@ export class SurrealReadBackend implements ReadBackend {
     const to = this.#heldTable(other, otherField);
     if (from === to) return read;
     if (to !== undefined)
-      return sql`type::record(${to}, ${from === undefined ? recordKey(other, otherField, read) : read})`;
+      return sql`type::record(${tableText(to)}, ${from === undefined ? recordKey(other, otherField, read) : read})`;
     const type = textKeyType(model, field);
     const key = type
       ? sql`<${sql.raw(type)}> record::id(${read})`

@@ -1192,6 +1192,10 @@ const aggByStore = s.view(() => aggSale, byStoreQuery).map("va_by_store");
 /** A nullable grouped field: no key. */
 const byRegionQuery = { by: "region", _count: true } as const;
 const aggByRegion = s.view(() => aggSale, byRegionQuery).map("va_by_region");
+/** Grouped by its source's key: a to-many of the source is no relation of it. */
+const aggStoreCounts = s
+  .view(() => aggStore, { by: ["id"], _count: true })
+  .map("va_store_counts");
 /** A view of rows over an aggregated view. */
 const busyQuery = {
   where: { count: { gt: 1 } },
@@ -1238,6 +1242,7 @@ const AGG_VIEWS = [
   "va_big_by_store",
   "va_daily",
   "va_huge_totals",
+  "va_store_counts",
 ];
 
 const KEY_INDEX_ON_BIN = /^CREATE UNIQUE INDEX .*\(bin\)$/;
@@ -1286,6 +1291,7 @@ function runAggregatedViewsBehavior({
       aggBigByStore,
       aggHuge,
       aggHugeTotals,
+      aggStoreCounts,
       ...(periods ? { aggDaily } : {}),
     };
     const client = createClient({ schema, driver });
@@ -1545,10 +1551,43 @@ function runAggregatedViewsBehavior({
       );
     });
 
-    test("an aggregated view inherits no relation of its source: its columns are not the source's", async () => {
+    test("a to-one whose foreign key it groups by reads as the source reads it, and no other relation", async () => {
+      const read = {
+        where: { store: { name: { not: "Nowhere" } } },
+        orderBy: { store: { name: "desc" } },
+        select: {
+          storeId: true,
+          sumUnits: true,
+          store: { select: { name: true } },
+        },
+      } as const;
+      const rows = await client.aggTotals.findMany(read);
+      expect(rows.length).toBeGreaterThan(0);
+      // Each group's store is the row its foreign key names.
+      for (const row of rows)
+        expect(row.store).toEqual(
+          await client.aggStore.findUnique({
+            where: { id: row.storeId },
+            select: { name: true },
+          })
+        );
+      expect(rows.map(({ store }) => store.name)).toEqual(
+        [...rows.map(({ store }) => store.name)].sort().reverse()
+      );
+      expect(
+        (
+          await client.aggByStore.findMany({
+            where: { store: { name: "South" } },
+            include: { store: { select: { name: true } } },
+          })
+        ).map(({ store }) => store)
+      ).toEqual([{ name: "South" }]);
+      // A to-many of its source is no relation of a group.
       await expect(
-        client.aggByStore.findMany({ include: { store: true } } as never)
-      ).rejects.toThrow("include.store: Unknown key: store");
+        client.aggStoreCounts.findMany({ include: { sales: true } } as never)
+      ).rejects.toThrow(
+        "The view 'aggStoreCounts' does not read 'sales': an aggregated view reads no relation of its source but a to-one whose fields are all in its `by`"
+      );
     });
 
     test("a view over an aggregated view, and an aggregated view over a view", async () => {

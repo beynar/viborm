@@ -674,7 +674,7 @@ describe("an aggregated view", () => {
     .map("post_weeks");
   const grouped = { author, post, totals, daily };
 
-  test("renders its row as its flat columns", () => {
+  test("renders its row as its flat columns, then the to-one it inherits by its grouped foreign key", () => {
     expect(renderSchemaType({ author, post, totals })).toContain(`  totals: {
     authorId: number;
     published: boolean;
@@ -682,6 +682,7 @@ describe("an aggregated view", () => {
     sumViews: bigint | null;
     sumScore: import("viborm").Decimal | null;
     maxDeletedAt: Date | null;
+    author: VibORMSchema["author"];
   };`);
   });
 

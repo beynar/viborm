@@ -37,6 +37,7 @@ import { type AnyModel, Model, type ModelState } from "../model";
 import type { NameFromKeys } from "../model/helper";
 import { emptyRecord, put } from "../record";
 import type {
+  ForeignKeyOf,
   SlotKeyFields,
   SlotOwnerModel,
 } from "../relation/static-membership";
@@ -251,6 +252,26 @@ type GroupedField<Member> = Member extends string
   ? Member
   : keyof Member & string;
 
+/**
+ * The relations an aggregated view inherits: its source's to-ones whose own
+ * foreign key fields are all in its `by`, without a step, under a name no
+ * column takes. A group names one row only through a value its rows share.
+ */
+type AggregatedRelationKeys<M extends AnyModel, Q> = {
+  [K in Exclude<
+    keyof SourceRelations<M>,
+    keyof AggregatedScalars<M, Q>
+  >]: ForeignKeyOf<SourceRelations<M>[K]> extends {
+    readonly fields: infer Fields extends readonly string[];
+  }
+    ? [Exclude<Fields[number], Extract<ByMembers<Q>[number], string>>] extends [
+        never,
+      ]
+      ? K
+      : never
+    : never;
+}[Exclude<keyof SourceRelations<M>, keyof AggregatedScalars<M, Q>>];
+
 /** The fields of a query's `by` list, in its order. */
 type GroupedFields<Q, By = ByMembers<Q>> = {
   -readonly [I in keyof By]: GroupedField<By[I]>;
@@ -374,10 +395,10 @@ type GroupedMembers<M extends AnyModel, Q, Fields> = {
  * scalars, keyed by its `by` list where no member is nullable.
  */
 export interface AggregatedViewState<M extends AnyModel, Q> extends ModelState {
-  shape: AggregatedScalars<M, Q>;
+  shape: AggregatedScalars<M, Q> &
+    Pick<SourceRelations<M>, AggregatedRelationKeys<M, Q>>;
   scalars: AggregatedScalars<M, Q>;
-  // biome-ignore lint/complexity/noBannedTypes: an aggregated view's columns are not its source's, so it inherits no relation
-  relations: {};
+  relations: Pick<SourceRelations<M>, AggregatedRelationKeys<M, Q>>;
   uniques: GroupKey<M, Q> extends "single"
     ? {
         [F in GroupedFields<Q>[0] & string]: Extract<
@@ -638,10 +659,18 @@ function deriveAggregatedState(
   ) as ModelState["compoundId"];
   const uniques = emptyRecord<Scalar>();
   if (keyed && by.length === 1) put(uniques, by[0]!, scalars[by[0]!]!);
+  // As a view of rows: each relation of the source whose name no column
+  // takes. The schema's resolution keeps a to-one whose fields are all
+  // grouped, and no other (`buildIndex`).
+  const relations = emptyRecord<AnyRelation>();
+  for (const [name, relation] of Object.entries(
+    from.relations as Record<string, AnyRelation>
+  ))
+    if (!columns.includes(name)) put(relations, name, relation);
   return {
-    shape: scalars,
+    shape: { ...scalars, ...relations },
     scalars,
-    relations: emptyRecord(),
+    relations,
     uniques,
     compoundId,
     compoundUniques: undefined,

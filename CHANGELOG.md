@@ -68,8 +68,9 @@ Versioning.
     and, on a materialized view, indexed like any column. The `by` list is
     the view's key when none of its fields is nullable: `findUnique` and
     cursors follow, and a materialized one has its unique index, so
-    `$refresh({ concurrently: true })` works. Its columns are not its
-    source's, so it inherits no relation. Time steps are PostgreSQL's, as in
+    `$refresh({ concurrently: true })` works. It inherits a to-one of
+    its source whose fields are all in its `by` (`by: ["authorId"]` reads
+    `author`), and no other relation. Time steps are PostgreSQL's, as in
     `groupBy`. On SurrealDB an aggregated view is a grouped table the
     database keeps current; a sum or an average of doubles, a minimum or a
     maximum of text and a `having` are refused there, since SurrealDB would

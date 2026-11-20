@@ -212,8 +212,10 @@ The key is the `by` list when none of its fields is nullable: one field is a
 key of its own (`findUnique({ where: { currency } })`), several a compound key
 named as `.id([...])` names one. With a nullable field, the view has no key.
 
-An aggregated view reads a view and is read by one. Its columns are not its
-source's, so it inherits none of its source's relations.
+An aggregated view reads a view and is read by one. It inherits a to-one of
+its source whose fields are all in its `by` (`by: ["authorId"]` reads
+`author`, with `where`, `orderBy`, `include` and a nested `select`), and no
+other relation.
 
 Each total is held in a column of its value's type, and a total past what
 that column holds is never read as another number: the read is refused.

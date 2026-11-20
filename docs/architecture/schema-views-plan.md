@@ -147,7 +147,9 @@ await db.livePost.findMany({
 5. No inverse on the target models.
 6. No `.extends()` on a view.
 7. A `select` of a relation in the view's definition stays a JSON column.
-8. Aggregated views (PR 4) inherit nothing.
+8. Aggregated views (PR 4) inherit nothing, but a to-one of the source whose
+   key fields are all in `by` (accepted 2026-11-20): every row of a group
+   holds the same key, so the group names the row each of them names.
 9. Materialized views (PR 3) inherit the same way, joined to the live source
    tables; on SurrealDB too.
 
@@ -341,9 +343,11 @@ column is text):
 - **One fact says where a column comes from**: `ViewFacts.aggregated.origins`
   and `heldField(facts, column)`, which the identifier domains read: `_min`/
   `_max` of an identifier keep its stored format that way.
-- **No relation.** An aggregated view's columns are not its source's, so it
-  inherits none of its source's relations (§2.5, rule 8), and a call that
-  names one is refused as an unknown key.
+- **A to-one whose key it groups by.** An aggregated view inherits a to-one
+  its source owns when every field of the foreign key is a plain `by` member
+  (no step), and reads it through the source's slot (§2.5, rule 8). A to-many
+  or a to-one partly in `by` is absent from the types and refused at run time
+  with the reason; on SurrealDB the group's key part names the target's record.
 - **The key is the `by` list** when no member is nullable: one member is a
   single-field key, several a compound key named as `.id([...])` names one.
   A materialized aggregated view therefore has its unique index, and a

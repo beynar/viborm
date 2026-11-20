@@ -1825,10 +1825,9 @@ function buildIndex(
     inherit(facts.source);
     const from = index.get(facts.source);
     const own = index.get(model)!;
-    const columns = new Set(Object.keys(model["~"].state.scalars));
     for (const field of Object.keys(model["~"].state.relations)) {
       const resolved = from?.get(field);
-      if (resolved && slotKeyFields(resolved).every((key) => columns.has(key)))
+      if (resolved && heldKeys(model, resolved).length === 0)
         own.set(field, resolved);
     }
     settleCount(facts, index);
@@ -1907,6 +1906,38 @@ export function slotKeyFields({
   return side.members.map((key) => key.referencedField);
 }
 
+/** Whether a slot is a to-one that holds its own foreign key. */
+function ownsToOne({ edge, slot }: ResolvedSlot): boolean {
+  return (
+    edge.kind === "foreignKey" &&
+    edge.owner.source === slot.source &&
+    edge.owner.field === slot.field &&
+    slot.source["~"].state.relations[slot.field]?.["~"].state.cardinality ===
+      "one"
+  );
+}
+
+/**
+ * The key fields of `resolved`, a slot of `view`'s source, that the view does
+ * not hold: none where it inherits the slot. A view of rows holds a column
+ * under the source field's name; an aggregated view holds a group's value of
+ * a field it groups by without a step, and only for a to-one whose own
+ * foreign key it is: a group stands for many source rows, so it names one
+ * row only through a value they all share (a to-many, or a to-one that
+ * holds no column of the source, has every field missing).
+ */
+function heldKeys(view: Model<any>, resolved: ResolvedSlot): string[] {
+  const keys = slotKeyFields(resolved);
+  const facts = viewFacts(view)!;
+  if (facts.aggregated === undefined)
+    return keys.filter((key) => !(key in view["~"].state.scalars));
+  if (!ownsToOne(resolved)) return [...keys];
+  return keys.filter((key) => {
+    const origin = facts.aggregated!.origins[key];
+    return !(origin?.field === key && !origin.aggregate && !origin.step);
+  });
+}
+
 /**
  * Why a view does not read `field`, a relation of its source it has not
  * inherited: the key columns it does not keep, read off the table's slot.
@@ -1918,15 +1949,15 @@ export function uninheritedRelationMessage(
   index: ResolvedRelationIndex
 ): string {
   const resolved = index.get(viewTable(view))?.get(field);
-  const columns = view["~"].state.scalars;
-  const missing = resolved
-    ? slotKeyFields(resolved).filter((key) => !(key in columns))
-    : [];
-  return `The view '${view["~"].names.ts}' does not read '${field}': ${
-    resolved
-      ? `it does not keep ${missing.map((key) => `'${key}'`).join(", ")}, which the relation joins on`
-      : "its source has no such relation"
-  }`;
+  const missing = resolved ? heldKeys(view, resolved) : [];
+  const reason = resolved
+    ? viewFacts(view)?.aggregated
+      ? ownsToOne(resolved)
+        ? `an aggregated view reads a to-one of its source whose fields are all in its \`by\`, and ${missing.map((key) => `'${key}'`).join(", ")} ${missing.length === 1 ? "is" : "are"} not`
+        : "an aggregated view reads no relation of its source but a to-one whose fields are all in its `by`"
+      : `it does not keep ${missing.map((key) => `'${key}'`).join(", ")}, which the relation joins on`
+    : "its source has no such relation";
+  return `The view '${view["~"].names.ts}' does not read '${field}': ${reason}`;
 }
 
 // Issue builders, apart from the resolution so a valid schema never compiles

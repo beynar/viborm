@@ -658,6 +658,80 @@ describe.skipIf(!surrealUrl)("aggregated views on SurrealDB", () => {
     });
   });
 
+  it("a to-one whose foreign key it groups by reads as the source reads it, an unset one naming no row", async () => {
+    const shop = s
+      .model({
+        id: s.int().id(),
+        name: s.string(),
+        visits: s.toMany(() => visit),
+      })
+      .map("sa_shops");
+    const visit = s
+      .model({
+        id: s.int().id(),
+        shopId: s.int().nullable(),
+        qty: s.int(),
+        shop: s
+          .toOne(() => shop)
+          .fields("shopId")
+          .references("id"),
+      })
+      .map("sa_visits");
+    const byShop = s
+      .view(() => visit, { by: ["shopId"], _sum: { qty: true } })
+      .map("sa_by_shop");
+    const shopCounts = s
+      .view(() => shop, { by: ["id"], _count: true })
+      .map("sa_shop_counts");
+    const driver = await freshDriver();
+    const client = clientOf({ shop, visit, byShop, shopCounts }, driver);
+    await using(client, async () => {
+      await push(client);
+      await client.shop.createMany({
+        data: [
+          { id: 1, name: "North" },
+          { id: 2, name: "South" },
+        ],
+      });
+      await client.visit.createMany({
+        data: [
+          { id: 1, shopId: 1, qty: 2 },
+          { id: 2, shopId: 2, qty: 3 },
+          { id: 3, shopId: 2, qty: 4 },
+          { id: 4, shopId: null, qty: 5 },
+        ],
+      });
+      expect(
+        await client.byShop.findMany({
+          orderBy: { sumQty: "asc" },
+          select: { sumQty: true, shop: { select: { name: true } } },
+        })
+      ).toEqual([
+        { sumQty: 2, shop: { name: "North" } },
+        { sumQty: 5, shop: null },
+        { sumQty: 7, shop: { name: "South" } },
+      ]);
+      expect(
+        await client.byShop.findMany({
+          where: { shop: { name: "South" } },
+          select: { shopId: true },
+        })
+      ).toEqual([{ shopId: 2 }]);
+      expect(
+        await client.byShop.findMany({
+          where: { shop: { isNot: null } },
+          orderBy: { shop: { name: "desc" } },
+          select: { shopId: true },
+        })
+      ).toEqual([{ shopId: 2 }, { shopId: 1 }]);
+      await expect(
+        client.shopCounts.findMany({ include: { visits: true } } as never)
+      ).rejects.toThrow(
+        "The view 'shopCounts' does not read 'visits': an aggregated view reads no relation of its source but a to-one whose fields are all in its `by`"
+      );
+    });
+  });
+
   it("a view over an aggregated view, an aggregated view over a view, and one over another", async () => {
     const busyQuery = {
       where: { count: { gt: 1 } },
