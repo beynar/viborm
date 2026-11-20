@@ -683,8 +683,15 @@ describe.skipIf(!surrealUrl)("aggregated views on SurrealDB", () => {
     const shopCounts = s
       .view(() => shop, { by: ["id"], _count: true })
       .map("sa_shop_counts");
+    // Its `_count: true` counts the to-manys of a group: none, so no column.
+    const shopCountsOver = s
+      .view(() => shopCounts, { include: { _count: true } })
+      .map("sa_shop_counts_over");
     const driver = await freshDriver();
-    const client = clientOf({ shop, visit, byShop, shopCounts }, driver);
+    const client = clientOf(
+      { shop, visit, byShop, shopCounts, shopCountsOver },
+      driver
+    );
     await using(client, async () => {
       await push(client);
       await client.shop.createMany({
@@ -727,8 +734,14 @@ describe.skipIf(!surrealUrl)("aggregated views on SurrealDB", () => {
       await expect(
         client.shopCounts.findMany({ include: { visits: true } } as never)
       ).rejects.toThrow(
-        "The view 'shopCounts' does not read 'visits': an aggregated view reads no relation of its source but a to-one whose fields are all in its `by`"
+        "The view 'shopCounts' does not read 'visits': an aggregated view reads only a to-one of its source whose fields are all in its `by`"
       );
+      expect(
+        await client.shopCountsOver.findMany({ orderBy: { id: "asc" } })
+      ).toEqual([
+        { id: 1, count: 1 },
+        { id: 2, count: 1 },
+      ]);
     });
   });
 

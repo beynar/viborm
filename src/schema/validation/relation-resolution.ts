@@ -1906,14 +1906,12 @@ export function slotKeyFields({
   return side.members.map((key) => key.referencedField);
 }
 
-/** Whether a slot is a to-one that holds its own foreign key. */
+/** Whether a slot holds its own foreign key: a to-one, the only end `.fields()` is on. */
 function ownsToOne({ edge, slot }: ResolvedSlot): boolean {
   return (
     edge.kind === "foreignKey" &&
     edge.owner.source === slot.source &&
-    edge.owner.field === slot.field &&
-    slot.source["~"].state.relations[slot.field]?.["~"].state.cardinality ===
-      "one"
+    edge.owner.field === slot.field
   );
 }
 
@@ -1950,12 +1948,11 @@ export function uninheritedRelationMessage(
 ): string {
   const resolved = index.get(viewTable(view))?.get(field);
   const missing = resolved ? heldKeys(view, resolved) : [];
+  const named = missing.map((key) => `'${key}'`).join(", ");
   const reason = resolved
     ? viewFacts(view)?.aggregated
-      ? ownsToOne(resolved)
-        ? `an aggregated view reads a to-one of its source whose fields are all in its \`by\`, and ${missing.map((key) => `'${key}'`).join(", ")} ${missing.length === 1 ? "is" : "are"} not`
-        : "an aggregated view reads no relation of its source but a to-one whose fields are all in its `by`"
-      : `it does not keep ${missing.map((key) => `'${key}'`).join(", ")}, which the relation joins on`
+      ? `an aggregated view reads only a to-one of its source whose fields are all in its \`by\`${ownsToOne(resolved) ? `, and ${named} ${missing.length === 1 ? "is" : "are"} not` : ""}`
+      : `it does not keep ${named}, which the relation joins on`
     : "its source has no such relation";
   return `The view '${view["~"].names.ts}' does not read '${field}': ${reason}`;
 }

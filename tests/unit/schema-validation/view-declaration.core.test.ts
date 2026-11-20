@@ -1045,10 +1045,40 @@ describe("the relations an aggregated view inherits", () => {
 
   it("says why it does not read the others", () => {
     expect(uninheritedRelationMessage(byCode, "region", index)).toBe(
-      "The view 'byCode' does not read 'region': an aggregated view reads a to-one of its source whose fields are all in its `by`, and 'regionZone' is not"
+      "The view 'byCode' does not read 'region': an aggregated view reads only a to-one of its source whose fields are all in its `by`, and 'regionZone' is not"
     );
     expect(uninheritedRelationMessage(shopCounts, "sales", index)).toBe(
-      "The view 'shopCounts' does not read 'sales': an aggregated view reads no relation of its source but a to-one whose fields are all in its `by`"
+      "The view 'shopCounts' does not read 'sales': an aggregated view reads only a to-one of its source whose fields are all in its `by`"
     );
+  });
+});
+
+describe("the `_count: true` of a view over an aggregated view", () => {
+  const author = s.model({
+    id: s.string().id(),
+    name: s.string(),
+    posts: s.toMany(() => post),
+  });
+  const post = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    authorId: s.string(),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
+  });
+  const groups = s.view(() => author, { by: ["name"], _count: true });
+  const overGroups = s.view(() => groups, { include: { _count: true } });
+  const selectingOverGroups = s.view(() => groups, {
+    select: { name: true, _count: true },
+  });
+  const schema = { author, post, groups, overGroups, selectingOverGroups };
+  hydrateSchemaNames(schema);
+  resolveSchemaOrThrow(schema);
+
+  it("is no column: a group inherits no to-many", () => {
+    expect(viewFacts(overGroups)!.documents).toEqual([]);
+    expect(viewFacts(selectingOverGroups)!.documents).toEqual([]);
   });
 });

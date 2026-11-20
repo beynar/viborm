@@ -1196,6 +1196,10 @@ const aggByRegion = s.view(() => aggSale, byRegionQuery).map("va_by_region");
 const aggStoreCounts = s
   .view(() => aggStore, { by: ["id"], _count: true })
   .map("va_store_counts");
+/** Its `_count: true` counts the to-manys of a group: none, so no column. */
+const aggStoreCountsOver = s
+  .view(() => aggStoreCounts, { include: { _count: true } })
+  .map("va_store_counts_over");
 /** A view of rows over an aggregated view. */
 const busyQuery = {
   where: { count: { gt: 1 } },
@@ -1243,6 +1247,7 @@ const AGG_VIEWS = [
   "va_daily",
   "va_huge_totals",
   "va_store_counts",
+  "va_store_counts_over",
 ];
 
 const KEY_INDEX_ON_BIN = /^CREATE UNIQUE INDEX .*\(bin\)$/;
@@ -1292,6 +1297,7 @@ function runAggregatedViewsBehavior({
       aggHuge,
       aggHugeTotals,
       aggStoreCounts,
+      aggStoreCountsOver,
       ...(periods ? { aggDaily } : {}),
     };
     const client = createClient({ schema, driver });
@@ -1586,7 +1592,13 @@ function runAggregatedViewsBehavior({
       await expect(
         client.aggStoreCounts.findMany({ include: { sales: true } } as never)
       ).rejects.toThrow(
-        "The view 'aggStoreCounts' does not read 'sales': an aggregated view reads no relation of its source but a to-one whose fields are all in its `by`"
+        "The view 'aggStoreCounts' does not read 'sales': an aggregated view reads only a to-one of its source whose fields are all in its `by`"
+      );
+      // So a `_count: true` over it counts nothing, as a read of it does.
+      expect(unordered(await client.aggStoreCountsOver.findMany())).toEqual(
+        unordered(
+          await client.aggStoreCounts.findMany({ include: { _count: true } })
+        )
       );
     });
 
