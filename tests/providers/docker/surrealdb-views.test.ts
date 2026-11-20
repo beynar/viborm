@@ -814,14 +814,12 @@ describe.skipIf(!surrealUrl)("views on SurrealDB", () => {
     });
   });
 
-  it("relations between a view and tables read both ways, and a table's column naming a view's key holds the key", async () => {
+  it("a view reads the relations of its source whose key columns it keeps, as its source reads them", async () => {
     const writer = s
       .model({
         id: s.int().id(),
         name: s.string(),
         entries: s.toMany(() => entry),
-        liveEntries: s.toMany(() => liveEntry),
-        liveEdited: s.toMany(() => liveEntry).name("liveEditor"),
       })
       .map("sv_writers");
     const entry = s
@@ -830,52 +828,50 @@ describe.skipIf(!surrealUrl)("views on SurrealDB", () => {
         title: s.string(),
         published: s.boolean(),
         writerId: s.int(),
-        editorId: s.int().nullable(),
         writer: s
           .toOne(() => writer)
           .fields("writerId")
           .references("id"),
         notes: s.toMany(() => note),
+        tags: s.toMany(() => tag),
       })
       .map("sv_entries");
-    // `writerId` holds a record (the entry's foreign key), `editorId` the
-    // key itself (no relation of the entry's names it).
-    const liveEntry = s
-      .view(() => entry, {
-        where: { published: true },
-        select: { id: true, title: true, writerId: true, editorId: true },
-      })
-      .extends({
-        writer: s
-          .toOne(() => writer)
-          .fields("writerId")
-          .references("id"),
-        editor: s
-          .toOne(() => writer)
-          .name("liveEditor")
-          .fields("editorId")
-          .references("id"),
-        notes: s.toMany(() => note),
-      })
-      .map("sv_live_entries");
     const note = s
       .model({
         id: s.int().id(),
         body: s.string(),
         entryId: s.int(),
-        liveEntryId: s.int(),
         entry: s
           .toOne(() => entry)
           .fields("entryId")
           .references("id"),
-        liveEntry: s
-          .toOne(() => liveEntry)
-          .fields("liveEntryId")
-          .references("id"),
       })
       .map("sv_notes");
+    const tag = s
+      .model({
+        id: s.int().id(),
+        label: s.string(),
+        entries: s.toMany(() => entry),
+      })
+      .map("sv_tags");
+    // `writerId` holds a record of `sv_writers`, the entry's foreign key.
+    const liveEntry = s
+      .view(() => entry, {
+        where: { published: true },
+        select: { id: true, title: true, writerId: true },
+      })
+      .map("sv_live_entries");
+    // A view row is its source record under the view's own table: the
+    // entries' foreign keys name the writer's table, not this one.
+    const writerCard = s
+      .view(() => writer, { select: { id: true, name: true } })
+      .materialized()
+      .map("sv_writer_cards");
     const driver = await freshDriver();
-    const client = clientOf({ writer, entry, liveEntry, note }, driver);
+    const client = clientOf(
+      { writer, entry, note, tag, liveEntry, writerCard },
+      driver
+    );
     await using(client, async () => {
       await push(client);
       expect(await pushAgain(client)).toMatchObject({ outcome: "noop" });
@@ -885,102 +881,80 @@ describe.skipIf(!surrealUrl)("views on SurrealDB", () => {
           { id: 2, name: "Bob" },
         ],
       });
+      await client.tag.create({ data: { id: 1, label: "orm" } });
+      await client.entry.create({
+        data: {
+          id: 1,
+          title: "e1",
+          published: true,
+          writerId: 1,
+          tags: { connect: { id: 1 } },
+        },
+      });
       await client.entry.createMany({
         data: [
-          { id: 1, title: "e1", published: true, writerId: 1, editorId: 2 },
-          { id: 2, title: "e2", published: false, writerId: 1, editorId: null },
-          { id: 3, title: "e3", published: true, writerId: 2, editorId: 1 },
+          { id: 2, title: "e2", published: false, writerId: 1 },
+          { id: 3, title: "e3", published: true, writerId: 2 },
         ],
       });
       await client.note.createMany({
         data: [
-          { id: 1, body: "n1", entryId: 1, liveEntryId: 1 },
-          { id: 2, body: "n2", entryId: 2, liveEntryId: 2 },
-          { id: 3, body: "n3", entryId: 3, liveEntryId: 3 },
+          { id: 1, body: "n1", entryId: 1 },
+          { id: 2, body: "n2", entryId: 2 },
+          { id: 3, body: "n3", entryId: 3 },
         ],
       });
-      expect(
-        await raw(client, "SELECT liveEntryId FROM sv_notes ORDER BY id")
-      ).toEqual([{ liveEntryId: 1 }, { liveEntryId: 2 }, { liveEntryId: 3 }]);
-      const ann = { id: 1, name: "Ann" };
-      const bob = { id: 2, name: "Bob" };
-      const e1 = { id: 1, title: "e1", writerId: 1, editorId: 2 };
-      const e3 = { id: 3, title: "e3", writerId: 2, editorId: 1 };
+      const select = {
+        id: true,
+        title: true,
+        writer: { select: { name: true } },
+        notes: { select: { body: true }, orderBy: { id: "asc" } },
+        tags: { select: { label: true } },
+        _count: { select: { notes: true } },
+      } as const;
+      // Every form against the source's own read.
+      for (const where of [
+        {},
+        { writer: { name: "Bob" } },
+        { notes: { some: { body: "n1" } } },
+        { tags: { none: {} } },
+      ])
+        expect(
+          await client.liveEntry.findMany({
+            where,
+            select,
+            orderBy: { id: "asc" },
+          })
+        ).toEqual(
+          await client.entry.findMany({
+            where: { AND: [{ published: true }, where] },
+            select,
+            orderBy: { id: "asc" },
+          })
+        );
       expect(
         await client.liveEntry.findMany({
-          include: { writer: true, editor: true },
-          orderBy: { id: "asc" },
-        })
-      ).toEqual([
-        { ...e1, writer: ann, editor: bob },
-        { ...e3, writer: bob, editor: ann },
-      ]);
-      expect(
-        await client.liveEntry.findMany({
-          where: { writer: { name: "Bob" } },
+          orderBy: { writer: { name: "desc" } },
           select: { id: true },
         })
-      ).toEqual([{ id: 3 }]);
+      ).toEqual([{ id: 3 }, { id: 1 }]);
+      // A to-many, from the view's key to the entries' records of writers.
+      const cards = {
+        select: {
+          id: true,
+          entries: { select: { id: true }, orderBy: { id: "asc" } },
+        },
+        orderBy: { id: "asc" },
+      } as const;
+      expect(await client.writerCard.findMany(cards)).toEqual(
+        await client.writer.findMany(cards)
+      );
       expect(
-        await client.liveEntry.findMany({
-          where: { editor: { name: "Bob" } },
-          select: { id: true },
-        })
-      ).toEqual([{ id: 1 }]);
-      expect(
-        await client.liveEntry.findMany({
-          where: { notes: { some: { body: "n3" } } },
-          select: { id: true, notes: { select: { id: true } }, _count: true },
-        })
-      ).toEqual([{ id: 3, notes: [{ id: 3 }], _count: { notes: 1 } }]);
-      expect(
-        await client.writer.findMany({
-          select: {
-            id: true,
-            liveEntries: { select: { id: true } },
-            liveEdited: { select: { id: true } },
-          },
-          orderBy: { id: "asc" },
-        })
-      ).toEqual([
-        { id: 1, liveEntries: [{ id: 1 }], liveEdited: [{ id: 3 }] },
-        { id: 2, liveEntries: [{ id: 3 }], liveEdited: [{ id: 1 }] },
-      ]);
-      expect(
-        await client.writer.findMany({
-          where: { liveEntries: { some: { title: "e3" } } },
+        await client.writerCard.findMany({
+          where: { entries: { some: { title: "e3" } } },
           select: { id: true },
         })
       ).toEqual([{ id: 2 }]);
-      expect(
-        await client.note.findMany({
-          select: { id: true, liveEntry: { select: { id: true } } },
-          orderBy: { id: "asc" },
-        })
-      ).toEqual([
-        { id: 1, liveEntry: { id: 1 } },
-        { id: 2, liveEntry: null },
-        { id: 3, liveEntry: { id: 3 } },
-      ]);
-      expect(
-        await client.note.findMany({
-          where: { liveEntry: { title: "e1" } },
-          select: { id: true },
-        })
-      ).toEqual([{ id: 1 }]);
-      expect(
-        await client.liveEntry.findMany({
-          where: { writerId: 2 },
-          select: { id: true },
-        })
-      ).toEqual([{ id: 3 }]);
-      await client.note.update({ where: { id: 2 }, data: { liveEntryId: 3 } });
-      expect(
-        await client.liveEntry.findUnique({
-          where: { id: 3 },
-          select: { notes: { select: { id: true }, orderBy: { id: "asc" } } },
-        })
-      ).toEqual({ notes: [{ id: 2 }, { id: 3 }] });
     });
   });
 

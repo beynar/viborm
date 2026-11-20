@@ -286,13 +286,14 @@ As built (2026-11-19):
   filters by. A golden body in the SurrealDB provider tests stands where the
   SQL dialects' stand: a release that lowers a filter differently fails it
   and must raise `VIEW_REVISION`.
-- Relations between a view and a model read both ways (the read backend
-  takes a reference to a view as the key itself, not a record link). A
-  view's column copied from its source's link holds a record of the table
-  that link targets: a relation of the view to that table compares records,
-  and one to anything else, another view included, compares by the key
-  (`#heldAs`; a review probe found a view-to-view relation reading the
-  source's table).
+- A view inherits its source's relations on SurrealDB too. A view's row is
+  its source record under the view's own table, and its column copied from
+  the source's link holds a record of the table that link targets: a slot
+  read at the view compares records with that table, and the view's own key
+  by the key it names (`#heldAs`); an edge table is walked from the source
+  record (`edgeOf`'s `from`), and a relation filter of a view is asked row by
+  row, since no holder list names a view's records (`#holders`). A write that
+  moves a key follows the links tables hold, never a view's (`slotsHeld`).
 
 ### 2.8 Aggregated views (PR 4)
 

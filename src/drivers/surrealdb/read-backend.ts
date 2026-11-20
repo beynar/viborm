@@ -782,9 +782,9 @@ export class SurrealReadBackend implements ReadBackend {
 
   #linked(edge: Reference): boolean {
     if (edge.pairs.length !== 1 || edge.discriminator) return false;
-    // A view's relation is no link: no foreign key holds it, and `<~` reads a
-    // field a table's `REFERENCE` defines, which a view has none of.
-    if (viewFacts(edge.source) || viewFacts(edge.target)) return false;
+    // A view's relation, its source's slot, is no link of its own: `<~` reads
+    // a field a table's `REFERENCE` defines, which a view has none of.
+    if (viewFacts(edge.source)) return false;
     const q = this.#queries;
     const { source, target } = edge.pairs[0]!;
     return edge.owner === "source"
@@ -1711,7 +1711,13 @@ export class SurrealReadBackend implements ReadBackend {
     const first = topology.sourceIsFirst ? topology.source : topology.target;
     const outward = edge.sourceSide === first;
     const arrow = outward ? "->" : "<-";
+    // The edge table links the source's records; a view's row is its source
+    // record under the view's own table, so the walk starts from that record.
+    const from = viewFacts(edge.source)
+      ? sql`(type::record(${tableOf(edge.sourceSide.model)}, record::id(id)))`
+      : sql``;
     return {
+      from,
       table: name(edge.table),
       near: name(outward ? "in" : "out"),
       far: name(outward ? "out" : "in"),
@@ -1742,7 +1748,7 @@ export class SurrealReadBackend implements ReadBackend {
   /**
    * Whether a model's field holds a record rather than the key's own value. A
    * view's field holds what its source's holds (`DEFINE TABLE … AS SELECT`
-   * copies it): a relation declared on a view stores nothing.
+   * copies it).
    */
   holdsRecord(model: AnyModel, field: string): boolean {
     const facts = viewFacts(model);
@@ -1754,8 +1760,7 @@ export class SurrealReadBackend implements ReadBackend {
    * The table whose record a field holds: its model's own for its single
    * key, the target's for a link it holds, none for a field holding the key
    * itself. A view's field holds what its source's holds: a record of the
-   * table its source's link targets, whatever a relation declared on the view
-   * names.
+   * table its source's link targets.
    */
   #heldTable(model: AnyModel, field: string): string | undefined {
     if (isSingleKey(this.#queries, model, field)) return tableOf(model);
@@ -1797,8 +1802,7 @@ export class SurrealReadBackend implements ReadBackend {
 
   /**
    * The relation whose link a table's field holds as a record: one it owns,
-   * naming another table's single key. A reference to a view holds the key
-   * itself: no foreign key reaches a view, so no field names its records.
+   * naming another table's single key (no relation targets a view).
    */
   #linkOf(model: AnyModel, field: string): Reference | undefined {
     const q = this.#queries;
@@ -1811,8 +1815,7 @@ export class SurrealReadBackend implements ReadBackend {
         edge.owner === "source" &&
         edge.pairs.length === 1 &&
         edge.pairs[0]!.source === field &&
-        isSingleKey(q, edge.target, edge.pairs[0]!.target) &&
-        viewFacts(edge.target) === undefined
+        isSingleKey(q, edge.target, edge.pairs[0]!.target)
       )
         return edge;
     }
@@ -2295,11 +2298,11 @@ export class SurrealReadBackend implements ReadBackend {
       return sql`({ LET $owner = $this; LET $linked = (SELECT VALUE ${this.linkTarget(edge, edge.targetSide, "")} FROM ${this.#links(edge, "$owner")}); (SELECT VALUE id FROM ${name(tableOf(edge.target))}${where}) })`;
     }
     if (edge.kind === "junction") {
-      const { hop } = this.edgeOf(edge);
+      const { from, hop } = this.edgeOf(edge);
       const target = name(tableOf(edge.target));
       return predicate
-        ? sql`${hop}(${target} WHERE ${this.predicate(predicate, true)})`
-        : sql`${hop}${target}`;
+        ? sql`${from}${hop}(${target} WHERE ${this.predicate(predicate, true)})`
+        : sql`${from}${hop}${target}`;
     }
     return this.#traversal(reference(edge), predicate, { unordered: true });
   }
@@ -2594,14 +2597,14 @@ export class SurrealReadBackend implements ReadBackend {
     )
       return this.#distinctMembers(field.edge, args, members);
     if (field.edge.kind === "junction") {
-      const { hop } = this.edgeOf(field.edge);
+      const { from, hop } = this.edgeOf(field.edge);
       const target = field.edge.target;
       const { extras, clauses } = this.#clauses(
         target,
         args,
         args.selector?.predicate
       );
-      const read = sql`${hop}(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${name(tableOf(target))} ${sql.join(clauses, " ")})`;
+      const read = sql`${from}${hop}(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${name(tableOf(target))} ${sql.join(clauses, " ")})`;
       return field.edge.many
         ? sql`${read}${members}`
         : sql`((${read}${members})[0] ?? NULL)`;
@@ -2746,7 +2749,8 @@ export class SurrealReadBackend implements ReadBackend {
         .clauses;
     if (edge.kind === "junction") {
       if (edge.declared) return undefined;
-      return sql`${this.edgeOf(edge).hop}(SELECT * FROM ${name(tableOf(target))} ${sql.join(narrowed(), " ")}).id`;
+      const { from, hop } = this.edgeOf(edge);
+      return sql`${from}${hop}(SELECT * FROM ${name(tableOf(target))} ${sql.join(narrowed(), " ")}).id`;
     }
     const held = reference(edge);
     if (!this.#linked(held)) return undefined;
@@ -2830,7 +2834,7 @@ export class SurrealReadBackend implements ReadBackend {
     const { extras: inner, order: forward } = this.#ordered(terms);
     const sorted =
       edge.kind === "junction"
-        ? sql`${this.edgeOf(edge).hop}(SELECT ${sql.join([sql.raw("*"), ...inner], ", ")} FROM ${name(tableOf(target))}${predicate ? sql` WHERE ${this.predicate(predicate, true)}` : sql.raw("")} ORDER BY ${sql.join(forward, ", ")})`
+        ? sql`${this.edgeOf(edge).from}${this.edgeOf(edge).hop}(SELECT ${sql.join([sql.raw("*"), ...inner], ", ")} FROM ${name(tableOf(target))}${predicate ? sql` WHERE ${this.predicate(predicate, true)}` : sql.raw("")} ORDER BY ${sql.join(forward, ", ")})`
         : this.#traversal(reference(edge), predicate, {
             orderBy: args.orderBy,
           });
@@ -3425,7 +3429,10 @@ export class SurrealReadBackend implements ReadBackend {
       }
     | undefined {
     const edge = filter.edge;
-    if (!this.#lets || filter.closure || filter.link) return undefined;
+    // A view's rows are its source's records under its own table, which no
+    // holder a link or an edge names: they are asked row by row.
+    if (!this.#lets || filter.closure || filter.link || viewFacts(edge.source))
+      return undefined;
     const target = edge.target;
     const distinct = (rows: Sql) => sql`array::distinct(${rows})`;
     const flat = (rows: Sql) => sql`array::flatten(${rows})`;
@@ -3660,11 +3667,11 @@ export class SurrealReadBackend implements ReadBackend {
     );
     if (relation.kind === "junction") {
       if (path) refuse("a to-many filter through a to-one link");
-      const { hop } = this.edgeOf(relation);
+      const { from, hop } = this.edgeOf(relation);
       const target = name(tableOf(relation.target));
       return narrowed
-        ? sql`${hop}(${target} WHERE ${this.predicate(narrowed, true)})`
-        : sql`${hop}${target}`;
+        ? sql`${from}${hop}(${target} WHERE ${this.predicate(narrowed, true)})`
+        : sql`${from}${hop}${target}`;
     }
     const edge = reference(relation);
     if (!edge.many && edge.owner === "source" && this.#linked(edge)) {

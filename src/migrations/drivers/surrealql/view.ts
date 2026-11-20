@@ -257,7 +257,8 @@ export function surrealViewWriter(
 ): ViewBodyWriter {
   return {
     write(context, view) {
-      const { source, query, columns, documents } = viewFacts(view)!;
+      const { source, query, documents } = viewFacts(view)!;
+      const columns = Object.keys(view["~"].state.scalars);
       const schema = new EngineSchema(context.schema, context.resolved);
       const name = nameOf(view);
       const queries =

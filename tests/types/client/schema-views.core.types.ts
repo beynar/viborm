@@ -538,7 +538,9 @@ const liveItems = s.view(() => item, {
   select: { id: true, title: true, ownerId: true, watcherId: true },
 });
 /** No `id`: neither the to-many nor the junction, which join on it. */
-const titles = s.view(() => item, { select: { title: true, ownerId: true } });
+const itemTitles = s.view(() => item, {
+  select: { title: true, ownerId: true },
+});
 /** A JSON column named `owner` takes the name: that relation is not inherited. */
 const ownedItems = s.view(() => item, {
   select: { id: true, ownerId: true, owner: { select: { name: true } } },
@@ -555,7 +557,7 @@ const related = createClient({
     review,
     badge,
     liveItems,
-    titles,
+    itemTitles,
     ownedItems,
     liveIds,
     scores,
@@ -574,7 +576,7 @@ type _liveRelations = Expect<
     "owner" | "watcher" | "reviews" | "badges"
   >
 >;
-type _titlesRelations = Expect<Equal<RelationsOf<typeof titles>, "owner">>;
+type _titlesRelations = Expect<Equal<RelationsOf<typeof itemTitles>, "owner">>;
 type _ownedRelations = Expect<
   Equal<RelationsOf<typeof ownedItems>, "reviews" | "badges">
 >;
@@ -640,10 +642,10 @@ export const _inheritedReads = async () => {
     >
   >;
   // A relation whose key the view does not keep is no member of it.
-  // @ts-expect-error - `titles` keeps no `id`, which `reviews` joins on
-  related.titles.findMany({ include: { reviews: true } });
+  // @ts-expect-error - `itemTitles` keeps no `id`, which `reviews` joins on
+  related.itemTitles.findMany({ include: { reviews: true } });
   // @ts-expect-error - nor in a filter
-  related.titles.findMany({ where: { badges: { some: {} } } });
+  related.itemTitles.findMany({ where: { badges: { some: {} } } });
   // @ts-expect-error - `owner` is `ownedItems`' JSON column, not a relation
   related.ownedItems.findMany({ include: { owner: true } });
   // @ts-expect-error - `liveIds` keeps no `ownerId`
