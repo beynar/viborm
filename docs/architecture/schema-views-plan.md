@@ -339,9 +339,11 @@ column is text):
   PostgreSQL, and would have blocked the refresh of a materialized one). `_count`: an int. A stepped `by`
   member: a string, the `YYYY-MM-DD` text `groupBy` publishes for a period.
 - **One fact says where a column comes from**: `ViewFacts.aggregated.origins`
-  and `heldField(facts, column)`, which the identifier domains, the
-  identifier conversion and W002 read. `_min`/`_max` of an identifier keep
-  its stored format that way.
+  and `heldField(facts, column)`, which the identifier domains read: `_min`/
+  `_max` of an identifier keep its stored format that way.
+- **No relation.** An aggregated view's columns are not its source's, so it
+  inherits none of its source's relations (§2.5, rule 8), and a call that
+  names one is refused as an unknown key.
 - **The key is the `by` list** when no member is nullable: one member is a
   single-field key, several a compound key named as `.id([...])` names one.
   A materialized aggregated view therefore has its unique index, and a
@@ -366,9 +368,7 @@ column is text):
   an `i32`, which a lookup by value does not find in a record id), and a
   key or a link that is a decimal or an instant as that value (`<decimal>`,
   `<datetime>`: a record's key holds its text, which a lookup by value does
-  not name; a relation reads the key out of a record as that value, and
-  names a record from an instant by the text its key holds, `#heldAs`).
-  Each aggregate is written so that the view holds what
+  not name). Each aggregate is written so that the view holds what
   `groupBy` answers (a bigint sum on a decimal accumulator, which a write
   never overflows, `<option<decimal>>` where the field may be unset: a plain
   cast of none fails every such write; a decimal average rounded as the read
@@ -378,9 +378,10 @@ column is text):
   aggregate of a key or a link (a record there).
 - **A derived column is no key in its type either.** `columnOf` clears what
   the source declared for its own column, and the type does the same
-  (`Keyless`): `.extends()` reads a view's keys from its columns again, and
-  typed the least id of a group, or one member of a compound `by`, as a key
-  that the run time refuses.
+  (`Keyless`): `.extends()`, which W003 refuses on a view but the types
+  admit, reads a view's keys from its columns again, and typed the least id
+  of a group, or one member of a compound `by`, as a key that the run time
+  refuses.
 - **A list in a query** (`in: [...]`, `orderBy: [...]`, `OR: [...]`) is a
   read-only tuple under `const`. The constraint of both overloads takes
   every list read-only (`ReadonlyLists`): with a mutable one the inference

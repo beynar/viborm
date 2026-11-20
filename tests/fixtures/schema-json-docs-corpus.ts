@@ -1837,7 +1837,7 @@ export const docsFenceCorpus: DocsFenceCase[] = [
     },
   },
   {
-    id: "views.mdx#6",
+    id: "views.mdx#4",
     coded: () => {
       const order = s.model({
         id: s.string().id(),

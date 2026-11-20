@@ -12,6 +12,7 @@ import { hydrateSchemaNames } from "@src/schema/hydration";
 import { type AnyModel, Model } from "@src/schema/model";
 import { getModelKeyCatalog } from "@src/schema/model/keys";
 import { resolveSchemaOrThrow, validateSchema } from "@src/schema/validation";
+import { idDomainOf } from "@src/schema/validation/id-domains";
 import { uninheritedRelationMessage } from "@src/schema/validation/relation-resolution";
 import { viewFacts } from "@src/schema/view/facts";
 import { describe, expect, it } from "vitest";

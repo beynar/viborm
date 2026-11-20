@@ -17,6 +17,7 @@ import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForbiddenError, UnsupportedOperationError } from "@errors";
+import type { ResolveCallback } from "@migrations/types";
 import { s } from "@schema";
 import { DbNull, Decimal } from "@src/index";
 import { on } from "@src/on";
@@ -1133,16 +1134,13 @@ export function runSchemaViewsBehavior({
  * Aggregated views (`by`, what `groupBy` takes): each is created by a push,
  * a second push plans nothing, and its rows are what `groupBy` answers on
  * its source for the same selection, each aggregate a flat column. Then the
- * read verbs on its columns, its key, a relation from a grouped column, views
- * over and under it, a time step (PostgreSQL only) and its replacement.
+ * read verbs on its columns, its key, no relation, views over and under it, a time step (PostgreSQL only) and its replacement.
  */
 const aggStore = s
   .model({
     id: s.int().id(),
     name: s.string(),
     sales: s.toMany(() => aggSale),
-    // The view's key is its one grouped field: one group per store at most.
-    totals: s.toOne(() => aggByStore),
   })
   .map("va_stores");
 const aggSale = s
@@ -1184,21 +1182,13 @@ const totalsQuery = {
   _max: { id: true, uid: true, label: true, soldAt: true, rate: true },
 } as const;
 const aggTotals = s.view(() => aggSale, totalsQuery).map("va_totals");
-/** One grouped field: the view's key alone, and a relation from it. */
+/** One grouped field: the view's key alone. */
 const byStoreQuery = {
   by: ["storeId"],
   having: { units: { _sum: { gte: 7 } } },
   _sum: { amount: true, units: true },
 } as const;
-const aggByStore = s
-  .view(() => aggSale, byStoreQuery)
-  .extends({
-    store: s
-      .toOne(() => aggStore)
-      .fields("storeId")
-      .references("id"),
-  })
-  .map("va_by_store");
+const aggByStore = s.view(() => aggSale, byStoreQuery).map("va_by_store");
 /** A nullable grouped field: no key. */
 const byRegionQuery = { by: "region", _count: true } as const;
 const aggByRegion = s.view(() => aggSale, byRegionQuery).map("va_by_region");
@@ -1555,20 +1545,10 @@ function runAggregatedViewsBehavior({
       );
     });
 
-    test("a relation from a grouped column reads as the relation between the tables", async () => {
-      const rows = await client.aggByStore.findMany({
-        include: { store: { select: { name: true } } },
-      });
-      expect(rows.map(({ store }) => store)).toEqual([{ name: "South" }]);
-      const stores = await client.aggStore.findMany({
-        orderBy: { id: "asc" },
-        select: { id: true, totals: { select: { sumUnits: true } } },
-      });
-      expect(stores).toEqual([
-        { id: 1, totals: null },
-        { id: 2, totals: { sumUnits: 9 } },
-        { id: 3, totals: null },
-      ]);
+    test("an aggregated view inherits no relation of its source: its columns are not the source's", async () => {
+      await expect(
+        client.aggByStore.findMany({ include: { store: true } } as never)
+      ).rejects.toThrow("include.store: Unknown key: store");
     });
 
     test("a view over an aggregated view, and an aggregated view over a view", async () => {

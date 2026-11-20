@@ -866,14 +866,10 @@ const salesQuery = {
 } as const;
 const salesByDay = s.view(() => sale, salesQuery);
 /** One grouped field, not nullable: the view's key is that field alone. */
-const salesByShop = s
-  .view(() => sale, { by: ["shopId"], _sum: { amount: true } })
-  .extends({
-    shop: s
-      .toOne(() => shop)
-      .fields("shopId")
-      .references("id"),
-  });
+const salesByShop = s.view(() => sale, {
+  by: ["shopId"],
+  _sum: { amount: true },
+});
 /** A nullable grouped field: no key. */
 const salesByRegion = s.view(() => sale, { by: "region", _count: true });
 /** A view of an aggregated view, and an aggregated view of a view. */
@@ -881,9 +877,13 @@ const busyDays = s.view(() => salesByDay, {
   where: { count: { gt: 1 } },
   select: { soldAt: true, currency: true, count: true },
 });
-const wordsByWriter = s.view(() => livePiece, {
-  by: ["writerId"],
-  _sum: { words: true },
+const liveSale = s.view(() => sale, {
+  where: { units: { gt: 0 } },
+  select: { id: true, shopId: true, units: true },
+});
+const unitsByShop = s.view(() => liveSale, {
+  by: ["shopId"],
+  _sum: { units: true },
 });
 const aggregatedSchema = {
   shop,
@@ -892,11 +892,8 @@ const aggregatedSchema = {
   salesByShop,
   salesByRegion,
   busyDays,
-  writer,
-  piece,
-  note,
-  livePiece,
-  wordsByWriter,
+  liveSale,
+  unitsByShop,
 };
 const aggregated = createClient({
   schema: aggregatedSchema,
@@ -973,8 +970,8 @@ type _overAggregated = Expect<
 >;
 type _aggregatedOverView = Expect<
   Equal<
-    RowOf<typeof aggregated.wordsByWriter>,
-    { writerId: string; sumWords: number | null }
+    RowOf<typeof aggregated.unitsByShop>,
+    { shopId: string; sumUnits: number | null }
   >
 >;
 // No key where a grouped field is nullable.
@@ -1002,8 +999,10 @@ export const _aggregatedReads = async () => {
   });
   type _day = Expect<Equal<NonNullable<typeof day>, SalesRow>>;
   await aggregated.salesByShop.findUnique({ where: { shopId: "s" } });
-  // A relation from a grouped column, read from either side.
-  await aggregated.salesByShop.findMany({ include: { shop: true } });
+  // Its columns are not its source's: it inherits no relation.
+  // @ts-expect-error - no `shop` relation on an aggregated view
+  aggregated.salesByShop.findMany({ include: { shop: true } });
+  await aggregated.liveSale.findMany({ include: { shop: true } });
   aggregated.salesByDay.findMany({
     // @ts-expect-error - a source column the view does not group is none of its own
     where: { units: { gt: 1 } },

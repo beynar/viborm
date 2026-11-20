@@ -11,6 +11,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
+import { renderSchemaType } from "@client/schema-introspection";
 import { createClient as createSnowflakeClient } from "@drivers/snowflake";
 import { SurrealDriver } from "@drivers/surrealdb";
 import {

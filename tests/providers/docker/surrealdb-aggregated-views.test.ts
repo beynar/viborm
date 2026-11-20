@@ -32,7 +32,6 @@ const store = s
     id: s.int().id(),
     name: s.string(),
     sales: s.toMany(() => sale),
-    totals: s.toOne(() => byStore),
   })
   .map("sa_stores");
 const sale = s
@@ -76,37 +75,17 @@ const totalsQuery = {
   _max: { units: true, big: true, ratio: true, rate: true, soldAt: true },
 } as const;
 const totals = s.view(() => sale, totalsQuery).map("sa_totals");
-/** One grouped field: the view's key alone, and a relation from it. */
+/** One grouped field: the view's key alone. */
 const byStoreQuery = {
   by: ["storeId"],
   _sum: { amount: true, units: true },
 } as const;
-const byStore = s
-  .view(() => sale, byStoreQuery)
-  .extends({
-    store: s
-      .toOne(() => store)
-      .fields("storeId")
-      .references("id"),
-    budgets: s.toMany(() => budget),
-  })
-  .map("sa_by_store");
-/** A table whose column names the view's key. */
-const budget = s
-  .model({
-    id: s.int().id(),
-    storeRef: s.int(),
-    totals: s
-      .toOne(() => byStore)
-      .fields("storeRef")
-      .references("storeId"),
-  })
-  .map("sa_budgets");
+const byStore = s.view(() => sale, byStoreQuery).map("sa_by_store");
 /** A nullable grouped field: no key. */
 const byRegionQuery = { by: "region", _count: true } as const;
 const byRegion = s.view(() => sale, byRegionQuery).map("sa_by_region");
 
-const schema = { store, sale, budget, totals, byStore, byRegion };
+const schema = { store, sale, totals, byStore, byRegion };
 
 /** What each body is: the grouped fields, each aggregate as groupBy reads it. */
 const TOTALS_BODY = [
@@ -375,7 +354,6 @@ describe.skipIf(!surrealUrl)("aggregated views on SurrealDB", () => {
       expect(labels).toEqual([
         '+ Create table "sa_stores" with 2 columns',
         '+ Create table "sa_sales" with 13 columns',
-        '+ Create table "sa_budgets" with 2 columns',
         '+ Create view "sa_totals"',
         '+ Create view "sa_by_store"',
         '+ Create view "sa_by_region"',
@@ -680,85 +658,6 @@ describe.skipIf(!surrealUrl)("aggregated views on SurrealDB", () => {
     });
   });
 
-  it("a relation from a grouped column, and one from a table's column to the view's key, read as the relation between tables, both ways", async () => {
-    const driver = await freshDriver();
-    const client = clientOf(schema, driver);
-    await using(client, async () => {
-      await push(client);
-      await seed(client);
-      expect(
-        await client.byStore.findMany({
-          include: { store: { select: { name: true } } },
-          orderBy: { storeId: "asc" },
-          select: undefined,
-        })
-      ).toMatchObject([
-        { storeId: 1, store: { name: "North" } },
-        { storeId: 2, store: { name: "South" } },
-      ]);
-      expect(
-        await client.byStore.findMany({
-          where: { store: { name: "South" } },
-          select: { storeId: true },
-        })
-      ).toEqual([{ storeId: 2 }]);
-      expect(
-        await client.store.findMany({
-          orderBy: { id: "asc" },
-          select: { id: true, totals: { select: { sumUnits: true } } },
-        })
-      ).toEqual([
-        { id: 1, totals: { sumUnits: 6 } },
-        { id: 2, totals: { sumUnits: 9 } },
-        { id: 3, totals: null },
-      ]);
-      expect(
-        await client.store.findMany({
-          where: { totals: { sumUnits: { gt: 6 } } },
-          select: { id: true },
-        })
-      ).toEqual([{ id: 2 }]);
-      // A table's column holds the key's value, which is what the group's id
-      // holds of the source's link.
-      await client.budget.createMany({
-        data: [
-          { id: 1, storeRef: 2 },
-          { id: 2, storeRef: 3 },
-        ],
-      });
-      expect(
-        await client.budget.findMany({
-          orderBy: { id: "asc" },
-          select: { id: true, totals: { select: { sumUnits: true } } },
-        })
-      ).toEqual([
-        { id: 1, totals: { sumUnits: 9 } },
-        { id: 2, totals: null },
-      ]);
-      expect(
-        await client.byStore.findMany({
-          orderBy: { storeId: "asc" },
-          select: { storeId: true, budgets: { select: { id: true } } },
-        })
-      ).toEqual([
-        { storeId: 1, budgets: [] },
-        { storeId: 2, budgets: [{ id: 1 }] },
-      ]);
-      expect(
-        await client.budget.findMany({
-          where: { totals: { sumUnits: { gt: 1 } } },
-          select: { id: true },
-        })
-      ).toEqual([{ id: 1 }]);
-      expect(
-        await client.byStore.findMany({
-          where: { budgets: { some: {} } },
-          select: { storeId: true },
-        })
-      ).toEqual([{ storeId: 2 }]);
-    });
-  });
-
   it("a view over an aggregated view, an aggregated view over a view, and one over another", async () => {
     const busyQuery = {
       where: { count: { gt: 1 } },
@@ -1033,7 +932,6 @@ describe.skipIf(!surrealUrl)("aggregated views on SurrealDB", () => {
         amount: s.decimal({ precision: 6, scale: 2 }).id(),
         label: s.string(),
         lines: s.toMany(() => line),
-        group: s.toOne((): AnyModel => byPrice),
       })
       .map("sa_prices");
     const line = s
@@ -1046,49 +944,19 @@ describe.skipIf(!surrealUrl)("aggregated views on SurrealDB", () => {
           .references("amount"),
       })
       .map("sa_lines");
-    const tick = s
-      .model({
-        at: s.dateTime().id(),
-        n: s.int(),
-        total: s.toOne((): AnyModel => byAt),
-      })
-      .map("sa_ticks");
-    /** A table whose column names the view's key by an instant. */
-    const mark = s
-      .model({
-        id: s.int().id(),
-        at: s.dateTime(),
-        total: s
-          .toOne((): AnyModel => byAt)
-          .fields("at")
-          .references("at"),
-      })
-      .map("sa_marks");
+    const tick = s.model({ at: s.dateTime().id(), n: s.int() }).map("sa_ticks");
     const byAmount = s
       .view(() => price, { by: ["amount"], _count: true })
       .map("sa_by_amount");
-    const byPrice: AnyModel = s
+    const byPrice = s
       .view(() => line, { by: ["priceAmount"], _count: true })
-      .extends({
-        price: s
-          .toOne(() => price)
-          .fields("priceAmount")
-          .references("amount"),
-      })
       .map("sa_by_price");
-    const byAt: AnyModel = s
+    const byAt = s
       .view(() => tick, { by: ["at"], _sum: { n: true } })
-      .extends({
-        tick: s
-          .toOne(() => tick)
-          .fields("at")
-          .references("at"),
-        marks: s.toMany(() => mark),
-      })
       .map("sa_by_at");
     const driver = await freshDriver();
     const client = clientOf(
-      { price, line, tick, mark, byAmount, byPrice, byAt },
+      { price, line, tick, byAmount, byPrice, byAt },
       driver
     );
     await using(client, async () => {
@@ -1150,64 +1018,6 @@ describe.skipIf(!surrealUrl)("aggregated views on SurrealDB", () => {
           orderBy: { at: "asc" },
         })
       ).toEqual([{ at: later, sumN: 5 }]);
-      // A relation names the other end's row by that value too, whichever
-      // end holds it as a record's text.
-      await client.mark.create({ data: { id: 1, at: later } });
-      expect(
-        plain(
-          await client.byPrice.findMany({
-            where: { priceAmount: { not: null } },
-            orderBy: { priceAmount: "asc" },
-            select: { count: true, price: { select: { label: true } } },
-          })
-        )
-      ).toEqual([
-        { count: 2, price: { label: "x" } },
-        { count: 1, price: { label: "y" } },
-      ]);
-      expect(
-        await client.byPrice.count({ where: { price: { label: "x" } } })
-      ).toBe(1);
-      expect(
-        await client.price.findMany({
-          orderBy: { label: "asc" },
-          select: { label: true, group: { select: { count: true } } },
-        })
-      ).toEqual([
-        { label: "x", group: { count: 2 } },
-        { label: "y", group: { count: 1 } },
-      ]);
-      expect(await client.price.count({ where: { group: { count: 2 } } })).toBe(
-        1
-      );
-      expect(
-        await client.byAt.findMany({
-          orderBy: { at: "asc" },
-          select: {
-            sumN: true,
-            tick: { select: { n: true } },
-            marks: { select: { id: true } },
-          },
-        })
-      ).toEqual([
-        { sumN: 2, tick: { n: 2 }, marks: [] },
-        { sumN: 5, tick: { n: 5 }, marks: [{ id: 1 }] },
-      ]);
-      expect(
-        await client.tick.findMany({
-          orderBy: { at: "asc" },
-          select: { n: true, total: { select: { sumN: true } } },
-        })
-      ).toEqual([
-        { n: 2, total: { sumN: 2 } },
-        { n: 5, total: { sumN: 5 } },
-      ]);
-      expect(
-        await client.mark.findMany({
-          select: { id: true, total: { select: { sumN: true } } },
-        })
-      ).toEqual([{ id: 1, total: { sumN: 5 } }]);
-      expect(await client.byAt.count({ where: { tick: { n: 5 } } })).toBe(1);
     });
   });
 
@@ -1286,7 +1096,7 @@ describe.skipIf(!surrealUrl)("aggregated views on SurrealDB", () => {
     for (const [query, message] of refused) {
       const bad = s.view((): AnyModel => sale, query as never).map("sa_bad");
       const driver = await freshDriver();
-      const client = clientOf({ store, sale, budget, byStore, bad }, driver);
+      const client = clientOf({ store, sale, byStore, bad }, driver);
       await using(client, async () => {
         const failure = createMigrationClient(client).push({ dryRun: true });
         await expect(failure).rejects.toThrow(UnsupportedOperationError);

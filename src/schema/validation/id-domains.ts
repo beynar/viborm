@@ -301,7 +301,10 @@ function deriveDeclaredIdDomains(
         const field = heldField(facts, held.field);
         held = field === undefined ? undefined : { model: facts.source, field };
       }
-      const domain = held && domains.get(held.model)?.get(held.field);
+      const domain =
+        held &&
+        (declaredDomainOf(held.model, held.field) ??
+          domains.get(held.model)?.get(held.field));
       if (domain !== undefined) byField.set(column, domain);
     }
     if (byField.size > 0) domains.set(model, byField);
