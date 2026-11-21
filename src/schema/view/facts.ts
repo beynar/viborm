@@ -50,7 +50,7 @@ export interface ViewFacts {
    * The view's scalar columns, by field name: the source scalars the query
    * projects, in the source's order; an aggregated view's grouped fields and
    * aggregates, in its columns' order, a name twice where two columns take it
-   * (W004: two columns take no name).
+   * and a name with no scalar where it is longer than a column's (W004).
    */
   readonly columns: readonly string[];
   /**

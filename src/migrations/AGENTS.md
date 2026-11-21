@@ -1352,7 +1352,10 @@ view's columns (`ViewColumnSql`, implemented by `SqlMigrationDriver`): an
 aggregated view's aggregate is cast to its scalar's column type (`viewCast`,
 `mapScalarType`'s own answer) wherever the cast keeps the value, which on
 MySQL is a double only (its `CAST` to an integer or a fixed decimal clamps
-out of range in a SELECT), and PostgreSQL writes a time step's period as the
+out of range in a SELECT), cast there from the aggregate plus `0.0` so an
+average of integers is the `DECIMAL` `groupBy` answers on every read path
+(a bare `CAST` read the double quotient where a key filter was pushed into
+the groups), and PostgreSQL writes a time step's period as the
 `YYYY-MM-DD` day `groupBy` publishes (`viewDay`). The relations a view inherits
 are its source's slots, in no snapshot and no edge: they write no foreign key
 and replace no view. The serializer records `SchemaSnapshot.views`: `ViewDef = { name, hash, sql?,

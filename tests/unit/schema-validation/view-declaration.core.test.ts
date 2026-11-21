@@ -938,6 +938,40 @@ describe("an aggregated view", () => {
     expect(codes(validateSchema({ counted, once }))).toEqual([]);
   });
 
+  it("refuses an aggregate's column whose name is longer than a column's, naming the field it reads (W004)", () => {
+    // 61 bytes: a field's name may be 63, `avg` and `sum` make it 64 here.
+    const long = `l${"o".repeat(59)}g`;
+    const measured = s.model({
+      id: s.string().id(),
+      kind: s.string(),
+      [long]: s.int(),
+    });
+    const averaged = s.view(() => measured, {
+      by: ["kind"],
+      _avg: { [long]: true },
+      _count: true,
+    });
+    const schema = { measured, averaged };
+    // What `viborm check` runs before the rules: the schema's own names hold
+    // no field the view's query did not name.
+    expect(() => hydrateSchemaNames(schema)).not.toThrow();
+    const { errors } = validateSchema(schema);
+    expect(errors).toEqual([
+      expect.objectContaining({ code: "W004", model: "averaged" }),
+    ]);
+    expect(errors[0]!.message).toBe(
+      `View 'averaged' names the _avg of '${long}' 'avgL${long.slice(1)}': a column's name takes at most 63 bytes`
+    );
+    // One byte shorter is a column.
+    const short = long.slice(1);
+    const fits = s.model({ id: s.string().id(), [short]: s.int() });
+    const summed = s.view(() => fits, {
+      by: ["id"],
+      _sum: { [short]: true },
+    });
+    expect(validateSchema({ fits, summed }).errors).toEqual([]);
+  });
+
   it("holds its source's identifier format in a grouped field, a _min and a _max, and in none of what it counts", () => {
     const totals = s.view(() => order, {
       by: ["customerId"],

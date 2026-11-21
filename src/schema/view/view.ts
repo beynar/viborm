@@ -33,6 +33,7 @@ import {
 } from "@validation/model/core/projection";
 import v from "@validation/primitives/v";
 import { isRecord } from "@validation/value-guards";
+import { MAX_SCHEMA_IDENTIFIER_BYTES } from "../identifier";
 import { type AnyModel, Model, type ModelState } from "../model";
 import type { NameFromKeys } from "../model/helper";
 import { emptyRecord, put } from "../record";
@@ -406,7 +407,9 @@ export interface AggregatedViewState<M extends AnyModel, Q> extends ModelState {
           Scalar
         >;
       }
-    : Record<string, never>;
+    : // None: `keyof` of a string-keyed record is every name, which would
+      // make each column a unique selector.
+      Record<never, never>;
   compoundId: GroupKey<M, Q> extends "compound"
     ? {
         [Name in NameFromKeys<GroupedFields<Q>>]: ObjectSchema<
@@ -617,7 +620,10 @@ function deriveAggregatedState(
   const add = (name: string, origin: ViewColumnOrigin, scalar: Scalar) => {
     columns.push(name);
     put(origins, name, origin);
-    put(scalars, name, scalar);
+    // A name longer than a column's (an aggregate's prefix on a long field
+    // name) holds no scalar: W004 refuses it with the field it reads, where
+    // the schema's names would refuse a field nobody declared.
+    if (name.length <= MAX_SCHEMA_IDENTIFIER_BYTES) put(scalars, name, scalar);
   };
   for (const origin of grouped) {
     const field = from.scalars[origin.field]!;

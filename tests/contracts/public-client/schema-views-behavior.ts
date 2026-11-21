@@ -1236,7 +1236,15 @@ const aggHugeTotals = s
   .view(() => aggHuge, { by: ["part"], _sum: { big: true } })
   .map("va_huge_totals");
 
-const AGG_TABLES = ["va_stores", "va_sales", "va_huge"];
+/** Integers whose average is no exact decimal: 1, 1 and 2. */
+const aggThird = s
+  .model({ id: s.int().id(), part: s.string(), units: s.int() })
+  .map("va_thirds");
+const aggThirdAverages = s
+  .view(() => aggThird, { by: ["part"], _avg: { units: true } })
+  .map("va_third_averages");
+
+const AGG_TABLES = ["va_stores", "va_sales", "va_huge", "va_thirds"];
 const AGG_VIEWS = [
   "va_totals",
   "va_by_store",
@@ -1246,6 +1254,7 @@ const AGG_VIEWS = [
   "va_big_by_store",
   "va_daily",
   "va_huge_totals",
+  "va_third_averages",
   "va_store_counts",
   "va_store_counts_over",
 ];
@@ -1296,6 +1305,8 @@ function runAggregatedViewsBehavior({
       aggBigByStore,
       aggHuge,
       aggHugeTotals,
+      aggThird,
+      aggThirdAverages,
       aggStoreCounts,
       aggStoreCountsOver,
       ...(periods ? { aggDaily } : {}),
@@ -1315,6 +1326,13 @@ function runAggregatedViewsBehavior({
       await client.aggSale.deleteMany({});
       await client.aggStore.deleteMany({});
       await client.aggHuge.deleteMany({});
+      await client.aggThird.deleteMany({});
+      for (const [id, units] of [
+        [1, 1],
+        [2, 1],
+        [3, 2],
+      ] as const)
+        await client.aggThird.create({ data: { id, part: "a", units } });
       for (const id of [1, 2])
         await client.aggHuge.create({
           data: { id, part: "a", big: 9_000_000_000_000_000_000n },
@@ -1481,6 +1499,21 @@ function runAggregatedViewsBehavior({
           )
         )
       );
+    });
+
+    test("an average that is no exact decimal is the number groupBy answers, whatever reads it", async () => {
+      const [grouped] = await client.aggThird.groupBy({
+        by: ["part"],
+        _avg: { units: true },
+      });
+      const expected = { part: "a", avgUnits: grouped!._avg.units };
+      expect(expected.avgUnits).toBeCloseTo(4 / 3, 8);
+      // A read of every group, and a read by the key, which MySQL filters
+      // before it groups.
+      expect(await client.aggThirdAverages.findMany()).toEqual([expected]);
+      expect(
+        await client.aggThirdAverages.findUnique({ where: { part: "a" } })
+      ).toEqual(expected);
     });
 
     test("a second push plans nothing", async () => {

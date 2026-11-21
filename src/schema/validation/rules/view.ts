@@ -1,5 +1,6 @@
 // View rules (W001-W004): a view is its read of its source, and nothing else.
 
+import { MAX_SCHEMA_IDENTIFIER_BYTES } from "../../identifier";
 import type { Model } from "../../model";
 import type { Scalar } from "../../scalars/base";
 import { viewFacts } from "../../view/facts";
@@ -33,7 +34,8 @@ function sameMembers(
  * relations are its source's, which it inherits where it keeps their key
  * columns: `.extends()` declares none. W004: a JSON column takes its
  * selection's name, which no scalar's column may share, and two columns of
- * an aggregated view take two names.
+ * an aggregated view take two names, each one a column's name can be: an
+ * aggregate's prefix on a field name already at the limit is longer.
  *
  * W002 is the one owner of what a view cannot hold, and it reads each such
  * fact by name. `view-declaration.core.test.ts` lists every method and every
@@ -126,6 +128,16 @@ export function viewIsItsRead(
       "W004",
       `holds two columns named '${repeated}', a grouped field's and an aggregate's or two aggregates': two columns of one name`,
     ]);
+  // The one column a view lists without a scalar: one whose name its
+  // derivation found longer than a column's (`deriveAggregatedState`).
+  const unnamed = facts.columns.find((column) => !(column in derived.scalars));
+  if (unnamed !== undefined) {
+    const origin = facts.aggregated?.origins[unnamed];
+    refused.push([
+      "W004",
+      `names the ${origin?.aggregate} of '${origin?.field}' '${unnamed}': a column's name takes at most ${MAX_SCHEMA_IDENTIFIER_BYTES} bytes`,
+    ]);
+  }
   return refused.map(([code, what]) => ({
     code,
     message: `View '${model}' ${what}`,

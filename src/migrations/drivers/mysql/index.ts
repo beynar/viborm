@@ -11,7 +11,7 @@ import type { IdDomain } from "@validation/primitives/id-codec";
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
-import type { Sql } from "@sql";
+import { type Sql, sql } from "@sql";
 import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
@@ -435,10 +435,19 @@ export class MySQLMigrationDriver
    * its decoder reads every sum the field's rows can add up to; a sum past
    * what the column's scalar holds (a bigint's past 2^63) is refused by that
    * decoder, never read as another number.
+   *
+   * A double is cast from the aggregate plus a decimal zero. `CAST(AVG(x) AS
+   * DOUBLE)` of integers is not one value: the `DECIMAL` average `groupBy`
+   * answers (`1.333333333` for 1, 1 and 2) where the grouped rows are
+   * materialized, the double quotient (`1.3333333333333333`) where a read's
+   * filter on the key is pushed into them (measured on 8.4: `findMany` read
+   * the one, `findUnique` the other). A `DECIMAL` plus `0.0` is that
+   * `DECIMAL`, whichever way it is read; a double plus `0.0` is the double,
+   * and one past the double range is still refused.
    */
   override viewCast(expression: Sql, scalar: Scalar): Sql {
     return scalar["~"].state.type === "number"
-      ? super.viewCast(expression, scalar)
+      ? super.viewCast(sql`(${expression} + 0.0)`, scalar)
       : expression;
   }
 

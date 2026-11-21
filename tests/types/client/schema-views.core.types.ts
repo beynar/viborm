@@ -1070,6 +1070,40 @@ export const _extendedAggregatedKeys = () => {
   extended.regions.findUnique;
 };
 
+/**
+ * A compound `by` keys the view by its compound id alone, read off the view's
+ * own state (no `.extends()`, which reads its keys from the columns again): no
+ * member of it, nor any other column, names a row.
+ */
+export const _compoundAggregatedKey = async () => {
+  const tally = s.model({
+    id: s.string().id(),
+    kind: s.string(),
+    g: s.int(),
+  });
+  const tallies = s.view(() => tally, { by: ["kind", "g"], _count: true });
+  const keyed = createClient({
+    schema: { tally, tallies },
+    driver: new PGliteDriver(),
+  });
+  const one = await keyed.tallies.findUnique({
+    where: { kind_g: { kind: "a", g: 1 } },
+  });
+  type _one = Expect<
+    Equal<NonNullable<typeof one>, { kind: string; g: number; count: number }>
+  >;
+  await keyed.tallies.findMany({
+    cursor: { kind_g: { kind: "a", g: 1 } },
+    take: 2,
+  });
+  // @ts-expect-error - one member of a compound key is no key
+  keyed.tallies.findUnique({ where: { kind: "a" } });
+  // @ts-expect-error - nor is an aggregate column
+  keyed.tallies.findUnique({ where: { count: 1 } });
+  // @ts-expect-error - nor is it a cursor
+  keyed.tallies.findMany({ cursor: { count: 1 } });
+};
+
 export const _refusedAggregatedQueries = () => {
   // @ts-expect-error - a field the source does not have
   s.view(() => sale, { by: ["nope"], _count: true });

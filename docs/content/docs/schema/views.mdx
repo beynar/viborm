@@ -206,7 +206,10 @@ name of its own:
 
 A column is named by the view, never by a `.map()` of the field it reads.
 Two columns of one name, as a grouped field named `count` beside
-`_count: true`, are refused (`W004`).
+`_count: true`, are refused (`W004`), and so is a name longer than a
+column's 63 bytes, which the prefix makes of a field whose own name is
+nearly that long: the refusal names the field, and a `.map()` keeps the
+field's column under a shorter name.
 
 The key is the `by` list when none of its fields is nullable: one field is a
 key of its own (`findUnique({ where: { currency } })`), several a compound key

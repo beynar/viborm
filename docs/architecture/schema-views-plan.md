@@ -326,7 +326,10 @@ column is text):
   a skip only with a `take`).
 - **Columns**: a grouped field under its name; `count` for `_count: true` or
   `_all`, `countField` for a counted field; `sumField`, `avgField`,
-  `minField`, `maxField`. Two columns of one name are W004's.
+  `minField`, `maxField`. Two columns of one name are W004's, and so is a
+  name past a column's 63 bytes (a prefix on a field name near the limit):
+  the derivation holds no scalar for it, so the schema's names never refuse
+  a field the user did not declare, and W004 names the field it reads.
 - **Each column is a scalar the view derives** (`derivedScalar`,
   `ViewFacts.aggregated.scalars`), named by the view: no `.map()`, default,
   key or generator flag of the field it reads carries over. `_min`/`_max`:
@@ -358,7 +361,11 @@ column is text):
   dialect's migration driver casts an aggregate to the scalar's column type
   (`ViewColumnSql.viewCast`) where the cast keeps its value. MySQL casts
   doubles only: its `CAST` to `SIGNED` or `DECIMAL` clamps an out-of-range
-  value with a warning, where its own `COUNT` and `SUM` are exact. A total
+  value with a warning, where its own `COUNT` and `SUM` are exact. It casts
+  the aggregate plus `0.0`: `CAST(AVG(x) AS DOUBLE)` of integers read the
+  `DECIMAL` average `groupBy` answers (`1.333333333`) through `findMany` and
+  the double quotient (`1.3333333333333333`) through `findUnique`, whose key
+  filter MySQL pushes into the groups (a review probe, 8.4). A total
   past what its column holds is a refused read, never another number.
 - **On SurrealDB** an aggregated view is `DEFINE TABLE … AS SELECT <by>,
   <aggregates> FROM <source> [WHERE …] GROUP BY <by>`, which the database
