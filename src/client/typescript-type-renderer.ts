@@ -551,7 +551,8 @@ export type AdmitRead = (
 /**
  * A view's JSON columns, each typed as the row its query reads on its source
  * types that key. A view over a view reads its source's JSON columns as they
- * are, so it types them as its source does.
+ * are, so it types them as its source does; a relation it reads of its
+ * source (an inherited one) is typed as that read answers it.
  */
 function documentFields(
   facts: ViewFacts,
@@ -562,7 +563,10 @@ function documentFields(
   const sourceFacts = viewFacts(facts.source);
   const read = sourceFacts
     ? documentFields(sourceFacts, admit, index, declarations)
-    : rowFields(
+    : [];
+  if (facts.documents.some((name) => !sourceFacts?.documents.includes(name)))
+    read.push(
+      ...rowFields(
         facts.source,
         requiredShape(
           buildExpectedResultShape(
@@ -573,8 +577,11 @@ function documentFields(
           )
         ),
         declarations
-      );
-  return read.filter((field) => facts.documents.includes(field.name));
+      )
+    );
+  return facts.documents.map(
+    (name) => read.find((field) => field.name === name)!
+  );
 }
 
 function requiredShape(
