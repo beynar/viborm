@@ -738,7 +738,9 @@ export const _variantCollection = async () => {
   await shelves.shelfIds.findMany({ include: { items: true } });
   // @ts-expect-error - without the row key, no member junction joins
   await shelves.shelfNames.findMany({ include: { items: true } });
+};
 
+// =============================================================================
 // A MATERIALIZED VIEW: $refresh on its delegate alone, .index() on its columns
 // =============================================================================
 
