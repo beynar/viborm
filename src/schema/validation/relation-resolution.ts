@@ -43,7 +43,7 @@ import type {
   VariantManyEntry,
   VariantOneEntry,
 } from "../relation/types";
-import { type ViewFacts, viewFacts } from "../view/facts";
+import { type ViewFacts, viewFacts, viewTable } from "../view/facts";
 import { thrownAsError } from "./error";
 import { deriveIdDomains } from "./id-domains";
 import { checkStoredReference } from "./rules/fk";
@@ -1857,9 +1857,7 @@ function settleCount(facts: ViewFacts, index: ResolvedRelationIndex): void {
     (isRecord(projection) && isRecord(projection._count))
   )
     return;
-  let table = source;
-  for (let up = viewFacts(table); up; up = viewFacts(table)) table = up.source;
-  const slots = index.get(table);
+  const slots = index.get(viewTable(source));
   const inherited = index.get(source);
   if (slots === undefined || inherited === undefined) return;
   const relations: Record<string, AnyRelation> = source["~"].state.relations;
@@ -1919,10 +1917,7 @@ export function uninheritedRelationMessage(
   field: string,
   index: ResolvedRelationIndex
 ): string {
-  let table = view;
-  for (let facts = viewFacts(table); facts; facts = viewFacts(table))
-    table = facts.source;
-  const resolved = index.get(table)?.get(field);
+  const resolved = index.get(viewTable(view))?.get(field);
   const columns = view["~"].state.scalars;
   const missing = resolved
     ? slotKeyFields(resolved).filter((key) => !(key in columns))
