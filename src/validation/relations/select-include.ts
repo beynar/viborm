@@ -234,10 +234,11 @@ const withRecurrence = <S extends RelationState, T extends SchemaGetter<S>>(
   ordinary: V.Union<readonly [VibSchema<any, any>, VibSchema<any, any>]>,
   relation: AnyRelation,
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T,
   collectionClauses?: () => RecursiveClauses
 ) => {
-  const recurrence = recurrenceSchema(resolved);
+  const recurrence = recurrenceSchema(resolved, reader);
   if (!recurrence) return ordinary;
   return withRecursiveNode(
     ordinary,
@@ -388,6 +389,7 @@ export const toOneIncludeFactory = <
 >(
   relation: AnyRelation,
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T
 ): ToOneIncludeSchema<Source, Key, S> => {
   const ordinary = v.union([
@@ -407,7 +409,13 @@ export const toOneIncludeFactory = <
       includeToField(relation)
     ),
   ]);
-  return withRecurrence(ordinary, relation, resolved, targetSchemas) as never;
+  return withRecurrence(
+    ordinary,
+    relation,
+    resolved,
+    reader,
+    targetSchemas
+  ) as never;
 };
 
 /**
@@ -592,6 +600,7 @@ export const toManyIncludeFactory = <
 >(
   relation: AnyRelation,
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T,
   junctionSchemas: JunctionSchemas = undefined
 ): ToManyIncludeSchema<Source, Key, S> => {
@@ -608,14 +617,21 @@ export const toManyIncludeFactory = <
       scalarNames: nestedDistinctNames<S>(relation),
     }),
   ]);
-  return withRecurrence(ordinary, relation, resolved, targetSchemas, () => ({
-    where: () => targetSchemas().core.where,
-    orderBy: () => termOrList(targetSchemas().core.orderBy),
-    take: unavailableRecursiveClause("take"),
-    skip: unavailableRecursiveClause("skip"),
-    cursor: unavailableRecursiveClause("cursor"),
-    distinct: unavailableRecursiveClause("distinct"),
-  })) as never;
+  return withRecurrence(
+    ordinary,
+    relation,
+    resolved,
+    reader,
+    targetSchemas,
+    () => ({
+      where: () => targetSchemas().core.where,
+      orderBy: () => termOrList(targetSchemas().core.orderBy),
+      take: unavailableRecursiveClause("take"),
+      skip: unavailableRecursiveClause("skip"),
+      cursor: unavailableRecursiveClause("cursor"),
+      distinct: unavailableRecursiveClause("distinct"),
+    })
+  ) as never;
 };
 
 /**

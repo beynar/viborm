@@ -5,6 +5,8 @@
  * Each driver implements DDL generation and introspection for its database.
  */
 
+import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { SqlDialect } from "@drivers/types";
 import { jsonNullKindOf } from "@schema/json-null";
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { refinedStringDefault } from "@schema/validation/rules/model";
@@ -171,6 +173,12 @@ type GeneratedStatements = string | readonly string[];
  * Each database (PostgreSQL, SQLite, LibSQL, etc.) extends this class
  * to provide database-specific DDL generation and schema introspection.
  */
+/** See {@link MigrationDriver.viewWriter}. */
+export interface ViewWriter {
+  readonly dialect: SqlDialect;
+  readonly adapter: DatabaseAdapter;
+}
+
 export abstract class MigrationDriver {
   /**
    * The SQL dialect this driver targets.
@@ -239,6 +247,20 @@ export abstract class MigrationDriver {
    * Absent on the unbound singleton, which renders under the defaults.
    */
   declare readonly limits?: ResolvedMigrationLimits;
+
+  /**
+   * What a view's body is written with, or nothing where VibORM creates no
+   * view: the SQL dialect its values are spelled in, and an adapter made for
+   * one body, under one fixed configuration of the dialect, so that two
+   * drivers of it write one text (no shared relation bodies, no bound a
+   * transport puts on a statement: D1's expression depth and compound terms,
+   * Neki's relations; every tier a column of the schema may need). Each
+   * dialect answers with its own adapter, so a bundle of one dialect's
+   * migrations carries one.
+   */
+  viewWriter(): ViewWriter | undefined {
+    return;
+  }
 
   // ===========================================================================
   // INTROSPECTION

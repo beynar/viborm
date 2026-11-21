@@ -198,8 +198,10 @@ function describeModel(
     } satisfies StudioField;
   });
   const relations = Object.keys(state.relations).flatMap((field) => {
-    // A resolved schema resolves every slot of every model.
-    return [describeRelation(field, model, slots!.get(field)!, named)];
+    // A resolved schema resolves every slot of every model; a view holds the
+    // relations of its source it inherits, those whose key columns it keeps.
+    const resolved = slots!.get(field);
+    return resolved ? [describeRelation(field, model, resolved, named)] : [];
   });
   const view = viewFacts(model);
   const documents = (view?.documents ?? []).map(
@@ -243,11 +245,13 @@ function describeRelation(
 ): StudioRelation {
   const cardinality = model["~"].state.relations[field]!["~"].state.cardinality;
   const { edge } = resolved;
+  // The slot's own model: a view reads its source's slot.
+  const at = resolved.slot.source;
   if (edge.kind === "foreignKey") {
     const partner = edge.endpoints.find(
-      (endpoint) => !(endpoint.source === model && endpoint.field === field)
+      (endpoint) => !(endpoint.source === at && endpoint.field === field)
     )!;
-    const owner = edge.owner.source === model && edge.owner.field === field;
+    const owner = edge.owner.source === at && edge.owner.field === field;
     return {
       name: field,
       cardinality,
@@ -266,7 +270,7 @@ function describeRelation(
   }
   if (edge.kind === "junction") {
     const partner = edge.endpoints.find(
-      (endpoint) => !(endpoint.source === model && endpoint.field === field)
+      (endpoint) => !(endpoint.source === at && endpoint.field === field)
     )!;
     return {
       name: field,

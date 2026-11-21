@@ -25,7 +25,9 @@ function sameMembers(
  * source's own, and it takes no index and no omission: `.extends()`, `.id()`,
  * `.unique()`, `.index()`, `.rawIndex()`, `.withoutRowid()` and `.omit()`
  * state what a view cannot hold (a column a view should not return is one its
- * query does not project). W003: a view declares no relation. W004: a JSON
+ * query does not project). W003: a view's relations are its source's, which
+ * it inherits where it keeps their key columns: `.extends()` declares none.
+ * W004: a JSON
  * column takes its selection's name, which no scalar's column may share.
  *
  * W002 is the one owner of what a view cannot hold, and it reads each such
@@ -65,8 +67,11 @@ export function viewIsItsRead(
       "W002",
       "declares a field, a key, an index or an omission beside its query",
     ]);
-  if (Object.keys(state.relations).length > 0)
-    refused.push(["W003", "declares a relation, which a view cannot hold"]);
+  if (!sameMembers(state.relations, source.relations))
+    refused.push([
+      "W003",
+      "declares a relation, where a view inherits its source's",
+    ]);
   const columns = new Set(
     Object.entries(state.scalars as Record<string, Scalar>).map(
       ([field, scalar]) => scalar["~"].state.columnName ?? field

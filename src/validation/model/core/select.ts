@@ -127,7 +127,10 @@ export type CountSchema<F extends RelationSchemaBundle> = V.Union<
  * result). Prisma generates no `_count` at all for such a model, so there is no
  * Prisma behavior to mirror; the pinned contract is that equivalence.
  */
-const toManyRelationNames = (model: AnyModel): string[] => {
+const toManyRelationNames = (
+  model: AnyModel,
+  slots: ReadonlyMap<string, unknown>
+): string[] => {
   const relations: Record<string, AnyRelation> = model["~"].state.relations;
   const names: string[] = [];
   // ONE cardinality read across both target domains. A variant COLLECTION is a
@@ -135,8 +138,9 @@ const toManyRelationNames = (model: AnyModel): string[] => {
   // it has a count — and a singular slot of either domain is excluded for the
   // same reason: Prisma's rule is about lists, not about how the far side is
   // addressed.
+  // A relation a view names without inheriting it has no slot: none to count.
   for (const name of Object.keys(relations)) {
-    if (relations[name]!["~"].state.cardinality === "many") {
+    if (slots.has(name) && relations[name]!["~"].state.cardinality === "many") {
       names.push(name);
     }
   }
@@ -145,9 +149,10 @@ const toManyRelationNames = (model: AnyModel): string[] => {
 
 const getCountSchema = <F extends RelationSchemaBundle>(
   model: AnyModel,
-  schemas: F
+  schemas: F,
+  slots: ReadonlyMap<string, unknown>
 ): CountSchema<F> => {
-  const countAllNames = toManyRelationNames(model);
+  const countAllNames = toManyRelationNames(model, slots);
   const relationEntries = v.fromObject<
     F["relations"],
     "countFilter",
@@ -443,7 +448,8 @@ export const getScalarSelectSchema = <M extends AnyModel>(
 
 export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
-  fieldSchemas: F
+  fieldSchemas: F,
+  slots: ReadonlyMap<string, unknown>
 ): SelectSchema<M, F> => {
   const scalarEntries = getScalarSelectEntries(model);
 
@@ -464,7 +470,7 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
       ...polymorphicEntries.entries,
       // Accepts `true` (count every to-many relation) or the explicit
       // { select: { <relation>: true | { where } } } object.
-      _count: getCountSchema(model, fieldSchemas),
+      _count: getCountSchema(model, fieldSchemas, slots),
       _aggregate: getRelationAggregatesSchema(fieldSchemas),
       // A view's JSON columns, each whole, by a boolean: frozen documents
       // take no nested arguments. Last, so a column named `_count` is one.
@@ -485,18 +491,33 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
  * Build include schema - nested include for each relation
  */
 
-export type IncludeSchema<F extends RelationSchemaBundle> = V.Object<
+export type IncludeSchema<
+  M extends AnyModel,
+  F extends RelationSchemaBundle,
+> = V.Object<
   V.FromObject<F["relations"], "include", { optional: true }>["entries"] & {
     _count: CountSchema<F>;
     _aggregate: RelationAggregatesSchema<F>;
-  } & V.FromObject<F["polymorphic"], "include", { optional: true }>["entries"],
+  } & V.FromObject<F["polymorphic"], "include", { optional: true }>["entries"] &
+    V.FromKeys<
+      Extract<ViewDocumentKeys<M>, StoredCounts>[],
+      typeof scalarSelectSchema
+    >["entries"],
   { readonly provides: string | undefined }
 >;
 
-export const getIncludeSchema = <F extends RelationSchemaBundle>(
-  model: AnyModel,
-  schemas: F
-): IncludeSchema<F> => {
+/** The keys a view may store as a column where a read counts at read time. */
+type StoredCounts = "_count" | "_aggregate";
+const STORED_COUNTS: readonly string[] = ["_count", "_aggregate"];
+
+export const getIncludeSchema = <
+  M extends AnyModel,
+  F extends RelationSchemaBundle,
+>(
+  model: M,
+  schemas: F,
+  slots: ReadonlyMap<string, unknown>
+): IncludeSchema<M, F> => {
   // Relations: use relation's include schema (supports boolean or nested with where/orderBy/etc.)
   const relationEntries = v.fromObject<
     F["relations"],
@@ -521,8 +542,16 @@ export const getIncludeSchema = <F extends RelationSchemaBundle>(
       // Prisma supports `_count` under include as well as select — both the
       // `true` shorthand and the explicit object; mirror the select-schema
       // entry (the query engine already builds _count in include position).
-      _count: getCountSchema(model, schemas),
+      _count: getCountSchema(model, schemas, slots),
       _aggregate: getRelationAggregatesSchema(schemas),
+      // A view's stored `_count` or `_aggregate` is a column, which counts
+      // nothing at read time: read whole by a boolean, as `select` reads it.
+      ...v.fromKeys(
+        (viewFacts(model)?.documents ?? []).filter((name) =>
+          STORED_COUNTS.includes(name)
+        ) as Extract<ViewDocumentKeys<M>, StoredCounts>[],
+        scalarSelectSchema
+      ).entries,
     },
     options
   );

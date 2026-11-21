@@ -18,6 +18,7 @@
  * by being ordinary, variant, first, or sole.
  */
 
+import { isRecord } from "../../validation/value-guards";
 import { findReferenceableKey, getModelKeyCatalog, type Model } from "../model";
 import {
   type JunctionOverrideView,
@@ -42,6 +43,7 @@ import type {
   VariantManyEntry,
   VariantOneEntry,
 } from "../relation/types";
+import { type ViewFacts, viewFacts, viewTable } from "../view/facts";
 import { thrownAsError } from "./error";
 import { deriveIdDomains } from "./id-domains";
 import { checkStoredReference } from "./rules/fk";
@@ -491,6 +493,8 @@ function collectSlotNodes(models: ReadonlyMap<string, Model<any>>): SlotNode[] {
   const nodes: SlotNode[] = [];
   let order = 0;
   for (const [modelName, model] of models) {
+    // A view declares no relation: it inherits its source's (`buildIndex`).
+    if (viewFacts(model)) continue;
     const relations: Record<string, AnyRelation> = model["~"].state.relations;
     for (const [field, relation] of Object.entries(relations)) {
       nodes.push({
@@ -1813,13 +1817,129 @@ function buildIndex(
     }
     index.set(model, ordered);
   }
+  const inherited = new Set<Model<any>>();
+  const inherit = (model: Model<any>): void => {
+    const facts = viewFacts(model);
+    if (facts === undefined || inherited.has(model)) return;
+    inherited.add(model);
+    inherit(facts.source);
+    const from = index.get(facts.source);
+    const own = index.get(model)!;
+    const columns = new Set(Object.keys(model["~"].state.scalars));
+    for (const field of Object.keys(model["~"].state.relations)) {
+      const resolved = from?.get(field);
+      if (resolved && slotKeyFields(resolved).every((key) => columns.has(key)))
+        own.set(field, resolved);
+    }
+    settleCount(facts, index);
+  };
+  for (const model of models.values()) inherit(model);
   return index;
+}
+
+/**
+ * A view's `_count` column where its source is a view without one: `s.view`
+ * lists it for `_count: true` when the source has a to-many relation, but a
+ * view source reads only those it inherits, known here. Counting none, a read
+ * gives no `_count` (`toManyRelationNames`), so the view has no column.
+ *
+ * Decided only where this schema can: its table and the source view are in
+ * it, and each to-many of the source resolves at the table. Each inherited
+ * slot is then the table's own, which no other schema resolves differently,
+ * so the answer is the views' and never the order of the schemas that share
+ * them; elsewhere the column is left as declared.
+ */
+function settleCount(facts: ViewFacts, index: ResolvedRelationIndex): void {
+  const { source, query } = facts;
+  const projection = isRecord(query.select) ? query.select : query.include;
+  if (
+    viewFacts(source)?.documents.includes("_count") !== false ||
+    (isRecord(projection) && isRecord(projection._count))
+  )
+    return;
+  const slots = index.get(viewTable(source));
+  const inherited = index.get(source);
+  if (slots === undefined || inherited === undefined) return;
+  const relations: Record<string, AnyRelation> = source["~"].state.relations;
+  for (const [field, relation] of Object.entries(relations))
+    if (
+      relation["~"].state.cardinality === "many" &&
+      !(slots.has(field) && !inherited.has(field))
+    )
+      return;
+  facts.documents = facts.documents.filter((name) => name !== "_count");
+}
+
+/**
+ * The fields of the row it is read at that a slot joins on: a foreign key's
+ * own members at its owner and the key they reference at the other end, a
+ * junction side's key, a variant inverse's referenced key, and a carrier's
+ * private `(type, id)` columns.
+ *
+ * A view inherits a relation of its source exactly when it keeps these
+ * columns (`buildIndex`): the slot is the source's own, read at the view,
+ * whose rows are its source's under the same field names. A relation the
+ * view's columns do not hold is no slot of the view.
+ */
+export function slotKeyFields({
+  edge,
+  slot,
+  member,
+}: ResolvedSlot): readonly string[] {
+  const own = (end: RelationSlot) =>
+    end.source === slot.source && end.field === slot.field;
+  if (edge.kind === "foreignKey")
+    return edge.reference.members.map((key) =>
+      own(edge.owner) ? key.foreignField : key.referencedField
+    );
+  if (edge.kind === "variantRowCarrier")
+    return member
+      ? [(member as ResolvedVariantRowMember).referencedField]
+      : [edge.storage.typeColumn.name, edge.storage.idColumn.name];
+  const junction = edge.kind === "junction";
+  const { topology } = junction
+    ? edge
+    : ((member as ResolvedVariantJunctionMember | undefined) ??
+      edge.members[0]);
+  const side = (junction ? own(edge.endpoints[0]) : !member)
+    ? topology.source
+    : topology.target;
+  return side.members.map((key) => key.referencedField);
+}
+
+/**
+ * Why a view does not read `field`, a relation of its source it has not
+ * inherited: the key columns it does not keep, read off the table's slot.
+ * Read where a call names the relation (`getRelationsSchemas`).
+ */
+export function uninheritedRelationMessage(
+  view: Model<any>,
+  field: string,
+  index: ResolvedRelationIndex
+): string {
+  const resolved = index.get(viewTable(view))?.get(field);
+  const columns = view["~"].state.scalars;
+  const missing = resolved
+    ? slotKeyFields(resolved).filter((key) => !(key in columns))
+    : [];
+  return `The view '${view["~"].names.ts}' does not read '${field}': ${
+    resolved
+      ? `it does not keep ${missing.map((key) => `'${key}'`).join(", ")}, which the relation joins on`
+      : "its source has no such relation"
+  }`;
 }
 
 // Issue builders, apart from the resolution so a valid schema never compiles
 // them.
 
 function missingInverseIssue(endpoint: Endpoint): SchemaValidationIssue {
+  if (viewFacts(endpoint.target))
+    return refusal(
+      "R002",
+      endpoint.node,
+      `'${endpoint.node.modelName}.${endpoint.node.field}' targets the view '${endpoint.targetName}', which no relation reaches`,
+      "Relate it to the view's source"
+    );
   return refusal(
     "R002",
     endpoint.node,

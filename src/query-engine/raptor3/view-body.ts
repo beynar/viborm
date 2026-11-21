@@ -13,10 +13,6 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import type { SqlDialect } from "@drivers/types";
 import { UnsupportedOperationError } from "@errors";
 import type { Schema } from "@schema/hydration";
 import type { AnyModel } from "@schema/model";
@@ -38,13 +34,14 @@ export interface ViewBodyContext {
   readonly schema: Schema;
   /** The schema's resolved views, where the caller already holds them. */
   readonly resolved?: ResolvedSchemaViews;
-  /** The dialect the body is written in: one text for every driver of it. */
-  readonly dialect: SqlDialect;
   /**
-   * The estate's adapter, where the body names its tables in the estate's
-   * PostgreSQL schema or MySQL database: the adapter is the one owner of it.
+   * The adapter the body is written with, made for this one body (its table
+   * renderer is wrapped to note what the body reads). The dialect's migration
+   * driver makes it (`MigrationDriver.viewWriter`): one fixed configuration
+   * per dialect, so that every driver of a dialect writes one text, in the
+   * estate's PostgreSQL schema.
    */
-  readonly estate?: Pick<DatabaseAdapter, "namespace">;
+  readonly adapter: DatabaseAdapter;
 }
 
 export interface ViewBody {
@@ -77,23 +74,6 @@ function refuse(view: string, clause: string, reason: string): never {
     `View '${view}' cannot be created from a query that ${clause}: ${reason}.`,
     { meta: { model: view, feature: clause } }
   );
-}
-
-/**
- * The adapter of `dialect` under one fixed configuration, so that two drivers
- * of one dialect write one text: no shared relation bodies, no bound a
- * transport puts on a statement (D1's expression depth and compound terms,
- * Neki's relations), every tier a column of the schema may need.
- */
-function fixedAdapter(
-  dialect: SqlDialect,
-  namespace?: string
-): DatabaseAdapter {
-  if (dialect === "sqlite") return new SQLiteAdapter();
-  if (dialect === "mysql") return new MySQLAdapter(namespace);
-  const adapter = new PostgresAdapter(namespace, true);
-  adapter.capabilities.supportsVector = true;
-  return adapter;
 }
 
 /** What a view's query may not say at its root, read off its admitted form. */
@@ -217,7 +197,7 @@ function asData(this: unknown, key: string, value: unknown): unknown {
 export function viewBody(context: ViewBodyContext, view: AnyModel): ViewBody {
   const { source, query } = viewFacts(view)!;
   const schema = new EngineSchema(context.schema, context.resolved);
-  const adapter = fixedAdapter(context.dialect, context.estate?.namespace);
+  const { adapter } = context;
   // Every persistent table a lowering names goes through this one renderer.
   const reads = new Set<string>([tableOf(source)]);
   const { identifiers } = adapter;

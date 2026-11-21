@@ -100,7 +100,8 @@ export type StateDocumentKeys<State> = 0 extends 1 & State
     ? DeclaredDocumentKeys<Source, Query>
     : never;
 
-type DeclaredDocumentKeys<Source extends AnyModel, Query> = Exclude<
+/** The JSON columns a view of `Source` declared by `Query` has. */
+export type DeclaredDocumentKeys<Source extends AnyModel, Query> = Exclude<
   Query extends { select: infer Selection extends object }
     ? CountedKeys<
         Source,

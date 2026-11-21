@@ -114,8 +114,19 @@ const oddHolder = s.model({
     .references("id"),
 });
 
+/** A view keeping the table's key recurses through its inherited self relation. */
+const documentIds = s.view(() => document, {
+  select: { id: true, parentId: true },
+});
+/** One keeping the foreign key alone inherits the relation, not its walks. */
+const documentLinks = s.view(() => document, {
+  select: { parentId: true, personal: true },
+});
+
 const schemas = createSchemaRegistry({
   document,
+  documentIds,
+  documentLinks,
   grant,
   team,
   compoundNode,
@@ -620,5 +631,27 @@ describe("recursive filter — JSON Schema", () => {
     // An ineligible slot lists its ordinary object alone.
     expect(alternatives(filters.documentGrants)).toHaveLength(1);
     expect(closureMembers(filters.documentGrants)).toHaveLength(0);
+  });
+});
+
+describe("recursive filter and projection — a view", () => {
+  test("recurses where it keeps the table's key, and refuses recurse where it does not", () => {
+    const kept = schemas.documentIds.relations.parent;
+    const dropped = schemas.documentLinks.relations.parent;
+    expect(
+      parse(kept.filter, { recurse: true, some: {} }).issues
+    ).toBeUndefined();
+    expect(parse(kept.include, { recurse: true }).issues).toBeUndefined();
+    expect(issueOf(parse(dropped.filter, { recurse: true, some: {} }))).toEqual(
+      {
+        message: UNAVAILABLE_RECURRENCE,
+        path: ["recurse"],
+      }
+    );
+    expect(issueOf(parse(dropped.include, { recurse: true }))).toMatchObject({
+      message: UNAVAILABLE_RECURRENCE,
+    });
+    // An ordinary read of the relation stays.
+    expect(parse(dropped.include, true).issues).toBeUndefined();
   });
 });

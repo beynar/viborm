@@ -328,7 +328,7 @@ const rewriteRelationMap = (
       continue;
     }
 
-    const target = slotTarget(resolved, model);
+    const target = slotTarget(resolved);
 
     if (value === true) {
       const defaults = resolve.omit(target);
@@ -372,14 +372,13 @@ export const directVariantCarrier = (
  * invoked and no `targetEntries()` is walked: the edge already names both
  * endpoints, and a bound inverse names the carrier that holds the storage.
  */
-export const slotTarget = (
-  resolved: ResolvedSlot,
-  source: AnyModel
-): AnyModel => {
+export const slotTarget = (resolved: ResolvedSlot): AnyModel => {
   const edge = resolved.edge;
   if (edge.kind === "foreignKey" || edge.kind === "junction") {
+    // The slot's own model, which a view reading its source's slot is not.
     const [first, second] = edge.endpoints;
-    return first.source === source && first.field === resolved.slot.field
+    return first.source === resolved.slot.source &&
+      first.field === resolved.slot.field
       ? second.source
       : first.source;
   }

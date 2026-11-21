@@ -422,6 +422,22 @@ export const _countColumn = async () => {
     // @ts-expect-error - a view without the column has none to omit
     omit: { label: false, _count: true },
   });
+  // A stored `_count` counts nothing at read time: read whole, by a boolean,
+  // under `include` as under `select`.
+  const included = await client.digest.findMany({ include: { _count: true } });
+  type _included = Expect<
+    Equal<(typeof included)[number]["_count"], { posts: number }>
+  >;
+  client.digest.findMany({
+    include: {
+      // @ts-expect-error - a stored `_count` takes no arguments
+      _count: { select: { posts: { where: { name: "x" } } } },
+    },
+  });
+  client.digest.findMany({
+    // @ts-expect-error - nor under `select`
+    select: { _count: { select: { posts: true } } },
+  });
 };
 
 // =============================================================================
@@ -473,3 +489,297 @@ type _trimmedKeyless = Expect<
     false
   >
 >;
+
+// =============================================================================
+// INHERITED RELATIONS: A VIEW READS ITS SOURCE'S WHERE IT KEEPS THEIR KEYS
+// =============================================================================
+
+const owner = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  items: s.toMany(() => item),
+  watched: s.toMany(() => item).name("watcher"),
+});
+const item = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  live: s.boolean(),
+  ownerId: s.string(),
+  watcherId: s.string().nullable(),
+  owner: s
+    .toOne(() => owner)
+    .fields("ownerId")
+    .references("id"),
+  watcher: s
+    .toOne(() => owner)
+    .name("watcher")
+    .fields("watcherId")
+    .references("id"),
+  reviews: s.toMany(() => review),
+  badges: s.toMany(() => badge),
+});
+const review = s.model({
+  id: s.string().id(),
+  stars: s.int(),
+  itemId: s.string(),
+  item: s
+    .toOne(() => item)
+    .fields("itemId")
+    .references("id"),
+});
+const badge = s.model({
+  id: s.string().id(),
+  label: s.string(),
+  items: s.toMany(() => item),
+});
+/** Every key column kept: a foreign key, a to-many and a junction. */
+const liveItems = s.view(() => item, {
+  where: { live: true },
+  select: { id: true, title: true, ownerId: true, watcherId: true },
+});
+/** No `id`: neither the to-many nor the junction, which join on it. */
+const titles = s.view(() => item, { select: { title: true, ownerId: true } });
+/** A JSON column named `owner` takes the name: that relation is not inherited. */
+const ownedItems = s.view(() => item, {
+  select: { id: true, ownerId: true, owner: { select: { name: true } } },
+});
+/** A view of reviews keeping `itemId`: its to-one is the table's. */
+const scores = s.view(() => review, { select: { id: true, itemId: true } });
+/** A view of a view inherits what its source inherits, where it keeps it. */
+const liveIds = s.view(() => liveItems, { select: { id: true } });
+
+const related = createClient({
+  schema: {
+    owner,
+    item,
+    review,
+    badge,
+    liveItems,
+    titles,
+    ownedItems,
+    liveIds,
+    scores,
+  },
+  driver: new PGliteDriver(),
+});
+type RelationsOf<M> = M extends {
+  readonly "~": { readonly state: { readonly relations: infer R } };
+}
+  ? keyof R
+  : never;
+
+type _liveRelations = Expect<
+  Equal<
+    RelationsOf<typeof liveItems>,
+    "owner" | "watcher" | "reviews" | "badges"
+  >
+>;
+type _titlesRelations = Expect<Equal<RelationsOf<typeof titles>, "owner">>;
+type _ownedRelations = Expect<
+  Equal<RelationsOf<typeof ownedItems>, "reviews" | "badges">
+>;
+type _overRelations = Expect<
+  Equal<RelationsOf<typeof liveIds>, "reviews" | "badges">
+>;
+
+export const _inheritedReads = async () => {
+  const rows = await related.liveItems.findMany({
+    where: {
+      owner: { name: "Ann" },
+      watcher: null,
+      reviews: { some: { stars: { gte: 4 } } },
+      badges: { none: { label: "spam" } },
+    },
+    orderBy: [{ owner: { name: "asc" } }, { reviews: { _count: "desc" } }],
+    include: {
+      owner: true,
+      watcher: { select: { name: true } },
+      reviews: { where: { stars: 5 }, take: 2 },
+      badges: true,
+      _count: true,
+    },
+  });
+  type Row = (typeof rows)[number];
+  // Read as the source reads them, nullability included.
+  const tableRows = await related.item.findMany({
+    include: { owner: true, watcher: { select: { name: true } } },
+  });
+  type TableRow = (typeof tableRows)[number];
+  type _owner = Expect<Equal<Row["owner"], TableRow["owner"]>>;
+  const scored = await related.scores.findMany({ include: { item: true } });
+  const reviewed = await related.review.findMany({ include: { item: true } });
+  type _item = Expect<
+    Equal<(typeof scored)[number]["item"], (typeof reviewed)[number]["item"]>
+  >;
+  // A required foreign key's row is there.
+  type _itemThere = Expect<
+    Equal<null extends (typeof scored)[number]["item"] ? true : false, false>
+  >;
+  type _watcher = Expect<Equal<Row["watcher"], { name: string } | null>>;
+  type _reviews = Expect<
+    Equal<Row["reviews"], { id: string; stars: number; itemId: string }[]>
+  >;
+  type _count = Expect<
+    Equal<Row["_count"], { reviews: number; badges: number }>
+  >;
+  const nested = await related.liveIds.findFirst({
+    select: {
+      id: true,
+      reviews: { select: { stars: true, item: { select: { title: true } } } },
+      _count: { select: { badges: true } },
+    },
+  });
+  type _nested = Expect<
+    Equal<
+      typeof nested,
+      {
+        id: string;
+        reviews: { stars: number; item: { title: string } }[];
+        _count: { badges: number };
+      } | null
+    >
+  >;
+  // A relation whose key the view does not keep is no member of it.
+  // @ts-expect-error - `titles` keeps no `id`, which `reviews` joins on
+  related.titles.findMany({ include: { reviews: true } });
+  // @ts-expect-error - nor in a filter
+  related.titles.findMany({ where: { badges: { some: {} } } });
+  // @ts-expect-error - `owner` is `ownedItems`' JSON column, not a relation
+  related.ownedItems.findMany({ include: { owner: true } });
+  // @ts-expect-error - `liveIds` keeps no `ownerId`
+  related.liveIds.findMany({ include: { owner: true } });
+  // The JSON column stays the frozen document it is.
+  related.ownedItems.findMany({ select: { owner: true, reviews: true } });
+};
+
+// =============================================================================
+// A DECLARED JUNCTION: THE COLUMNS IT REFERENCES, NOT THE ROW KEY
+// =============================================================================
+
+const teamParent = s
+  .model({
+    organizationId: s.string(),
+    childId: s.string(),
+    parentId: s.string(),
+    child: s
+      .toOne(() => team)
+      .fields("organizationId", "childId")
+      .references("organizationId", "id"),
+    parent: s
+      .toOne(() => team)
+      .fields("organizationId", "parentId")
+      .references("organizationId", "id"),
+  })
+  .id(["childId", "parentId"]);
+const team = s
+  .model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    parents: s
+      .toMany(() => team)
+      .name("graph")
+      .through(() => teamParent)
+      .source("child")
+      .target("parent"),
+    children: s.toMany(() => team).name("graph"),
+    tags: s.toMany(() => teamTag).through("team_tag"),
+  })
+  .unique(["organizationId", "id"]);
+const teamTag = s.model({
+  id: s.string().id(),
+  teams: s.toMany(() => team),
+});
+/** Its junction references `organizationId` beside `id`, which this view drops. */
+const teamIds = s.view(() => team, { select: { id: true } });
+const teamKeys = s.view(() => team, {
+  select: { id: true, organizationId: true },
+});
+const teams = createClient({
+  schema: { teamParent, team, teamTag, teamIds, teamKeys },
+  driver: new PGliteDriver(),
+});
+
+export const _declaredJunction = async () => {
+  // @ts-expect-error - the junction joins on `organizationId`, which it drops
+  await teams.teamIds.findMany({ include: { parents: true } });
+  // @ts-expect-error - nor does the other end of the pair read
+  await teams.teamIds.findMany({ include: { children: true } });
+  // A junction the schema owns references the row key.
+  await teams.teamIds.findMany({ include: { tags: true } });
+  const kept = await teams.teamKeys.findMany({
+    include: { parents: true, children: true },
+  });
+  type _kept = Expect<
+    Equal<(typeof kept)[number]["parents"][number]["organizationId"], string>
+  >;
+};
+
+// =============================================================================
+// A VARIANT COLLECTION: ITS MEMBER JUNCTIONS REFERENCE THE ROW KEY
+// =============================================================================
+
+const book = s.model({ id: s.string().id(), title: s.string() });
+const disc = s.model({ id: s.string().id(), label: s.string() });
+const shelf = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  items: s.toMany({ book: () => book, disc: () => disc }),
+});
+const shelfIds = s.view(() => shelf, { select: { id: true } });
+const shelfNames = s.view(() => shelf, { select: { name: true } });
+const shelves = createClient({
+  schema: { book, disc, shelf, shelfIds, shelfNames },
+  driver: new PGliteDriver(),
+});
+
+export const _variantCollection = async () => {
+  await shelves.shelfIds.findMany({ include: { items: true } });
+  // @ts-expect-error - without the row key, no member junction joins
+  await shelves.shelfNames.findMany({ include: { items: true } });
+};
+
+// =============================================================================
+// A SELF JUNCTION WHOSE SIDES REFERENCE DIFFERENT KEYS: EACH END ITS OWN SIDE
+// =============================================================================
+
+const nodeLink = s
+  .model({
+    childId: s.string(),
+    parentSlug: s.string(),
+    child: s
+      .toOne(() => node)
+      .fields("childId")
+      .references("id"),
+    parent: s
+      .toOne(() => node)
+      .fields("parentSlug")
+      .references("slug"),
+  })
+  .id(["childId", "parentSlug"]);
+const node = s.model({
+  id: s.string().id(),
+  slug: s.string().unique(),
+  parents: s
+    .toMany(() => node)
+    .name("graph")
+    .through(() => nodeLink)
+    .source("child")
+    .target("parent"),
+  children: s.toMany(() => node).name("graph"),
+});
+const nodeIds = s.view(() => node, { select: { id: true } });
+const nodeSlugs = s.view(() => node, { select: { slug: true } });
+const nodes = createClient({
+  schema: { nodeLink, node, nodeIds, nodeSlugs },
+  driver: new PGliteDriver(),
+});
+
+export const _selfJunctionSides = async () => {
+  // `parents` reads its `child` side, which references `id`.
+  await nodes.nodeIds.findMany({ include: { parents: true } });
+  // @ts-expect-error - `children` reads the `parent` side, which references `slug`
+  await nodes.nodeIds.findMany({ include: { children: true } });
+  await nodes.nodeSlugs.findMany({ include: { children: true } });
+  // @ts-expect-error - and `parents` needs `id`
+  await nodes.nodeSlugs.findMany({ include: { parents: true } });
+};

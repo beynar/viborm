@@ -375,8 +375,8 @@ A [view](/docs/schema/views) is stated in `views`, beside `models`, by what
 | `query` | what `findMany` takes on the source |
 | `table` | `.map(viewName)` |
 
-A view's columns and key are not written. `s.view` derives them from the source
-and the query, so the parser calls `s.view` and gets them back.
+A view's columns, key and relations are not written. `s.view` derives them
+from the source and the query, so the parser calls `s.view` and gets them back.
 
 A value in `query` that JSON cannot spell takes the same tag as a
 [default](#defaults): `{ "$date": … }`, `{ "$bigint": … }`, `{ "$bytes": … }`,

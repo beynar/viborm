@@ -1,3 +1,4 @@
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { nativeTypeFor } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
 import { encodeMySqlDateTime } from "@validation/primitives/datetime-physical-codec";
@@ -91,6 +92,7 @@ import type {
   DropUniqueConstraintOperation,
   RenameColumnOperation,
   RenameTableOperation,
+  ViewWriter,
 } from "../base";
 import { SqlMigrationDriver } from "../sql";
 import {
@@ -216,6 +218,11 @@ export class MySQLMigrationDriver
   implements CommandNamespaceResolver
 {
   readonly dialect = "mysql" as const;
+
+  /** Relative to the database a session selects, as every MySQL artifact is. */
+  override viewWriter(): ViewWriter {
+    return { dialect: this.dialect, adapter: new MySQLAdapter() };
+  }
   readonly driverName = "mysql";
 
   readonly capabilities: MigrationCapabilities = {

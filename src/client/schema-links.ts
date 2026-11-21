@@ -102,6 +102,18 @@ type TargetLinks<S, Target> = Target extends {
       }
     : never;
 
+/**
+ * A view's source, as a schema key: the view reads its source's slots, so
+ * the linked view names the linked source (`LinkedView`).
+ */
+type ViewSourceLink<S, M> = M extends {
+  readonly "~": {
+    readonly state: { readonly view: { readonly source: infer Source } };
+  };
+}
+  ? { readonly " source": SchemaKeyOf<S, Source> }
+  : unknown;
+
 /** Resolve while the producer still owns the exact getter types. */
 export type RelationLinks<S extends Schema> = {
   [K in keyof S]: {
@@ -109,7 +121,7 @@ export type RelationLinks<S extends Schema> = {
       S,
       S[K]["~"]["state"]["relations"][R]["~"]["state"]["target"]
     >;
-  };
+  } & ViewSourceLink<S, S[K]>;
 };
 
 type LinkAt<L, K, R> = K extends keyof L
@@ -313,15 +325,33 @@ type SlotKind<Cardinality, Kind> = {
   readonly target: { readonly kind: Kind };
 };
 
+/**
+ * A view's declaration with its source relinked: a relation the view reads
+ * is its source's slot, whose partner names the linked source.
+ */
+type LinkedView<View, S extends Schema, L, K> = View extends {
+  readonly source: unknown;
+  readonly query: infer Query;
+}
+  ? [LinkAt<L, K, " source">] extends [never]
+    ? View
+    : {
+        readonly source: LinkedTarget<S, L, LinkAt<L, K, " source">>;
+        readonly query: Query;
+      }
+  : View;
+
 /** Relinking operates only on the already-flat schema and its literal links. */
 type LinkedState<S extends Schema, L, K extends keyof S> = S[K] extends Model<
   infer State
 >
   ? {
-      [P in keyof State]: P extends "shape" | "relations"
-        ? {
-            [F in keyof State[P]]: LinkedRelation<State[P][F], S, L, K, F>;
-          }
+      [P in keyof State]: P extends "shape" | "relations" | "view"
+        ? P extends "view"
+          ? LinkedView<State[P], S, L, K>
+          : {
+              [F in keyof State[P]]: LinkedRelation<State[P][F], S, L, K, F>;
+            }
         : State[P];
     }
   : never;

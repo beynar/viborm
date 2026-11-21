@@ -25,6 +25,9 @@ import { target, writes } from "@extensions/on";
 import { viewBody } from "@query-engine/raptor3/view-body";
 import { s } from "@schema";
 import { type Sql, sql } from "@sql";
+import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
+import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
+import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import { ordering } from "@src/ordering";
 import { softDelete } from "@src/soft-delete";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
@@ -96,11 +99,23 @@ const titles = s
 const views = { published, latest, popular, counted, titles };
 const schema = { author, post, ...views };
 
+/** The adapter a migration of `dialect` writes a view's body with. */
+const WRITERS = {
+  postgresql: postgresMigrationDriver,
+  mysql: mysqlMigrationDriver,
+  sqlite: sqlite3MigrationDriver,
+};
+const writing = (dialect: keyof typeof WRITERS) =>
+  WRITERS[dialect].viewWriter().adapter;
+
 /** A declared query the body refuses, as the view that declares it. */
 const refused = (query: object) => {
   const bad = s.view(() => post, query as never).map("bad_view");
   return () =>
-    viewBody({ schema: { author, post, bad }, dialect: "postgresql" }, bad);
+    viewBody(
+      { schema: { author, post, bad }, adapter: writing("postgresql") },
+      bad
+    );
 };
 
 const text = (statement: Sql) => statement.toStatement("$n");
@@ -114,7 +129,10 @@ const WINDOW_ORDER = /ORDER BY .q0.\..id. DESC LIMIT/;
 
 describe("a view's body", () => {
   test("projects its root scalars as stored and its documents as a read carries them", () => {
-    const body = viewBody({ schema, dialect: "postgresql" }, published);
+    const body = viewBody(
+      { schema, adapter: writing("postgresql") },
+      published
+    );
     const statement = text(body.statement);
     // A bigint and a decimal column as stored, under their column names.
     expect(statement).toMatch(STORED_ROOT);
@@ -131,28 +149,30 @@ describe("a view's body", () => {
 
   test("keeps the root order of a window", () => {
     for (const dialect of ["postgresql", "mysql", "sqlite"] as const) {
-      const statement = text(viewBody({ schema, dialect }, latest).statement);
+      const statement = text(
+        viewBody({ schema, adapter: writing(dialect) }, latest).statement
+      );
       expect(statement).toMatch(WINDOW_ORDER);
     }
   });
 
   test("reads a source view's documents as its plain columns", () => {
-    const body = viewBody({ schema, dialect: "sqlite" }, popular);
+    const body = viewBody({ schema, adapter: writing("sqlite") }, popular);
     expect(text(body.statement)).toBe(
       'SELECT "q0"."id" AS "id", "q0"."author" AS "author" FROM "published_posts" AS "q0"'
     );
     expect(body.reads).toEqual(["published_posts"]);
   });
 
-  test("is one text for every driver of a dialect, in the estate's namespace", () => {
+  test("names its tables as the adapter it is written with names them", () => {
     const pg = viewBody(
-      { schema, dialect: "postgresql", estate: { namespace: "app" } },
+      { schema, adapter: new PostgresAdapter("app", true) },
       published
     );
     expect(text(pg.statement)).toContain('"app"."posts" AS "q0"');
     expect(text(pg.statement)).toContain('"app"."authors"');
     const mysql = viewBody(
-      { schema, dialect: "mysql", estate: { namespace: "shop" } },
+      { schema, adapter: new MySQLAdapter("shop") },
       counted
     );
     expect(text(mysql.statement)).toContain("`shop`.`authors` AS `q0`");
@@ -160,7 +180,10 @@ describe("a view's body", () => {
   });
 
   test("states the shape a view row is decoded with, as JSON data", () => {
-    const { shape } = viewBody({ schema, dialect: "sqlite" }, published);
+    const { shape } = viewBody(
+      { schema, adapter: writing("sqlite") },
+      published
+    );
     expect(JSON.parse(JSON.stringify(shape))).toEqual(shape);
     expect(shape).toMatchObject({
       kind: "object",

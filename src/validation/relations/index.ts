@@ -48,6 +48,7 @@ import {
 import {
   type JunctionSchemas,
   junctionModelOf,
+  refusedRelationSchemas,
   type SchemaGetter,
 } from "./helpers";
 import {
@@ -86,12 +87,13 @@ const toOneSchemas = <
 >(
   relation: AnyRelation,
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T
 ) => {
   const state = relation["~"].state as S;
   return {
     filter: v.lazy(() =>
-      toOneFilterFactory<Source, Key, S, T>(resolved, targetSchemas)
+      toOneFilterFactory<Source, Key, S, T>(resolved, reader, targetSchemas)
     ),
     create: v.lazy(() =>
       toOneCreateFactory<Source, Key, S, T>(resolved, targetSchemas)
@@ -100,10 +102,20 @@ const toOneSchemas = <
       toOneUpdateFactory<Source, Key, S, T>(state, resolved, targetSchemas)
     ),
     select: v.lazy(() =>
-      toOneSelectFactory<Source, Key, S, T>(relation, resolved, targetSchemas)
+      toOneSelectFactory<Source, Key, S, T>(
+        relation,
+        resolved,
+        reader,
+        targetSchemas
+      )
     ),
     include: v.lazy(() =>
-      toOneIncludeFactory<Source, Key, S, T>(relation, resolved, targetSchemas)
+      toOneIncludeFactory<Source, Key, S, T>(
+        relation,
+        resolved,
+        reader,
+        targetSchemas
+      )
     ),
     orderBy: toOneOrderByFactory<S, T>(relation, targetSchemas),
     countFilter: v.lazy(() => countFilterFactory(state, targetSchemas)),
@@ -119,6 +131,7 @@ const toManySchemas = <
 >(
   relation: AnyRelation,
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T,
   junctionSchemas: JunctionSchemas
 ) => {
@@ -127,6 +140,7 @@ const toManySchemas = <
     filter: v.lazy(() =>
       toManyFilterFactory<Source, Key, S, T>(
         resolved,
+        reader,
         targetSchemas,
         junctionSchemas
       )
@@ -149,6 +163,7 @@ const toManySchemas = <
       toManySelectFactory<Source, Key, S, T>(
         relation,
         resolved,
+        reader,
         targetSchemas,
         junctionSchemas
       )
@@ -157,6 +172,7 @@ const toManySchemas = <
       toManyIncludeFactory<Source, Key, S, T>(
         relation,
         resolved,
+        reader,
         targetSchemas,
         junctionSchemas
       )
@@ -253,6 +269,7 @@ export const getRelationSchemas = <
 >(
   relation: AnyRelation,
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T,
   junctionSchemas?: JunctionSchemas
 ) => {
@@ -266,12 +283,14 @@ export const getRelationSchemas = <
     ? toManySchemas<Source, Key, S, T>(
         relation,
         resolved,
+        reader,
         targetSchemas,
         junctionSchemas
       )
     : toOneSchemas<Source, Key, S, T>(
         relation,
         resolved,
+        reader,
         targetSchemas
       )) as unknown as GetRelationSchemas<Source, Key, S>;
 };
@@ -288,7 +307,8 @@ export const getRelationsSchemas = <Source extends AnyModel>(
   createSchemasGetter: <S extends RelationState>(
     relation: AnyRelation
   ) => SchemaGetter<S>,
-  slots: ReadonlyMap<string, ResolvedSlot>
+  slots: ReadonlyMap<string, ResolvedSlot>,
+  uninherited?: (field: string) => string
 ) => {
   // Build each relation's schemas lazily: a relation's filter/create/update/
   // select/include schemas are only constructed when that relation is first
@@ -299,6 +319,10 @@ export const getRelationsSchemas = <Source extends AnyModel>(
   for (const field in relations) {
     const relation = relations[field]!;
     if (isVariantRelationState(relation["~"].state)) continue;
+    if (uninherited && !slots.has(field)) {
+      builders[field] = () => refusedRelationSchemas(uninherited(field));
+      continue;
+    }
     const resolved = resolvedSlotOrThrow(source, field, slots);
     builders[field] = () => {
       const targetSchemas = createSchemasGetter(relation);
@@ -312,6 +336,7 @@ export const getRelationsSchemas = <Source extends AnyModel>(
       return getRelationSchemas(
         relation,
         resolved,
+        source,
         targetSchemas,
         junctionSchemas
       );

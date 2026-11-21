@@ -63,6 +63,26 @@ export type WhereWithLinkFilter<
   Where[" vibInferred"]["1"]
 >;
 
+/**
+ * The schemas of a relation a database view names but has not inherited
+ * (`uninheritedRelationMessage`): every use of it, a filter, a selection, an
+ * order or a count, is refused with the same reason.
+ */
+export const refusedRelationSchemas = (message: string) => {
+  const refused = v.refused(message);
+  return {
+    filter: refused,
+    create: refused,
+    createMany: refused,
+    update: refused,
+    select: refused,
+    include: refused,
+    orderBy: refused,
+    countFilter: refused,
+    aggregate: refused,
+  };
+};
+
 /** The declared model holding a slot's junction, where one does. */
 export const junctionModelOf = (
   resolved: ResolvedSlot

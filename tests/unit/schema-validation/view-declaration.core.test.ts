@@ -8,9 +8,11 @@
 
 import { isDeepStrictEqual } from "node:util";
 import { s } from "@src/schema";
+import { hydrateSchemaNames } from "@src/schema/hydration";
 import { type AnyModel, Model } from "@src/schema/model";
 import { getModelKeyCatalog } from "@src/schema/model/keys";
 import { resolveSchemaOrThrow, validateSchema } from "@src/schema/validation";
+import { uninheritedRelationMessage } from "@src/schema/validation/relation-resolution";
 import { viewFacts } from "@src/schema/view/facts";
 import { describe, expect, it } from "vitest";
 
@@ -38,6 +40,8 @@ const membership = s
   .id(["userId", "teamId"])
   .unique(["teamId", "role"], { name: "seat" });
 
+const TWO_COLUMNS = /does not keep '.+', '.+', which the relation joins on$/;
+
 const codes = (result: ReturnType<typeof validateSchema>) =>
   result.errors.map(({ code }) => code);
 const scalarsOf = (model: typeof post | ReturnType<typeof s.view>) =>
@@ -52,8 +56,16 @@ describe("a view's derived model", () => {
     expect(subject["~"].state.scalars.title).toBe(
       post["~"].state.scalars.title
     );
-    expect(subject["~"].state.shape).toBe(subject["~"].state.scalars);
-    expect(subject["~"].state.relations).toEqual({});
+    // Every relation of the source whose name no column takes: which of
+    // them the view inherits, the schema's resolution says (below).
+    expect(subject["~"].state.relations).toEqual({
+      author: post["~"].state.relations.author,
+    });
+    expect(Object.keys(subject["~"].state.shape)).toEqual([
+      "id",
+      "title",
+      "author",
+    ]);
   });
 
   it("holds every scalar a read projects when it selects nothing: not the omitted ones", () => {
@@ -317,7 +329,7 @@ describe("definition validation of a view", () => {
     );
   });
 
-  it("refuses a relation on a view (W003)", () => {
+  it("refuses a relation a view declares: its relations are its source's (W003)", () => {
     const related = s
       .view(() => post, {
         select: { id: true, authorId: true },
@@ -329,6 +341,11 @@ describe("definition validation of a view", () => {
           .references("id"),
       });
     expect(codes(validateSchema({ user, post, related }))).toContain("W003");
+    // The relation it inherits is its source's own: none declared.
+    const inheriting = s.view(() => post, {
+      select: { id: true, authorId: true },
+    });
+    expect(codes(validateSchema({ user, post, inheriting }))).toEqual([]);
   });
 
   it("refuses a JSON column under the name of a scalar's column (W004)", () => {
@@ -355,5 +372,280 @@ describe("definition validation of a view", () => {
   it("refuses a view under a table's name (M004)", () => {
     const clash = s.view(() => post, {}).map("post");
     expect(codes(validateSchema({ user, post, clash }))).toContain("M004");
+  });
+});
+
+/**
+ * A view inherits each relation of its source whose key columns it keeps
+ * (`buildIndex`, `slotKeyFields`): the slot is the source's own, read at the
+ * view's rows. Its targets are not touched, nor given an inverse.
+ */
+describe("the relations a view inherits", () => {
+  const owner = s.model({
+    id: s.string().id(),
+    name: s.string(),
+    items: s.toMany(() => item),
+  });
+  const item = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    ownerId: s.string(),
+    owner: s
+      .toOne(() => owner)
+      .fields("ownerId")
+      .references("id"),
+    reviews: s.toMany(() => review),
+    badges: s.toMany(() => badge),
+    pins: s.toMany(() => pin).name("pinned"),
+  });
+  const review = s.model({
+    id: s.string().id(),
+    itemId: s.string(),
+    item: s
+      .toOne(() => item)
+      .fields("itemId")
+      .references("id"),
+  });
+  const badge = s.model({
+    id: s.string().id(),
+    items: s.toMany(() => item),
+  });
+  /** A polymorphic carrier: its `(type, id)` columns are its own. */
+  const pin = s.model({
+    id: s.string().id(),
+    pinned: s.toOne({ item: () => item }).name("pinned"),
+  });
+  const kept = s.view(() => item, {
+    select: { id: true, title: true, ownerId: true },
+  });
+  const titles = s.view(() => item, { select: { title: true, ownerId: true } });
+  const named = s.view(() => item, {
+    select: { id: true, ownerId: true, owner: { select: { name: true } } },
+  });
+  const over = s.view(() => kept, { select: { id: true } });
+  const pinView = s.view(() => pin, {});
+  const schema = {
+    owner,
+    item,
+    review,
+    badge,
+    pin,
+    kept,
+    titles,
+    named,
+    over,
+    pinView,
+  };
+  hydrateSchemaNames(schema);
+  const index = resolveSchemaOrThrow(schema);
+  const fields = (model: AnyModel) => [...index.get(model)!.keys()];
+
+  it("keeps the source's slot where the view holds its key columns", () => {
+    expect(fields(kept)).toEqual(["owner", "reviews", "badges", "pins"]);
+    for (const field of fields(kept))
+      expect(index.get(kept)!.get(field)).toBe(index.get(item)!.get(field));
+    // A foreign key needs its own columns; a to-many, a junction and a
+    // variant inverse the key they reference.
+    expect(fields(titles)).toEqual(["owner"]);
+    // A JSON column takes the name.
+    expect(fields(named)).toEqual(["reviews", "badges", "pins"]);
+    // A view of a view, what its source inherits and it keeps.
+    expect(fields(over)).toEqual(["reviews", "badges", "pins"]);
+    // A carrier's columns are no view's.
+    expect(fields(pinView)).toEqual([]);
+    // No target gains an inverse.
+    expect(fields(owner)).toEqual(["items"]);
+  });
+
+  it("names the columns a relation it does not inherit joins on", () => {
+    expect(uninheritedRelationMessage(titles, "reviews", index)).toBe(
+      "The view 'titles' does not read 'reviews': it does not keep 'id', which the relation joins on"
+    );
+    expect(uninheritedRelationMessage(over, "owner", index)).toBe(
+      "The view 'over' does not read 'owner': it does not keep 'ownerId', which the relation joins on"
+    );
+    expect(uninheritedRelationMessage(pinView, "pinned", index)).toMatch(
+      TWO_COLUMNS
+    );
+  });
+
+  it("refuses a relation to a view, which no relation reaches (R002)", () => {
+    const reader = s.model({
+      id: s.string().id(),
+      kept: s.toMany(() => kept),
+    });
+    const result = validateSchema({ ...schema, reader });
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: "R002",
+        message: expect.stringContaining(
+          "'reader.kept' targets the view 'kept', which no relation reaches"
+        ),
+      })
+    );
+  });
+});
+
+describe("the `_count: true` of a view over a view", () => {
+  const author = s.model({
+    id: s.string().id(),
+    name: s.string(),
+    posts: s.toMany(() => post),
+  });
+  const post = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    authorId: s.string(),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
+  });
+  const documents = (model: AnyModel) => viewFacts(model)!.documents;
+
+  it("is a column where the source reads a to-many it counts, and none where it inherits none", () => {
+    const ids = s.view(() => author, { select: { id: true } });
+    const named = s.view(() => author, { select: { _count: true } });
+    const keyless = s.view(() => author, { select: { name: true } });
+    const views = {
+      keyed: s.view(() => ids, { include: { _count: true } }),
+      keptOver: s.view(() => named, {}),
+      overKeyless: s.view(() => keyless, { include: { _count: true } }),
+      selectingOverKeyless: s.view(() => keyless, {
+        select: { name: true, _count: true },
+      }),
+    };
+    const schema = { author, post, ids, named, keyless, ...views };
+    hydrateSchemaNames(schema);
+    resolveSchemaOrThrow(schema);
+    expect(documents(views.keyed)).toEqual(["_count"]);
+    expect(documents(views.keptOver)).toEqual(["_count"]);
+    expect(documents(views.overKeyless)).toEqual([]);
+    expect(documents(views.selectingOverKeyless)).toEqual([]);
+  });
+
+  it("is settled by a schema that holds its table, whatever another schema resolved first", () => {
+    const ids = s.view(() => author, { select: { id: true } });
+    const keyed = s.view(() => ids, { include: { _count: true } });
+    // Without its table, a schema cannot tell what the source inherits.
+    validateSchema({ ids, keyed });
+    expect(documents(keyed)).toEqual(["_count"]);
+    const schema = { author, post, ids, keyed };
+    hydrateSchemaNames(schema);
+    resolveSchemaOrThrow(schema);
+    expect(documents(keyed)).toEqual(["_count"]);
+  });
+});
+
+describe("a view's relations through a declared junction", () => {
+  const teamParent = s
+    .model({
+      organizationId: s.string(),
+      childId: s.string(),
+      parentId: s.string(),
+      child: s
+        .toOne(() => team)
+        .fields("organizationId", "childId")
+        .references("organizationId", "id"),
+      parent: s
+        .toOne(() => team)
+        .fields("organizationId", "parentId")
+        .references("organizationId", "id"),
+    })
+    .id(["childId", "parentId"]);
+  const team = s
+    .model({
+      id: s.string().id(),
+      organizationId: s.string(),
+      parents: s
+        .toMany(() => team)
+        .name("graph")
+        .through(() => teamParent)
+        .source("child")
+        .target("parent"),
+      children: s.toMany(() => team).name("graph"),
+      tags: s.toMany(() => teamTag).through("team_tag"),
+    })
+    .unique(["organizationId", "id"]);
+  const teamTag = s.model({
+    id: s.string().id(),
+    teams: s.toMany(() => team),
+  });
+  const teamIds = s.view(() => team, { select: { id: true } });
+  const teamKeys = s.view(() => team, {
+    select: { id: true, organizationId: true },
+  });
+  const schema = { teamParent, team, teamTag, teamIds, teamKeys };
+  hydrateSchemaNames(schema);
+  const index = resolveSchemaOrThrow(schema);
+
+  it("joins on what the junction references, as the types read it", () => {
+    expect([...index.get(teamIds)!.keys()]).toEqual(["tags"]);
+    expect([...index.get(teamKeys)!.keys()].sort()).toEqual([
+      "children",
+      "parents",
+      "tags",
+    ]);
+    expect(uninheritedRelationMessage(teamIds, "parents", index)).toBe(
+      "The view 'teamIds' does not read 'parents': it does not keep 'organizationId', which the relation joins on"
+    );
+  });
+});
+
+describe("a view's variant collection", () => {
+  const book = s.model({ id: s.string().id(), title: s.string() });
+  const disc = s.model({ id: s.string().id(), label: s.string() });
+  const shelf = s.model({
+    id: s.string().id(),
+    name: s.string(),
+    items: s.toMany({ book: () => book, disc: () => disc }),
+  });
+  const shelfIds = s.view(() => shelf, { select: { id: true } });
+  const shelfNames = s.view(() => shelf, { select: { name: true } });
+  const schema = { book, disc, shelf, shelfIds, shelfNames };
+  hydrateSchemaNames(schema);
+  const index = resolveSchemaOrThrow(schema);
+
+  it("is inherited where the view keeps the row key, as the types read it", () => {
+    expect([...index.get(shelfIds)!.keys()]).toEqual(["items"]);
+    expect([...index.get(shelfNames)!.keys()]).toEqual([]);
+  });
+});
+
+describe("a view's relations through a self junction whose sides reference different keys", () => {
+  const link = s
+    .model({
+      childId: s.string(),
+      parentSlug: s.string(),
+      child: s
+        .toOne(() => node)
+        .fields("childId")
+        .references("id"),
+      parent: s
+        .toOne(() => node)
+        .fields("parentSlug")
+        .references("slug"),
+    })
+    .id(["childId", "parentSlug"]);
+  const node = s.model({
+    id: s.string().id(),
+    slug: s.string().unique(),
+    parents: s
+      .toMany(() => node)
+      .name("graph")
+      .through(() => link)
+      .source("child")
+      .target("parent"),
+    children: s.toMany(() => node).name("graph"),
+  });
+  const ids = s.view(() => node, { select: { id: true } });
+  const slugs = s.view(() => node, { select: { slug: true } });
+  const schema = { link, node, ids, slugs };
+  hydrateSchemaNames(schema);
+  const index = resolveSchemaOrThrow(schema);
+
+  it("joins each end on its own side's key, as the types read it", () => {
+    expect([...index.get(ids)!.keys()]).toEqual(["parents"]);
+    expect([...index.get(slugs)!.keys()]).toEqual(["children"]);
   });
 });

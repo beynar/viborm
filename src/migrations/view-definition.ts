@@ -176,9 +176,11 @@ function crossedRelations(
                 : [variant.topology.source.model, variant.topology.target.model]
             ),
           ];
-    const self = targets.every((target) => target === model);
+    // Asked at the slot's own model: a view reads its source's slot.
+    const at = slot.slot.source;
+    const self = targets.every((target) => target === at);
     for (const target of new Set(targets))
-      if (self || target !== model)
+      if (self || target !== at)
         crossedRelations(target, member, relations, crossed);
   };
   for (const [key, member] of Object.entries(value)) {
@@ -203,7 +205,8 @@ export function viewDefinition(
 ): ViewDefinition {
   const { models, relations, migrationDriver } = context;
   const { dialect } = migrationDriver;
-  if (dialect !== "postgresql" && dialect !== "mysql" && dialect !== "sqlite")
+  const writer = migrationDriver.viewWriter();
+  if (writer === undefined)
     throw new MigrationError(
       `The view "${view["~"].names.ts}" cannot be migrated: VibORM creates no view on ${dialect === "surrealql" ? "SurrealDB yet; views arrive there with materialized views" : dialect}.`,
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
@@ -236,17 +239,11 @@ export function viewDefinition(
       VibORMErrorCode.INVALID_INPUT,
       { meta: { feature: "view", model: view["~"].names.ts } }
     );
-  // PostgreSQL names every relation by its schema (a migration sets no
-  // search path); a MySQL artifact is relative to the database its session
-  // selects, and SQLite has no namespace.
   const body = viewBody(
     {
       schema: models,
       resolved: { index: relations, registry: schema.registry },
-      dialect,
-      ...(dialect === "postgresql" && migrationDriver.executionDriver
-        ? { estate: migrationDriver.executionDriver.adapter }
-        : {}),
+      adapter: writer.adapter,
     },
     view
   );
@@ -270,7 +267,7 @@ export function viewDefinition(
     relationValue
   );
   return {
-    sql: inlineLiterals(dialect, body.statement),
+    sql: inlineLiterals(writer.dialect, body.statement),
     hash: domainHash(HASH_DOMAIN.view, utf8Bytes(identity)).slice(0, 40),
     dependsOn,
   };

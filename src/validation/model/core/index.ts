@@ -166,7 +166,7 @@ export type CoreSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = {
   upsertProjection: UpsertProjectionSchema<M, F>;
   /** The scalar-only projection used by the bulk writes (see `ScalarSelectSchema`). */
   scalarSelect: ScalarSelectSchema<M>;
-  include: IncludeSchema<F>;
+  include: IncludeSchema<M, F>;
   orderBy: OrderBySchema<M, F>;
 };
 
@@ -196,13 +196,13 @@ export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
       getWhereUniqueExtendedSchema(model, fieldSchemas),
     create: () => getCreateSchema(model, fieldSchemas, slots),
     update: () => getUpdateSchema<M, F>(fieldSchemas),
-    select: () => getSelectSchema(model, fieldSchemas),
+    select: () => getSelectSchema(model, fieldSchemas, slots),
     omit: () => getOmitSchema(model),
     // Self-referential, and safe: `lazyRecord` builds each entry on first
     // access, long after `core` is bound.
     upsertProjection: () => getUpsertProjectionSchema(model, core),
     scalarSelect: () => getScalarSelectSchema(model),
-    include: () => getIncludeSchema(model, fieldSchemas),
+    include: () => getIncludeSchema(model, fieldSchemas, slots),
     orderBy: () => getOrderBySchema<M, F>(model, fieldSchemas),
   });
   return core;

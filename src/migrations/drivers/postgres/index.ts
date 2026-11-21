@@ -1,3 +1,4 @@
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { isGeneratorDefault } from "@schema/scalars/common";
 import { nativeTypeFor } from "@schema/scalars/native-types";
 import { idDomainOfState, idStorageOf } from "@schema/scalars/string/id-domain";
@@ -78,6 +79,7 @@ import type {
   DropUniqueConstraintOperation,
   RenameColumnOperation,
   RenameTableOperation,
+  ViewWriter,
 } from "../base";
 import { SqlMigrationDriver } from "../sql";
 import { getPostgresType, PG_TYPE_DEFAULTS } from "../type-mapping";
@@ -397,6 +399,13 @@ function enumValuesNamed(definition: string, type: string): string[] {
 
 export class PostgresMigrationDriver extends SqlMigrationDriver {
   readonly dialect = "postgresql" as const;
+
+  /** In the estate's schema (a migration sets no search path), PostGIS and pgvector on. */
+  override viewWriter(): ViewWriter {
+    const adapter = new PostgresAdapter(this.namespace, true);
+    adapter.capabilities.supportsVector = true;
+    return { dialect: this.dialect, adapter };
+  }
   readonly driverName = "postgresql";
 
   readonly capabilities: MigrationCapabilities = {

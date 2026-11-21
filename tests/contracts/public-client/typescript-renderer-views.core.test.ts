@@ -77,3 +77,68 @@ test("a view's JSON columns are typed as its query reads them", () => {
   };
 };`);
 });
+
+test("a view's inherited relations are typed as its source's, and no other", () => {
+  // Keeps `authorId`: it reads `author` as `post` does.
+  const authored = s.view(() => post, {
+    select: { id: true, authorId: true },
+  });
+  // Keeps neither `authorId` nor `id`: no relation of `post`.
+  const titled = s.view(() => post, { select: { title: true } });
+  const rendered = renderSchemaType({ user, post, authored, titled });
+  expect(rendered).toContain(`  authored: {
+    id: string;
+    authorId: string;
+    author: VibORMSchema["user"];
+  };
+  titled: {
+    title: string;
+  };`);
+});
+
+test("a view over a view types a relation it reads of its source as that read answers it", () => {
+  const authored = s.view(() => post, {
+    select: { id: true, authorId: true, author: { select: { name: true } } },
+  });
+  // `author` is a JSON column of `authored`; `byline` reads it as it is,
+  // and `writerName` reads the relation `keyed` inherits.
+  const keyed = s.view(() => post, { select: { id: true, authorId: true } });
+  const writerName = s.view(() => keyed, {
+    select: { id: true, author: { select: { name: true } } },
+  });
+  const byline = s.view(() => authored, { select: { id: true, author: true } });
+  const rendered = renderSchemaType({
+    user,
+    post,
+    authored,
+    keyed,
+    writerName,
+    byline,
+  });
+  expect(rendered).toContain(`  writerName: {
+    id: string;
+    author: {
+      name: string;
+    };
+  };
+  byline: {
+    id: string;
+    author: {
+      name: string;
+    };
+  };`);
+});
+
+test("a view including its source view's stored `_count` has that column once", () => {
+  const counted = s.view(() => user, { include: { _count: true } });
+  const summary = s.view(() => counted, { include: { _count: true } });
+  const rendered = renderSchemaType({ user, post, counted, summary });
+  expect(rendered).toContain(`  summary: {
+    id: string;
+    name: string;
+    posts: Array<VibORMSchema["post"]>;
+    _count: {
+      posts: number;
+    };
+  };`);
+});

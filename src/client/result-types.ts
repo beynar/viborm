@@ -12,6 +12,7 @@ import type {
   Cardinality,
   JunctionModelOf,
   SlotMayBeEmpty,
+  StateSlotOwner,
   TargetGetter,
   TargetKind,
   VariantEntries,
@@ -570,7 +571,8 @@ type NodeVariants<Projection> = NodeKey<Projection, "variants">;
  * is not a second model concept: it is the same type, spelled from the half of
  * it these mapped types thread.
  */
-type SourceModelOf<S extends ModelState> = Model<S>;
+/** The model whose slots `S` reads: a view reads its source table's. */
+type SourceModelOf<S extends ModelState> = StateSlotOwner<S, Model<S>>;
 
 /** Does this relation name variants rather than one model? */
 type IsVariantTarget<R extends AnyRelation> =
