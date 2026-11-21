@@ -615,13 +615,16 @@ type RowKeyFields<M> =
  * The fields of the row it is read at that a slot joins on, as the runtime's
  * `slotKeyFields` reads them off the resolved edge: a foreign key's own
  * members at its owner, the members its partner references at the other end,
- * the row key a junction or a variant member references, and `string` (no
- * set of columns holds it) for a variant carrier's private columns and for
- * an unproven graph. A view inherits the slot where it keeps these fields.
+ * the row key a junction or a variant member references (a variant
+ * collection's member junctions included), and `string` (no set of columns
+ * holds it) for a variant carrier's private columns and for an unproven
+ * graph. A view inherits the slot where it keeps these fields.
  */
 export type SlotKeyFields<SourceModel, FieldKey, R> =
   TargetKind<R> extends "variants"
-    ? string
+    ? Cardinality<R> extends "many"
+      ? RowKeyFields<SourceModel>
+      : string
     : ForeignKeyOf<R> extends ForeignKeyDeclaration
       ? ForeignKeyOf<R>["fields"][number]
       : ProvenPartner<SourceModel, FieldKey, R> extends infer Partner

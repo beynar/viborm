@@ -591,3 +591,23 @@ describe("a view's relations through a declared junction", () => {
     );
   });
 });
+
+describe("a view's variant collection", () => {
+  const book = s.model({ id: s.string().id(), title: s.string() });
+  const disc = s.model({ id: s.string().id(), label: s.string() });
+  const shelf = s.model({
+    id: s.string().id(),
+    name: s.string(),
+    items: s.toMany({ book: () => book, disc: () => disc }),
+  });
+  const shelfIds = s.view(() => shelf, { select: { id: true } });
+  const shelfNames = s.view(() => shelf, { select: { name: true } });
+  const schema = { book, disc, shelf, shelfIds, shelfNames };
+  hydrateSchemaNames(schema);
+  const index = resolveSchemaOrThrow(schema);
+
+  it("is inherited where the view keeps the row key, as the types read it", () => {
+    expect([...index.get(shelfIds)!.keys()]).toEqual(["items"]);
+    expect([...index.get(shelfNames)!.keys()]).toEqual([]);
+  });
+});

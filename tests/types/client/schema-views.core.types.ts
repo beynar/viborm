@@ -713,3 +713,27 @@ export const _declaredJunction = async () => {
     Equal<(typeof kept)[number]["parents"][number]["organizationId"], string>
   >;
 };
+
+// =============================================================================
+// A VARIANT COLLECTION: ITS MEMBER JUNCTIONS REFERENCE THE ROW KEY
+// =============================================================================
+
+const book = s.model({ id: s.string().id(), title: s.string() });
+const disc = s.model({ id: s.string().id(), label: s.string() });
+const shelf = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  items: s.toMany({ book: () => book, disc: () => disc }),
+});
+const shelfIds = s.view(() => shelf, { select: { id: true } });
+const shelfNames = s.view(() => shelf, { select: { name: true } });
+const shelves = createClient({
+  schema: { book, disc, shelf, shelfIds, shelfNames },
+  driver: new PGliteDriver(),
+});
+
+export const _variantCollection = async () => {
+  await shelves.shelfIds.findMany({ include: { items: true } });
+  // @ts-expect-error - without the row key, no member junction joins
+  await shelves.shelfNames.findMany({ include: { items: true } });
+};
