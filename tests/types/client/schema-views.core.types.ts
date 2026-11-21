@@ -1115,8 +1115,6 @@ export const _refusedAggregatedQueries = () => {
 
 // =============================================================================
 // A SELF JUNCTION WHOSE SIDES REFERENCE DIFFERENT KEYS: EACH END ITS OWN SIDE
-// ======================================================================};
-
 // =============================================================================
 
 const nodeLink = s
@@ -1159,7 +1157,9 @@ export const _selfJunctionSides = async () => {
   await nodes.nodeSlugs.findMany({ include: { children: true } });
   // @ts-expect-error - and `parents` needs `id`
   await nodes.nodeSlugs.findMany({ include: { parents: true } });
-=======
+};
+
+// =============================================================================
 // A LIST IN A VIEW'S QUERY: THE VIEW'S COLUMNS ARE STILL ITS QUERY'S
 // =============================================================================
 
