@@ -81,7 +81,8 @@ A view's columns come from its query. Nothing else is declared.
 three JSON columns (`author`, `comments`, `_count`).
 
 A `_count` that counts no relation is no column, as it is no key of a read:
-`_count: true` on a source without a to-many relation, for instance.
+`_count: true` on a source without a to-many relation, for instance, or on a
+view that inherits none.
 
 A query without `select` keeps every scalar of the source, minus its `omit`,
 and adds a JSON column for each relation in its `include`.
@@ -165,7 +166,9 @@ type and refused at run time.
 A JSON column is returned by default, and `select` and `omit` take it. Nothing
 else does: it is not in `where`, `orderBy`, `by`, `cursor` or `distinct`, and it
 takes no nested arguments. The document is fixed when the view is read, and a
-comparison on it would mean a different thing on each database.
+comparison on it would mean a different thing on each database. A stored
+`_count` or `_aggregate` is such a column under `include` too: it counts
+nothing at read time, so a filter or a selection of its counts is refused.
 
 ## Relations
 
