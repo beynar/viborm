@@ -250,7 +250,8 @@ function deriveViewState(
   const documents = (
     selected
       ? selected.filter((name) => !projectable.includes(name))
-      : [...kept, ...askedKeys(query.include)]
+      : // A stored column the include names again is the one it keeps.
+        [...new Set([...kept, ...askedKeys(query.include)])]
   ).filter(
     (name) =>
       !omitted.has(name) &&

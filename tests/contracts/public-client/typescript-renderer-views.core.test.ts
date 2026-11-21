@@ -128,3 +128,17 @@ test("a view over a view types a relation it reads of its source as that read an
     };
   };`);
 });
+
+test("a view including its source view's stored `_count` has that column once", () => {
+  const counted = s.view(() => user, { include: { _count: true } });
+  const summary = s.view(() => counted, { include: { _count: true } });
+  const rendered = renderSchemaType({ user, post, counted, summary });
+  expect(rendered).toContain(`  summary: {
+    id: string;
+    name: string;
+    posts: Array<VibORMSchema["post"]>;
+    _count: {
+      posts: number;
+    };
+  };`);
+});
