@@ -651,3 +651,65 @@ export const _inheritedReads = async () => {
   // The JSON column stays the frozen document it is.
   related.ownedItems.findMany({ select: { owner: true, reviews: true } });
 };
+
+// =============================================================================
+// A DECLARED JUNCTION: THE COLUMNS IT REFERENCES, NOT THE ROW KEY
+// =============================================================================
+
+const teamParent = s
+  .model({
+    organizationId: s.string(),
+    childId: s.string(),
+    parentId: s.string(),
+    child: s
+      .toOne(() => team)
+      .fields("organizationId", "childId")
+      .references("organizationId", "id"),
+    parent: s
+      .toOne(() => team)
+      .fields("organizationId", "parentId")
+      .references("organizationId", "id"),
+  })
+  .id(["childId", "parentId"]);
+const team = s
+  .model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    parents: s
+      .toMany(() => team)
+      .name("graph")
+      .through(() => teamParent)
+      .source("child")
+      .target("parent"),
+    children: s.toMany(() => team).name("graph"),
+    tags: s.toMany(() => teamTag).through("team_tag"),
+  })
+  .unique(["organizationId", "id"]);
+const teamTag = s.model({
+  id: s.string().id(),
+  teams: s.toMany(() => team),
+});
+/** Its junction references `organizationId` beside `id`, which this view drops. */
+const teamIds = s.view(() => team, { select: { id: true } });
+const teamKeys = s.view(() => team, {
+  select: { id: true, organizationId: true },
+});
+const teams = createClient({
+  schema: { teamParent, team, teamTag, teamIds, teamKeys },
+  driver: new PGliteDriver(),
+});
+
+export const _declaredJunction = async () => {
+  // @ts-expect-error - the junction joins on `organizationId`, which it drops
+  await teams.teamIds.findMany({ include: { parents: true } });
+  // @ts-expect-error - nor does the other end of the pair read
+  await teams.teamIds.findMany({ include: { children: true } });
+  // A junction the schema owns references the row key.
+  await teams.teamIds.findMany({ include: { tags: true } });
+  const kept = await teams.teamKeys.findMany({
+    include: { parents: true, children: true },
+  });
+  type _kept = Expect<
+    Equal<(typeof kept)[number]["parents"][number]["organizationId"], string>
+  >;
+};

@@ -536,3 +536,58 @@ describe("the `_count: true` of a view over a view", () => {
     expect(documents(keyed)).toEqual(["_count"]);
   });
 });
+
+describe("a view's relations through a declared junction", () => {
+  const teamParent = s
+    .model({
+      organizationId: s.string(),
+      childId: s.string(),
+      parentId: s.string(),
+      child: s
+        .toOne(() => team)
+        .fields("organizationId", "childId")
+        .references("organizationId", "id"),
+      parent: s
+        .toOne(() => team)
+        .fields("organizationId", "parentId")
+        .references("organizationId", "id"),
+    })
+    .id(["childId", "parentId"]);
+  const team = s
+    .model({
+      id: s.string().id(),
+      organizationId: s.string(),
+      parents: s
+        .toMany(() => team)
+        .name("graph")
+        .through(() => teamParent)
+        .source("child")
+        .target("parent"),
+      children: s.toMany(() => team).name("graph"),
+      tags: s.toMany(() => teamTag).through("team_tag"),
+    })
+    .unique(["organizationId", "id"]);
+  const teamTag = s.model({
+    id: s.string().id(),
+    teams: s.toMany(() => team),
+  });
+  const teamIds = s.view(() => team, { select: { id: true } });
+  const teamKeys = s.view(() => team, {
+    select: { id: true, organizationId: true },
+  });
+  const schema = { teamParent, team, teamTag, teamIds, teamKeys };
+  hydrateSchemaNames(schema);
+  const index = resolveSchemaOrThrow(schema);
+
+  it("joins on what the junction references, as the types read it", () => {
+    expect([...index.get(teamIds)!.keys()]).toEqual(["tags"]);
+    expect([...index.get(teamKeys)!.keys()].sort()).toEqual([
+      "children",
+      "parents",
+      "tags",
+    ]);
+    expect(uninheritedRelationMessage(teamIds, "parents", index)).toBe(
+      "The view 'teamIds' does not read 'parents': it does not keep 'organizationId', which the relation joins on"
+    );
+  });
+});

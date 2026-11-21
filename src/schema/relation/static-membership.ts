@@ -633,10 +633,39 @@ export type SlotKeyFields<SourceModel, FieldKey, R> =
               ? ForeignKeyOf<Partner>["references"][number]
               : Cardinality<R> extends "many"
                 ? Cardinality<Partner> extends "many"
-                  ? RowKeyFields<SourceModel>
+                  ? JunctionKeyFields<SourceModel, FieldKey, R>
                   : string
                 : string
         : string;
+
+/**
+ * The fields of a junction's endpoint row its side references: what a
+ * declared junction model's foreign keys to that model reference (a key or
+ * a unique, as the runtime's topology reads them), and the row key for a
+ * junction the schema owns. `string` where the declared model names none.
+ */
+type JunctionKeyFields<SourceModel, FieldKey, R> =
+  JunctionModelOf<SourceModel, FieldKey, R> extends infer Junction
+    ? [Junction] extends [never]
+      ? RowKeyFields<SourceModel>
+      : JunctionReferences<Junction, SourceModel> extends infer Referenced
+        ? [Referenced] extends [never]
+          ? string
+          : Referenced
+        : never
+    : never;
+
+/** The fields each foreign key of `Junction` to `SourceModel` references. */
+type JunctionReferences<Junction, SourceModel> = {
+  [K in keyof RelationsOf<Junction>]: IsSameModel<
+    TargetModelOf<RelationsOf<Junction>[K]>,
+    SourceModel
+  > extends true
+    ? ForeignKeyOf<RelationsOf<Junction>[K]> extends ForeignKeyDeclaration
+      ? ForeignKeyOf<RelationsOf<Junction>[K]>["references"][number]
+      : never
+    : never;
+}[keyof RelationsOf<Junction>];
 
 /**
  * May this slot be empty? A to-many ALWAYS — an empty collection is `[]`, and
