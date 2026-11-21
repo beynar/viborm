@@ -263,6 +263,10 @@ view is an index lookup.
 - `$refresh({ concurrently: true })` does not block them. PostgreSQL compares
   the old rows and the new ones by a unique index, so the view needs a
   [key](#the-key): without one the call is refused, on every database.
+- It refreshes that one view. A materialized view built on another
+  materialized view reads that view's stored rows, and refreshing either one
+  leaves the other as it was: refresh the innermost view first, then each
+  view built on it, outward.
 - `$refresh` exists only on a materialized view: it is absent from the type of
   an ordinary view and of a model, and refused at run time.
 - It is sent when it is awaited, on the client it is called on. Inside

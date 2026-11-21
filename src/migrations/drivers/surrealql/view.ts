@@ -200,8 +200,8 @@ function literal(value: unknown): string {
       return refuseValue(value, "it is not an instant");
     return `d${JSON.stringify(value.toISOString())}`;
   }
-  if (value instanceof Uint8Array && value.constructor === Uint8Array)
-    return `b"${hex(value)}"`;
+  // A Node `Buffer` too: the SDK sends every `Uint8Array` as bytes.
+  if (value instanceof Uint8Array) return `b"${hex(value)}"`;
   if (branded(value, "Decimal")) return `${String(value)}dec`;
   if (branded(value, "RecordId")) return `r${text(String(value))}`;
   if (branded(value, "GeometryPoint")) {

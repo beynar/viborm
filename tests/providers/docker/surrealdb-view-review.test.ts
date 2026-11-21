@@ -10,9 +10,11 @@
  * filtered column made
  * nullable replaces the view reading it, whose filter then admits a row
  * without a value, and the rename of the table a filtered foreign key
- * targets replaces it too, since the links it compares are rewritten. And
- * the body one view is written as, which its identity does not hold. Gated
- * on SURREAL_TEST_URL.
+ * targets replaces it too, since the links it compares are rewritten. A
+ * filter's bytes given as a Node `Buffer` are written as bytes, and text
+ * holding control characters as escapes the database reads back. And the
+ * body one view is written as, which its identity does not hold. Gated on
+ * SURREAL_TEST_URL.
  */
 
 import { createClient } from "@client/client";
@@ -296,6 +298,31 @@ const SHELF_BODY =
 
 const IDENTITY = /viborm_view_[0-9a-f]{40}/;
 
+/** Titles a body writes with an escape: U+0000, U+0001, U+001F among other text. */
+const CONTROLLED = ["a\u0001b", "x\u0000y", "\u001f"];
+
+/**
+ * Views filtered by bytes given as a Node `Buffer`, which the SDK sends as it
+ * sends a `Uint8Array`, and by titles holding control characters, which the
+ * body spells as escapes.
+ */
+function literals() {
+  const sheet = s
+    .model({
+      id: s.int().id(),
+      title: s.string(),
+      cover: s.blob().nullable(),
+    })
+    .map("svr_sheets");
+  const covered = s
+    .view(() => sheet, { where: { cover: Buffer.from([1, 2]) } })
+    .map("svr_covered");
+  const controlled = s
+    .view(() => sheet, { where: { title: { in: CONTROLLED } } })
+    .map("svr_controlled");
+  return { sheet, covered, controlled };
+}
+
 describe.skipIf(!surrealUrl)("views on SurrealDB, after review", () => {
   it("a view's copied foreign key names a record of its target's table, and a view's row its source's key", async () => {
     const driver = await freshDriver();
@@ -559,6 +586,46 @@ describe.skipIf(!surrealUrl)("views on SurrealDB, after review", () => {
       expect(await createMigrationClient(after).push()).toMatchObject({
         outcome: "noop",
       });
+    });
+  });
+
+  it("a view filtered by a Buffer, or by text holding control characters, reads the rows its source reads", async () => {
+    const driver = await freshDriver();
+    const client = clientOf(literals(), driver);
+    await using(client, async () => {
+      const { statements } = await push(client);
+      expect(statements).toContainEqual(
+        expect.stringContaining('(cover != NONE AND cover = b"0102")')
+      );
+      expect(statements).toContainEqual(
+        expect.stringContaining('[s"a\\u0001b", s"x\\u0000y", s"\\u001f"]')
+      );
+      await client.sheet.createMany({
+        data: [
+          { id: 1, title: "a\u0001b", cover: new Uint8Array([1, 2]) },
+          { id: 2, title: "a\u0002b", cover: new Uint8Array([1, 3]) },
+          { id: 3, title: "x\u0000y", cover: null },
+          { id: 4, title: "xy", cover: Buffer.from([1, 2]) },
+          { id: 5, title: "\u001f", cover: new Uint8Array([2]) },
+          { id: 6, title: "\\u0001", cover: null },
+        ],
+      });
+      const sourceIds = async (where: object) =>
+        ids(
+          await client.sheet.findMany({
+            where,
+            select: { id: true },
+            orderBy: { id: "asc" },
+          })
+        );
+      expect(await sourceIds({ cover: Buffer.from([1, 2]) })).toEqual([1, 4]);
+      expect(
+        ids(await client.covered.findMany({ orderBy: { id: "asc" } }))
+      ).toEqual([1, 4]);
+      expect(await sourceIds({ title: { in: CONTROLLED } })).toEqual([1, 3, 5]);
+      expect(
+        ids(await client.controlled.findMany({ orderBy: { id: "asc" } }))
+      ).toEqual([1, 3, 5]);
     });
   });
 
