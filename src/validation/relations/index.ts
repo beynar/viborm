@@ -87,12 +87,13 @@ const toOneSchemas = <
 >(
   relation: AnyRelation,
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T
 ) => {
   const state = relation["~"].state as S;
   return {
     filter: v.lazy(() =>
-      toOneFilterFactory<Source, Key, S, T>(resolved, targetSchemas)
+      toOneFilterFactory<Source, Key, S, T>(resolved, reader, targetSchemas)
     ),
     create: v.lazy(() =>
       toOneCreateFactory<Source, Key, S, T>(resolved, targetSchemas)
@@ -101,10 +102,20 @@ const toOneSchemas = <
       toOneUpdateFactory<Source, Key, S, T>(state, resolved, targetSchemas)
     ),
     select: v.lazy(() =>
-      toOneSelectFactory<Source, Key, S, T>(relation, resolved, targetSchemas)
+      toOneSelectFactory<Source, Key, S, T>(
+        relation,
+        resolved,
+        reader,
+        targetSchemas
+      )
     ),
     include: v.lazy(() =>
-      toOneIncludeFactory<Source, Key, S, T>(relation, resolved, targetSchemas)
+      toOneIncludeFactory<Source, Key, S, T>(
+        relation,
+        resolved,
+        reader,
+        targetSchemas
+      )
     ),
     orderBy: toOneOrderByFactory<S, T>(relation, targetSchemas),
     countFilter: v.lazy(() => countFilterFactory(state, targetSchemas)),
@@ -120,6 +131,7 @@ const toManySchemas = <
 >(
   relation: AnyRelation,
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T,
   junctionSchemas: JunctionSchemas
 ) => {
@@ -128,6 +140,7 @@ const toManySchemas = <
     filter: v.lazy(() =>
       toManyFilterFactory<Source, Key, S, T>(
         resolved,
+        reader,
         targetSchemas,
         junctionSchemas
       )
@@ -150,6 +163,7 @@ const toManySchemas = <
       toManySelectFactory<Source, Key, S, T>(
         relation,
         resolved,
+        reader,
         targetSchemas,
         junctionSchemas
       )
@@ -158,6 +172,7 @@ const toManySchemas = <
       toManyIncludeFactory<Source, Key, S, T>(
         relation,
         resolved,
+        reader,
         targetSchemas,
         junctionSchemas
       )
@@ -254,6 +269,7 @@ export const getRelationSchemas = <
 >(
   relation: AnyRelation,
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T,
   junctionSchemas?: JunctionSchemas
 ) => {
@@ -267,12 +283,14 @@ export const getRelationSchemas = <
     ? toManySchemas<Source, Key, S, T>(
         relation,
         resolved,
+        reader,
         targetSchemas,
         junctionSchemas
       )
     : toOneSchemas<Source, Key, S, T>(
         relation,
         resolved,
+        reader,
         targetSchemas
       )) as unknown as GetRelationSchemas<Source, Key, S>;
 };
@@ -318,6 +336,7 @@ export const getRelationsSchemas = <Source extends AnyModel>(
       return getRelationSchemas(
         relation,
         resolved,
+        source,
         targetSchemas,
         junctionSchemas
       );

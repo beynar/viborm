@@ -308,21 +308,28 @@ const LANGUAGES: RecurrenceLanguages = {
  * resolved only between two collections.
  */
 export function recurrenceSchema(
-  resolved: ResolvedSlot
+  resolved: ResolvedSlot,
+  reader: AnyModel
 ): RecurrenceSchema | undefined;
 export function recurrenceSchema(
   resolved: ResolvedSlot,
+  reader: AnyModel,
   placement: "filter"
 ): ForeignKeyFilterRecurrenceSchema | GraphFilterRecurrenceSchema | undefined;
 export function recurrenceSchema(
   resolved: ResolvedSlot,
+  reader: AnyModel,
   placement: keyof RecurrenceLanguages = "projection"
 ) {
   const { edge, slot } = resolved;
   if (edge.kind !== "foreignKey" && edge.kind !== "junction") return undefined;
   const [first, second] = edge.endpoints;
   if (first.source !== second.source) return undefined;
-  if (!getModelKeyCatalog(slot.source).rowKey) return undefined;
+  // A walk names each row it starts from by the table's key: a view reading
+  // the slot recurses only where it keeps that key.
+  const key = getModelKeyCatalog(slot.source).rowKey;
+  if (!key?.fields.every((field) => field in reader["~"].state.scalars))
+    return undefined;
   return LANGUAGES[placement][edge.kind];
 }
 

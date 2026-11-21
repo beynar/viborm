@@ -233,10 +233,11 @@ const LINK_FILTER_ON_A_WALK = v.optional(
  */
 const recursiveFilter = <S extends RelationState, T extends SchemaGetter<S>>(
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T,
   junctionSchemas: JunctionSchemas = undefined
 ) => {
-  const recurrence = recurrenceSchema(resolved, "filter");
+  const recurrence = recurrenceSchema(resolved, reader, "filter");
   const where = whereWithLinkFilter(
     () => targetSchemas().core.where,
     junctionSchemas,
@@ -279,6 +280,7 @@ export const toOneFilterFactory = <
   T extends SchemaGetter<S>,
 >(
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T
 ): ToOneFilterSchema<Source, Key, S> => {
   const isOptional = slotMayBeEmpty(resolved);
@@ -329,7 +331,7 @@ export const toOneFilterFactory = <
   });
   return withRecursiveNode(
     Object.assign(schema, { options: members }),
-    recursiveFilter(resolved, targetSchemas)
+    recursiveFilter(resolved, reader, targetSchemas)
   ) as unknown as ToOneFilterSchema<Source, Key, S>;
 };
 
@@ -373,6 +375,7 @@ export const toManyFilterFactory = <
   T extends SchemaGetter<S>,
 >(
   resolved: ResolvedSlot,
+  reader: AnyModel,
   targetSchemas: T,
   junctionSchemas: JunctionSchemas = undefined
 ): ToManyFilterSchema<Source, Key, S> => {
@@ -381,6 +384,6 @@ export const toManyFilterFactory = <
     v.object(quantifierEntries(whereWithLinkFilter(own, junctionSchemas)), {
       refuse: requireRelationQuantifier(resolved, TO_MANY_QUANTIFIERS),
     }),
-    recursiveFilter(resolved, targetSchemas, junctionSchemas)
+    recursiveFilter(resolved, reader, targetSchemas, junctionSchemas)
   ) as unknown as ToManyFilterSchema<Source, Key, S>;
 };
