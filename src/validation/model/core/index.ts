@@ -166,7 +166,7 @@ export type CoreSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = {
   upsertProjection: UpsertProjectionSchema<M, F>;
   /** The scalar-only projection used by the bulk writes (see `ScalarSelectSchema`). */
   scalarSelect: ScalarSelectSchema<M>;
-  include: IncludeSchema<F>;
+  include: IncludeSchema<M, F>;
   orderBy: OrderBySchema<M, F>;
 };
 

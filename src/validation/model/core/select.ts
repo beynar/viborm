@@ -491,19 +491,33 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
  * Build include schema - nested include for each relation
  */
 
-export type IncludeSchema<F extends RelationSchemaBundle> = V.Object<
+export type IncludeSchema<
+  M extends AnyModel,
+  F extends RelationSchemaBundle,
+> = V.Object<
   V.FromObject<F["relations"], "include", { optional: true }>["entries"] & {
     _count: CountSchema<F>;
     _aggregate: RelationAggregatesSchema<F>;
-  } & V.FromObject<F["polymorphic"], "include", { optional: true }>["entries"],
+  } & V.FromObject<F["polymorphic"], "include", { optional: true }>["entries"] &
+    V.FromKeys<
+      Extract<ViewDocumentKeys<M>, StoredCounts>[],
+      typeof scalarSelectSchema
+    >["entries"],
   { readonly provides: string | undefined }
 >;
 
-export const getIncludeSchema = <F extends RelationSchemaBundle>(
-  model: AnyModel,
+/** The keys a view may store as a column where a read counts at read time. */
+type StoredCounts = "_count" | "_aggregate";
+const STORED_COUNTS: readonly string[] = ["_count", "_aggregate"];
+
+export const getIncludeSchema = <
+  M extends AnyModel,
+  F extends RelationSchemaBundle,
+>(
+  model: M,
   schemas: F,
   slots: ReadonlyMap<string, unknown>
-): IncludeSchema<F> => {
+): IncludeSchema<M, F> => {
   // Relations: use relation's include schema (supports boolean or nested with where/orderBy/etc.)
   const relationEntries = v.fromObject<
     F["relations"],
@@ -530,6 +544,14 @@ export const getIncludeSchema = <F extends RelationSchemaBundle>(
       // entry (the query engine already builds _count in include position).
       _count: getCountSchema(model, schemas, slots),
       _aggregate: getRelationAggregatesSchema(schemas),
+      // A view's stored `_count` or `_aggregate` is a column, which counts
+      // nothing at read time: read whole by a boolean, as `select` reads it.
+      ...v.fromKeys(
+        (viewFacts(model)?.documents ?? []).filter((name) =>
+          STORED_COUNTS.includes(name)
+        ) as Extract<ViewDocumentKeys<M>, StoredCounts>[],
+        scalarSelectSchema
+      ).entries,
     },
     options
   );

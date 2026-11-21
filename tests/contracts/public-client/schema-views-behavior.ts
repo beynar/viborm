@@ -767,6 +767,30 @@ export function runSchemaViewsBehavior({
         "author",
         "id",
       ]);
+      // A stored `_count` or `_aggregate` counts nothing at read time: read
+      // whole by a boolean, it takes no arguments under `include` either.
+      expect(
+        plain(
+          await client.publishedPost.findMany({
+            include: { _count: true },
+            orderBy: { id: "asc" },
+          })
+        )
+      ).toEqual(
+        plain(await client.publishedPost.findMany({ orderBy: { id: "asc" } }))
+      );
+      await expect(
+        client.publishedPost.findMany({
+          include: {
+            _count: { select: { comments: { where: { body: "none" } } } },
+          },
+        } as never)
+      ).rejects.toThrow("_count");
+      await expect(
+        client.authorStats.findMany({
+          include: { _aggregate: { posts: { _count: true } } },
+        } as never)
+      ).rejects.toThrow("_aggregate");
       const omitted = await client.publishedPost.findMany({
         omit: { author: true, comments: true, cover: true },
         orderBy: { id: "asc" },

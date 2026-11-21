@@ -422,6 +422,22 @@ export const _countColumn = async () => {
     // @ts-expect-error - a view without the column has none to omit
     omit: { label: false, _count: true },
   });
+  // A stored `_count` counts nothing at read time: read whole, by a boolean,
+  // under `include` as under `select`.
+  const included = await client.digest.findMany({ include: { _count: true } });
+  type _included = Expect<
+    Equal<(typeof included)[number]["_count"], { posts: number }>
+  >;
+  client.digest.findMany({
+    include: {
+      // @ts-expect-error - a stored `_count` takes no arguments
+      _count: { select: { posts: { where: { name: "x" } } } },
+    },
+  });
+  client.digest.findMany({
+    // @ts-expect-error - nor under `select`
+    select: { _count: { select: { posts: true } } },
+  });
 };
 
 // =============================================================================
