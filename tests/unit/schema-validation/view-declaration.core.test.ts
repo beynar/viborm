@@ -611,3 +611,41 @@ describe("a view's variant collection", () => {
     expect([...index.get(shelfNames)!.keys()]).toEqual([]);
   });
 });
+
+describe("a view's relations through a self junction whose sides reference different keys", () => {
+  const link = s
+    .model({
+      childId: s.string(),
+      parentSlug: s.string(),
+      child: s
+        .toOne(() => node)
+        .fields("childId")
+        .references("id"),
+      parent: s
+        .toOne(() => node)
+        .fields("parentSlug")
+        .references("slug"),
+    })
+    .id(["childId", "parentSlug"]);
+  const node = s.model({
+    id: s.string().id(),
+    slug: s.string().unique(),
+    parents: s
+      .toMany(() => node)
+      .name("graph")
+      .through(() => link)
+      .source("child")
+      .target("parent"),
+    children: s.toMany(() => node).name("graph"),
+  });
+  const ids = s.view(() => node, { select: { id: true } });
+  const slugs = s.view(() => node, { select: { slug: true } });
+  const schema = { link, node, ids, slugs };
+  hydrateSchemaNames(schema);
+  const index = resolveSchemaOrThrow(schema);
+
+  it("joins each end on its own side's key, as the types read it", () => {
+    expect([...index.get(ids)!.keys()]).toEqual(["parents"]);
+    expect([...index.get(slugs)!.keys()]).toEqual(["children"]);
+  });
+});

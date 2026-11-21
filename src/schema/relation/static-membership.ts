@@ -642,21 +642,52 @@ export type SlotKeyFields<SourceModel, FieldKey, R> =
         : string;
 
 /**
- * The fields of a junction's endpoint row its side references: what a
- * declared junction model's foreign keys to that model reference (a key or
- * a unique, as the runtime's topology reads them), and the row key for a
- * junction the schema owns. `string` where the declared model names none.
+ * The fields of a junction's endpoint row its side references: what the
+ * declared junction model's foreign key on this endpoint's side references
+ * (a key or a unique, as the runtime's topology reads it), and the row key
+ * for a junction the schema owns. The side is the one `.source()` names on
+ * the declaring endpoint, `.target()` on its partner; unnamed, every foreign
+ * key of the junction to the model. `string` where none is found.
  */
 type JunctionKeyFields<SourceModel, FieldKey, R> =
   JunctionModelOf<SourceModel, FieldKey, R> extends infer Junction
     ? [Junction] extends [never]
       ? RowKeyFields<SourceModel>
-      : JunctionReferences<Junction, SourceModel> extends infer Referenced
+      : (
+            [OwnJunctionSide<SourceModel, FieldKey, R>] extends [never]
+              ? JunctionReferences<Junction, SourceModel>
+              : SideReferences<
+                  Junction,
+                  OwnJunctionSide<SourceModel, FieldKey, R>
+                >
+          ) extends infer Referenced
         ? [Referenced] extends [never]
           ? string
           : Referenced
         : never
     : never;
+
+/** The junction's to-one this endpoint's side reads, where `.source()` / `.target()` name it. */
+type OwnJunctionSide<SourceModel, FieldKey, R> = [
+  DeclaredJunctionModel<R>,
+] extends [never]
+  ? JunctionFactsOf<SourceModel, FieldKey, R> extends {
+      readonly target: infer Side extends string;
+    }
+    ? Side
+    : never
+  : JunctionFactsOf<SourceModel, FieldKey, R> extends {
+        readonly source: infer Side extends string;
+      }
+    ? Side
+    : never;
+
+/** What the junction's to-one `Side` references. */
+type SideReferences<Junction, Side> = Side extends keyof RelationsOf<Junction>
+  ? ForeignKeyOf<RelationsOf<Junction>[Side]> extends ForeignKeyDeclaration
+    ? ForeignKeyOf<RelationsOf<Junction>[Side]>["references"][number]
+    : never
+  : never;
 
 /** The fields each foreign key of `Junction` to `SourceModel` references. */
 type JunctionReferences<Junction, SourceModel> = {

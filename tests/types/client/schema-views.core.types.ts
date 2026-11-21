@@ -737,3 +737,49 @@ export const _variantCollection = async () => {
   // @ts-expect-error - without the row key, no member junction joins
   await shelves.shelfNames.findMany({ include: { items: true } });
 };
+
+// =============================================================================
+// A SELF JUNCTION WHOSE SIDES REFERENCE DIFFERENT KEYS: EACH END ITS OWN SIDE
+// =============================================================================
+
+const nodeLink = s
+  .model({
+    childId: s.string(),
+    parentSlug: s.string(),
+    child: s
+      .toOne(() => node)
+      .fields("childId")
+      .references("id"),
+    parent: s
+      .toOne(() => node)
+      .fields("parentSlug")
+      .references("slug"),
+  })
+  .id(["childId", "parentSlug"]);
+const node = s.model({
+  id: s.string().id(),
+  slug: s.string().unique(),
+  parents: s
+    .toMany(() => node)
+    .name("graph")
+    .through(() => nodeLink)
+    .source("child")
+    .target("parent"),
+  children: s.toMany(() => node).name("graph"),
+});
+const nodeIds = s.view(() => node, { select: { id: true } });
+const nodeSlugs = s.view(() => node, { select: { slug: true } });
+const nodes = createClient({
+  schema: { nodeLink, node, nodeIds, nodeSlugs },
+  driver: new PGliteDriver(),
+});
+
+export const _selfJunctionSides = async () => {
+  // `parents` reads its `child` side, which references `id`.
+  await nodes.nodeIds.findMany({ include: { parents: true } });
+  // @ts-expect-error - `children` reads the `parent` side, which references `slug`
+  await nodes.nodeIds.findMany({ include: { children: true } });
+  await nodes.nodeSlugs.findMany({ include: { children: true } });
+  // @ts-expect-error - and `parents` needs `id`
+  await nodes.nodeSlugs.findMany({ include: { parents: true } });
+};
