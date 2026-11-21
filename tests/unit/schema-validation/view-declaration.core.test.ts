@@ -485,3 +485,54 @@ describe("the relations a view inherits", () => {
     );
   });
 });
+
+describe("the `_count: true` of a view over a view", () => {
+  const author = s.model({
+    id: s.string().id(),
+    name: s.string(),
+    posts: s.toMany(() => post),
+  });
+  const post = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    authorId: s.string(),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
+  });
+  const documents = (model: AnyModel) => viewFacts(model)!.documents;
+
+  it("is a column where the source reads a to-many it counts, and none where it inherits none", () => {
+    const ids = s.view(() => author, { select: { id: true } });
+    const named = s.view(() => author, { select: { _count: true } });
+    const keyless = s.view(() => author, { select: { name: true } });
+    const views = {
+      keyed: s.view(() => ids, { include: { _count: true } }),
+      keptOver: s.view(() => named, {}),
+      overKeyless: s.view(() => keyless, { include: { _count: true } }),
+      selectingOverKeyless: s.view(() => keyless, {
+        select: { name: true, _count: true },
+      }),
+    };
+    const schema = { author, post, ids, named, keyless, ...views };
+    hydrateSchemaNames(schema);
+    resolveSchemaOrThrow(schema);
+    expect(documents(views.keyed)).toEqual(["_count"]);
+    expect(documents(views.keptOver)).toEqual(["_count"]);
+    expect(documents(views.overKeyless)).toEqual([]);
+    expect(documents(views.selectingOverKeyless)).toEqual([]);
+  });
+
+  it("is settled by a schema that holds its table, whatever another schema resolved first", () => {
+    const ids = s.view(() => author, { select: { id: true } });
+    const keyed = s.view(() => ids, { include: { _count: true } });
+    // Without its table, a schema cannot tell what the source inherits.
+    validateSchema({ ids, keyed });
+    expect(documents(keyed)).toEqual(["_count"]);
+    const schema = { author, post, ids, keyed };
+    hydrateSchemaNames(schema);
+    resolveSchemaOrThrow(schema);
+    expect(documents(keyed)).toEqual(["_count"]);
+  });
+});

@@ -18,6 +18,7 @@
  * by being ordinary, variant, first, or sole.
  */
 
+import { isRecord } from "../../validation/value-guards";
 import { findReferenceableKey, getModelKeyCatalog, type Model } from "../model";
 import {
   type JunctionOverrideView,
@@ -42,7 +43,7 @@ import type {
   VariantManyEntry,
   VariantOneEntry,
 } from "../relation/types";
-import { viewFacts } from "../view/facts";
+import { type ViewFacts, viewFacts } from "../view/facts";
 import { thrownAsError } from "./error";
 import { deriveIdDomains } from "./id-domains";
 import { checkStoredReference } from "./rules/fk";
@@ -1830,9 +1831,45 @@ function buildIndex(
       if (resolved && slotKeyFields(resolved).every((key) => columns.has(key)))
         own.set(field, resolved);
     }
+    settleCount(facts, index);
   };
   for (const model of models.values()) inherit(model);
   return index;
+}
+
+/**
+ * A view's `_count` column where its source is a view without one: `s.view`
+ * lists it for `_count: true` when the source has a to-many relation, but a
+ * view source reads only those it inherits, known here. Counting none, a read
+ * gives no `_count` (`toManyRelationNames`), so the view has no column.
+ *
+ * Decided only where this schema can: its table and the source view are in
+ * it, and each to-many of the source resolves at the table. Each inherited
+ * slot is then the table's own, which no other schema resolves differently,
+ * so the answer is the views' and never the order of the schemas that share
+ * them; elsewhere the column is left as declared.
+ */
+function settleCount(facts: ViewFacts, index: ResolvedRelationIndex): void {
+  const { source, query } = facts;
+  const projection = isRecord(query.select) ? query.select : query.include;
+  if (
+    viewFacts(source)?.documents.includes("_count") !== false ||
+    (isRecord(projection) && isRecord(projection._count))
+  )
+    return;
+  let table = source;
+  for (let up = viewFacts(table); up; up = viewFacts(table)) table = up.source;
+  const slots = index.get(table);
+  const inherited = index.get(source);
+  if (slots === undefined || inherited === undefined) return;
+  const relations: Record<string, AnyRelation> = source["~"].state.relations;
+  for (const [field, relation] of Object.entries(relations))
+    if (
+      relation["~"].state.cardinality === "many" &&
+      !(slots.has(field) && !inherited.has(field))
+    )
+      return;
+  facts.documents = facts.documents.filter((name) => name !== "_count");
 }
 
 /**

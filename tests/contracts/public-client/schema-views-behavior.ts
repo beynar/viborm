@@ -194,6 +194,12 @@ const trimmedOverQuery = {
 const trimmedOver = s
   .view(() => publishedPost, trimmedOverQuery)
   .map("vw_trimmed_over");
+/** No key of its source: it inherits no to-many, so `_count: true` over it counts none. */
+const noIdQuery = { select: { title: true, authorId: true } } as const;
+const noIdPost = s.view(() => post, noIdQuery).map("vw_no_id_posts");
+const countOver = s
+  .view(() => noIdPost, { include: { _count: true } })
+  .map("vw_count_over");
 
 /**
  * Foreign keys that inherit an identifier format from the key they
@@ -273,6 +279,8 @@ const views = {
   bookmarkRefOver,
   livePost,
   liveByline,
+  noIdPost,
+  countOver,
 };
 const schema = { ...tables, ...views };
 
@@ -291,6 +299,8 @@ const CREATED = [
   "bookmarkRefOver",
   "livePost",
   "liveByline",
+  "noIdPost",
+  "countOver",
 ] as const;
 
 const NAMES: Record<(typeof CREATED)[number], string> = {
@@ -307,6 +317,8 @@ const NAMES: Record<(typeof CREATED)[number], string> = {
   bookmarkRefOver: "vw_bookmark_refs_over",
   livePost: "vw_live_posts",
   liveByline: "vw_live_bylines",
+  noIdPost: "vw_no_id_posts",
+  countOver: "vw_count_over",
 };
 
 const hex = (bytes: Uint8Array) =>
@@ -992,6 +1004,15 @@ export function runSchemaViewsBehavior({
         plain(await client.publishedPost.findMany(popularQuery))
       );
       expect(rows.length).toBeGreaterThan(0);
+    });
+
+    test("a `_count: true` over a view that inherits no to-many is no column", async () => {
+      const rows = await client.countOver.findMany();
+      expect(unordered(rows)).toEqual(
+        unordered(await client.noIdPost.findMany())
+      );
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) expect(row).not.toHaveProperty("_count");
     });
   });
 }

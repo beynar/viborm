@@ -14,9 +14,11 @@ export interface ViewFacts {
   /**
    * The view's JSON columns, by name: each non-scalar selection of the query
    * (a relation, `_count`, `_aggregate`), in the order the query's projection
-   * lists them.
+   * lists them. The one field written after `s.view`: the schema's
+   * resolution settles a `_count: true` over a view source, whose inherited
+   * relations it alone knows (`settleCount`).
    */
-  readonly documents: readonly string[];
+  documents: readonly string[];
 }
 
 /** The view facts of `model`, or undefined when it is a table. */

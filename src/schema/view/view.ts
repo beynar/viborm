@@ -214,7 +214,9 @@ function projectedCompoundKeys<Keys extends CompoundKeys>(
 /**
  * Whether a `_count` selection counts a relation: one it names, or, as
  * `true`, any to-many relation of the source. A read gives a `_count` that
- * counts none no key, so a view has no column for it.
+ * counts none no key, so a view has no column for it. A view source reads
+ * only the relations it inherits, which the schema's resolution settles
+ * (`settleCount`).
  */
 function countsRelation(from: ModelState, count: unknown): boolean {
   return isRecord(count)
