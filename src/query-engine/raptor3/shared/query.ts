@@ -3413,10 +3413,12 @@ export abstract class Queries {
     } else {
       // `omit` is desugared into `select` at admission; an explicit selection
       // and an include can therefore both be present and both belong to the
-      // result.
+      // result. The include adds after the selection's members and changes
+      // none of them, as it changes none of the default projection's above:
+      // a view's `_count: false` leaves its stored `_count` column read.
       selected = args.select ?? defaultSelection(model);
       if (args.include !== undefined)
-        selected = { ...selected, ...args.include };
+        selected = { ...selected, ...args.include, ...selected };
       prepared = [];
       fields = {};
     }

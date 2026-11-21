@@ -200,6 +200,14 @@ const noIdPost = s.view(() => post, noIdQuery).map("vw_no_id_posts");
 const countOver = s
   .view(() => noIdPost, { include: { _count: true } })
   .map("vw_count_over");
+/** `_count: false` beside an `omit`: no change to the stored `_count` it keeps. */
+const unflaggedQuery = {
+  omit: { title: true },
+  include: { _count: false },
+} as const;
+const unflagged = s
+  .view(() => publishedPost, unflaggedQuery)
+  .map("vw_unflagged_posts");
 
 /**
  * Foreign keys that inherit an identifier format from the key they
@@ -281,6 +289,7 @@ const views = {
   liveByline,
   noIdPost,
   countOver,
+  unflagged,
 };
 const schema = { ...tables, ...views };
 
@@ -301,6 +310,7 @@ const CREATED = [
   "liveByline",
   "noIdPost",
   "countOver",
+  "unflagged",
 ] as const;
 
 const NAMES: Record<(typeof CREATED)[number], string> = {
@@ -319,6 +329,7 @@ const NAMES: Record<(typeof CREATED)[number], string> = {
   liveByline: "vw_live_bylines",
   noIdPost: "vw_no_id_posts",
   countOver: "vw_count_over",
+  unflagged: "vw_unflagged_posts",
 };
 
 const hex = (bytes: Uint8Array) =>
@@ -1037,6 +1048,15 @@ export function runSchemaViewsBehavior({
       );
       expect(rows.length).toBeGreaterThan(0);
       for (const row of rows) expect(row).not.toHaveProperty("_count");
+    });
+
+    test("an include's `false` beside an omit keeps a stored column the view reads", async () => {
+      const rows = await client.unflagged.findMany();
+      expect(unordered(rows)).toEqual(
+        unordered(await client.publishedPost.findMany(unflaggedQuery))
+      );
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) expect(row).toHaveProperty("_count");
     });
   });
 }
