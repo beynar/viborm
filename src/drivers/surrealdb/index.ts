@@ -4,8 +4,6 @@
  * the engine asks of any driver. `docs/architecture/query-backend-frontier.md`.
  */
 
-import { passThroughParseResult } from "@adapters/adapter-result-parser";
-import type { EngineFacts } from "@adapters/database-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
@@ -50,6 +48,7 @@ import type {
 import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import { createTransactionCleanupError } from "../shared/transactions";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "../types";
+import { SURREAL_FACTS } from "./facts";
 import { SurrealQueries } from "./queries";
 import {
   backOff,
@@ -101,35 +100,6 @@ const within = async <T>(
  */
 const standsAlone = (client: unknown, statement: string): boolean =>
   !(client instanceof ReplayedTransaction) && statement.startsWith("LET ");
-
-/** What the engine asks of any driver. */
-const FACTS: EngineFacts = {
-  namespace: undefined,
-  // A point's statements are this driver's own: the fact is that it holds them.
-  geoPoint: {},
-  // A strategy `Commands` asks about, not syntax: `INSERT IGNORE` skips.
-  mutations: { skipDuplicatesStrategy: "sql" },
-  // A widened sum asks whether it travels in parts here, and it never does.
-  aggregates: {},
-  result: {
-    nativeScalarPassthrough: true,
-    parseResult: passThroughParseResult,
-    parseRelation: (_value, next) => next(),
-    parseField: (_value, _type, next) => next(),
-  },
-  capabilities: {
-    supportsReturning: true,
-    supportsCteWithMutations: false,
-    supportsFullOuterJoin: false,
-    supportsLateralJoins: false,
-    supportsVector: true,
-    supportsUpsertWhere: false,
-    supportsTargetedUpsert: true,
-    supportsMutationTargetInSubquery: false,
-    supportsMutationRowLimit: false,
-    supportsRowLocks: false,
-  },
-};
 
 /** A provider value as the engine's decoders read it. */
 function plain(value: unknown): unknown {
@@ -278,7 +248,7 @@ export class SurrealDriver
   extends Driver<Surreal, ReplayedTransaction>
   implements CommitRerunningDriver
 {
-  readonly adapter = FACTS;
+  readonly adapter = SURREAL_FACTS;
   override readonly backend = queryBackend({
     queries: SurrealQueries,
     context: SurrealCall,

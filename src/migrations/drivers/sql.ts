@@ -438,15 +438,34 @@ export abstract class SqlMigrationDriver extends MigrationDriver {
    */
   /**
    * A view is created at its table position, the marker alias spelled as the
-   * dialect quotes an identifier. Its drop keeps the database's default
+   * dialect quotes an identifier. A materialized view is computed by its
+   * creation (`WITH DATA`), then indexed as a table is, so the one operation
+   * that creates it leaves it whole. Its drop keeps the database's default
    * RESTRICT: what still reads it is dropped first by the program.
    */
-  generateCreateView(op: CreateViewOperation, context: DDLContext): string {
-    return `CREATE VIEW ${this.tableRef(op.view.name, context.destination)} AS ${wrappedViewBody(op.view, (name) => this.escapeIdentifier(name))}`;
+  generateCreateView(
+    op: CreateViewOperation,
+    context: DDLContext
+  ): string | string[] {
+    const { view } = op;
+    const name = this.tableRef(view.name, context.destination);
+    const body = wrappedViewBody(view, (marker) =>
+      this.escapeIdentifier(marker)
+    );
+    if (!view.materialized) return `CREATE VIEW ${name} AS ${body}`;
+    return [
+      `CREATE MATERIALIZED VIEW ${name} AS ${body} WITH DATA`,
+      ...(view.indexes ?? []).flatMap((index) =>
+        this.generateCreateIndex(
+          { type: "createIndex", tableName: view.name, index },
+          context
+        )
+      ),
+    ];
   }
 
   generateDropView(op: DropViewOperation, context: DDLContext): string {
-    return `DROP VIEW ${this.tableRef(op.viewName, context.destination)}`;
+    return `DROP ${op.materialized ? "MATERIALIZED " : ""}VIEW ${this.tableRef(op.viewName, context.destination)}`;
   }
 
   override generateDropTableSQL(tableName: string): string {

@@ -8,6 +8,11 @@ import type { AnyRelation } from "../relation";
 import type { Scalar } from "../scalars/base";
 import type { HydratedSchemaNames, SchemaNames } from "../scalars/common";
 import {
+  type DeclaredViewState,
+  type MaterializedViewState,
+  viewFacts,
+} from "../view/facts";
+import {
   type DeclaredModelShape,
   extractRelationMap,
   extractScalarMap,
@@ -522,6 +527,28 @@ export class Model<State extends ModelState> {
   withoutRowid(): Model<State> {
     // Held beside the typed state, as `rawIndex` is: see there.
     return new Model<State>({ ...this.#state, withoutRowid: true });
+  }
+
+  /**
+   * A view whose rows the database stores: on PostgreSQL a materialized view,
+   * which `.index()` may index and `$refresh()` recomputes. Elsewhere it is an
+   * ordinary view. Only a view is materialized: the `this` type refuses a
+   * table, and the call refuses one a cast lets through.
+   *
+   * Generic over `this`, and marked by an intersection rather than a mapped
+   * state: every signature of `Model` is compared whenever two model types
+   * are, and a mapped return type cost a schema without a view 4,300
+   * instantiations (+0.8 %) on the packed 50-model extended fixture.
+   */
+  materialized<S extends State & DeclaredViewState>(
+    this: Model<S>
+  ): Model<S & MaterializedViewState> {
+    const view = viewFacts(this);
+    if (view === undefined) throw new Error("Only a view is materialized");
+    return new Model({
+      ...this.#state,
+      view: { ...view, materialized: true },
+    }) as never;
   }
 
   id<

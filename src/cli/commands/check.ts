@@ -8,6 +8,8 @@
  */
 
 import { Command } from "commander";
+import type { AnyDriver } from "../../drivers/driver";
+import { getMigrationDriver } from "../../migrations/drivers";
 import type { ViewWriter } from "../../migrations/drivers/base";
 import { mysqlMigrationDriver } from "../../migrations/drivers/mysql";
 import { postgresMigrationDriver } from "../../migrations/drivers/postgres";
@@ -17,7 +19,7 @@ import {
   auditStorage,
   type StorageColumnAudit,
 } from "../../migrations/sqlite-storage-audit";
-import { viewBody } from "../../query-engine/raptor3/view-body";
+import { writeView } from "../../migrations/view-definition";
 import { hydrateSchemaNames } from "../../schema/hydration";
 import type {
   SchemaValidationIssue,
@@ -67,11 +69,17 @@ const describe = (issue: SchemaValidationIssue): string =>
     .filter(Boolean)
     .join("\n    ");
 
-/** Who writes a view's body, per dialect VibORM creates views on. */
-const VIEW_WRITERS: Partial<Record<Dialect, () => ViewWriter>> = {
+/**
+ * Who writes a view's body, per dialect VibORM creates views on: on SurrealDB
+ * the read backend of the configured driver, which its migration binds to.
+ */
+const VIEW_WRITERS: Partial<
+  Record<Dialect, (driver: AnyDriver) => ViewWriter | undefined>
+> = {
   postgresql: () => postgresMigrationDriver.viewWriter(),
   mysql: () => mysqlMigrationDriver.viewWriter(),
   sqlite: () => sqlite3MigrationDriver.viewWriter(),
+  surrealql: (driver) => getMigrationDriver(driver).viewWriter(),
 };
 
 /**
@@ -82,15 +90,16 @@ const VIEW_WRITERS: Partial<Record<Dialect, () => ViewWriter>> = {
  */
 function withViewQueries(
   result: ValidationResult,
-  { models, driver: { dialect } }: LoadedConfig
+  { models, driver }: LoadedConfig
 ): ValidationResult {
-  const writer = result.valid ? VIEW_WRITERS[dialect] : undefined;
+  const writer = result.valid ? VIEW_WRITERS[driver.dialect] : undefined;
   if (writer === undefined) return result;
   const errors = [...result.errors];
   for (const [model, view] of Object.entries(models)) {
     if (viewFacts(view) === undefined) continue;
     try {
-      viewBody({ schema: models, adapter: writer().adapter }, view);
+      const written = writer(driver);
+      if (written) writeView(written, { schema: models }, view);
     } catch (cause) {
       errors.push({
         code: "W005",

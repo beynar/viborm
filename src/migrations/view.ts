@@ -10,6 +10,8 @@
  * give back (measured on PostgreSQL 18, PGlite, MySQL 8.4 and SQLite 3.53;
  * each planner flattens the wrapper). It is lowercase because MySQL lowercases
  * an alias where a column names it. A view without the marker is not VibORM's.
+ * A materialized view's definition ends with it the same way (measured on
+ * PostgreSQL 18 and PGlite).
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
@@ -40,6 +42,17 @@ export function viewMarker(hash: string): string {
   return `${MARKER_PREFIX}${hash}`;
 }
 
+/** A view's body, to create it with: a view read from the database has none. */
+export function declaredViewSql(view: ViewDef): string {
+  if (view.sql === undefined)
+    throw new MigrationError(
+      `The view "${view.name}" was read from the database, and this schema does not declare it, so nothing says how to create it again.`,
+      VibORMErrorCode.MIGRATION_INVALID_STATE,
+      { meta: { relation: view.name, feature: "view" } }
+    );
+  return view.sql;
+}
+
 /**
  * What follows `CREATE VIEW <name> AS`: the body wrapped so that the marker
  * is its last token. `quote` is the dialect's identifier quoting.
@@ -48,13 +61,7 @@ export function wrappedViewBody(
   view: ViewDef,
   quote: (name: string) => string
 ): string {
-  if (view.sql === undefined)
-    throw new MigrationError(
-      `The view "${view.name}" was read from the database, and this schema does not declare it, so nothing says how to create it again.`,
-      VibORMErrorCode.MIGRATION_INVALID_STATE,
-      { meta: { relation: view.name, feature: "view" } }
-    );
-  return `SELECT * FROM (${view.sql}) AS ${quote(viewMarker(view.hash))}`;
+  return `SELECT * FROM (${declaredViewSql(view)}) AS ${quote(viewMarker(view.hash))}`;
 }
 
 /**
@@ -68,11 +75,26 @@ export function readViewMarker(
   return VIEW_MARKER.exec(definition)?.[1];
 }
 
+/**
+ * The hash a view table's comment names, where SurrealDB keeps the marker
+ * (`DEFINE TABLE … AS SELECT … COMMENT "<marker>"`, which `INFO FOR DB`
+ * reports apart from the body): the marker alone, or undefined.
+ */
+export function readViewComment(
+  comment: string | null | undefined
+): string | undefined {
+  const hash = comment?.startsWith(MARKER_PREFIX)
+    ? comment.slice(MARKER_PREFIX.length)
+    : undefined;
+  return isViewHash(hash) ? hash : undefined;
+}
+
 /** A program operation on a view. */
 type ViewOperation = Extract<
   DiffOperation,
   { type: "createView" } | { type: "dropView" }
 >;
+type DropViewOperation = Extract<DiffOperation, { type: "dropView" }>;
 
 function isViewOperation(operation: DiffOperation): operation is ViewOperation {
   return operation.type === "createView" || operation.type === "dropView";
@@ -89,18 +111,42 @@ function isViewOperation(operation: DiffOperation): operation is ViewOperation {
  * (which row a `take` or a `distinct` keeps), so the view would stay as the
  * old key wrote it. Where the dialect `rebuilds` a table to change it
  * (SQLite: a column, a unique or a foreign key), every other change to the
- * table too, since it refuses to rebuild a table a view reads. An index's creation or drop leaves
- * every view as it was, on every dialect.
+ * table too, since it refuses to rebuild a table a view reads. Where a
+ * foreign key's column holds `links` (SurrealDB stores a record link there,
+ * and the plain value without the key), a foreign key added or dropped too:
+ * a view's filter on the column was written for the other form, and would
+ * match no row (measured). There a column changed in any way replaces the
+ * view as well: its body is not SQL's, where a filter means the same under a
+ * nullable column, but a filter lowered for the column as it was (a column
+ * that becomes nullable needs a guard its filter did not have, without
+ * which every write of `NULL` to the table fails; measured), and the view's
+ * hash holds neither the body nor a column the query only filters by. And there a table's rename changes
+ * every table holding a foreign key to it: the rename rewrites each link
+ * held as a record of the new table, and a view's filter on that column,
+ * written with a record of the old one, would match no row (measured). An index's creation or drop leaves
+ * every view as it was, on every dialect. A materialized view is refused and
+ * survives the same changes as an ordinary one (measured on PostgreSQL 18),
+ * and keeps the rows it stored through the ones it survives.
  */
 function changedTables(
   operations: readonly DiffOperation[],
-  rebuilds: boolean
+  current: SchemaSnapshot,
+  rebuilds: boolean,
+  links: boolean
 ): Set<string> {
   const names = new Set<string>();
   for (const operation of operations) {
     switch (operation.type) {
       case "renameTable":
         names.add(operation.from).add(operation.to);
+        if (links)
+          for (const table of current.tables)
+            if (
+              table.foreignKeys.some(
+                (key) => key.referencedTable === operation.from
+              )
+            )
+              names.add(table.name);
         break;
       case "createTable":
         names.add(operation.table.name);
@@ -118,8 +164,12 @@ function changedTables(
         names.add(operation.tableName);
         break;
       case "alterColumn":
-        if (rebuilds || operation.from.type !== operation.to.type)
+        if (rebuilds || links || operation.from.type !== operation.to.type)
           names.add(operation.tableName);
+        break;
+      case "addForeignKey":
+      case "dropForeignKey":
+        if (rebuilds || links) names.add(operation.tableName);
         break;
       case "createIndex":
       case "dropIndex":
@@ -168,29 +218,38 @@ export function orderViews(
  * side only; this adds the one rule the program decides: a view is dropped
  * and created again when a table it reads is changed by the program in a
  * way it does not survive on this dialect (see `changedTables`; `rebuilds`
- * says the dialect rebuilds tables), or a view it reads is dropped,
+ * says the dialect rebuilds tables, `links` that a foreign key's column holds
+ * record links), or a view it reads is dropped,
  * transitively. Every drop
  * runs first, dependents before what they read, and every creation last,
- * after what it reads: no table or enum operation runs under a view.
+ * after what it reads: no table or enum operation runs under a view. A
+ * replaced materialized view is created with its indexes, so an index
+ * operation the differ planned on it goes.
  */
 export function withViewReplacements(
   operations: readonly DiffOperation[],
   current: SchemaSnapshot,
   desired: SchemaSnapshot,
-  rebuilds: boolean
+  rebuilds: boolean,
+  links = false
 ): DiffOperation[] {
-  const rest = operations.filter((operation) => !isViewOperation(operation));
-  const dropped = new Set<string>();
+  const dropped = new Map<string, DropViewOperation>();
   const created = new Map<string, ViewDef>();
   for (const operation of operations) {
-    if (operation.type === "dropView") dropped.add(operation.viewName);
+    if (operation.type === "dropView")
+      dropped.set(operation.viewName, operation);
     if (operation.type === "createView")
       created.set(operation.view.name, operation.view);
   }
   const declared = new Map(
     (desired.views ?? []).map((view) => [view.name, view])
   );
-  const changed = changedTables(rest, rebuilds);
+  const changed = changedTables(
+    operations.filter((operation) => !isViewOperation(operation)),
+    current,
+    rebuilds,
+    links
+  );
   const live = current.views ?? [];
   for (let grew = true; grew; ) {
     grew = false;
@@ -200,15 +259,28 @@ export function withViewReplacements(
       const reads = [...view.dependsOn, ...(kept?.dependsOn ?? [])];
       if (!reads.some((name) => changed.has(name) || dropped.has(name)))
         continue;
-      dropped.add(view.name);
+      dropped.set(view.name, {
+        type: "dropView",
+        viewName: view.name,
+        ...(view.materialized ? { materialized: true } : {}),
+      });
       if (kept) created.set(kept.name, kept);
       grew = true;
     }
   }
+  const rest = operations.filter(
+    (operation) =>
+      !(
+        isViewOperation(operation) ||
+        ((operation.type === "createIndex" || operation.type === "dropIndex") &&
+          created.has(operation.tableName) &&
+          dropped.has(operation.tableName))
+      )
+  );
   if (dropped.size === 0 && created.size === 0) return rest;
   return [
-    ...orderViews(dropped, live, true).map(
-      (viewName): DiffOperation => ({ type: "dropView", viewName })
+    ...orderViews(new Set(dropped.keys()), live, true).map(
+      (name) => dropped.get(name)!
     ),
     ...rest,
     ...orderViews(new Set(created.keys()), [...created.values()], false).map(
@@ -223,19 +295,20 @@ export function withViewReplacements(
 /** One relation of the live namespace, as a dialect's preflight reads it. */
 export interface LiveRelation {
   readonly name: string;
-  /** `other`: what is neither a table nor a view (a materialized view). */
-  readonly kind: "table" | "view" | "other";
-  /** A view's definition as its catalog prints it. */
+  readonly kind: "table" | "view" | "materialized view";
+  /** A view's definition as its catalog prints it, materialized or not. */
   readonly definition?: string | null | undefined;
+  /** A view table's comment, where SurrealDB keeps the marker. */
+  readonly comment?: string | undefined;
 }
 
 /**
  * Refuses, before any effect, a name the snapshots declare that the database
- * holds as something VibORM cannot take over: a declared table that is a view
- * without VibORM's marker (or any other relation that is not a table), and a
- * declared view that is a table no snapshot declares, or a view without the
- * marker. A marked view is VibORM's: the program drops or keeps it. A table a
- * snapshot declares is the history's: it drops it before the view.
+ * holds as something VibORM cannot take over: a declared table that is a
+ * view, materialized or not, without VibORM's marker, and a declared view
+ * that is a table no snapshot declares, or a view without the marker. A
+ * marked view of either kind is VibORM's: the program drops or keeps it. A
+ * table a snapshot declares is the history's: it drops it before the view.
  */
 export function refuseRelationCollision(
   database: string,
@@ -252,12 +325,12 @@ export function refuseRelationCollision(
   );
   for (const relation of relations) {
     const foreignView =
-      relation.kind === "other" ||
-      (relation.kind === "view" &&
-        readViewMarker(relation.definition) === undefined);
+      relation.kind !== "table" &&
+      (readViewMarker(relation.definition) ??
+        readViewComment(relation.comment)) === undefined;
     if (tables.has(relation.name) && foreignView)
       throw new MigrationError(
-        `${database} relation "${relation.name}" is a ${relation.kind === "view" ? "view" : "materialized view"} VibORM did not create, but this schema declares a table. Synchronization refuses before effects and preserves the view.`,
+        `${database} relation "${relation.name}" is a ${relation.kind} VibORM did not create, but this schema declares a table. Synchronization refuses before effects and preserves the view.`,
         VibORMErrorCode.MIGRATION_INVALID_STATE,
         { meta: { table: relation.name, feature: "view" } }
       );
@@ -267,7 +340,7 @@ export function refuseRelationCollision(
       (relation.kind === "table" || foreignView)
     )
       throw new MigrationError(
-        `${database} relation "${relation.name}" is a ${relation.kind === "table" ? "table" : relation.kind === "view" ? `view ${relation.definition ? "VibORM did not create" : "whose definition this user cannot read, so nothing says VibORM created it (MySQL shows a view's definition to its definer and to a user granted SHOW VIEW)"}` : "materialized view"}, but this schema declares a view of that name. Synchronization refuses before effects and preserves it: drop or rename it yourself, or give the view another name.`,
+        `${database} relation "${relation.name}" is a ${relation.kind === "table" ? "table" : `${relation.kind} ${relation.definition ? "VibORM did not create" : "whose definition this user cannot read, so nothing says VibORM created it (MySQL shows a view's definition to its definer and to a user granted SHOW VIEW)"}`}, but this schema declares a view of that name. Synchronization refuses before effects and preserves it: drop or rename it yourself, or give the view another name.`,
         VibORMErrorCode.MIGRATION_INVALID_STATE,
         { meta: { relation: relation.name, feature: "view" } }
       );

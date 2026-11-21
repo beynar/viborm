@@ -538,7 +538,9 @@ const liveItems = s.view(() => item, {
   select: { id: true, title: true, ownerId: true, watcherId: true },
 });
 /** No `id`: neither the to-many nor the junction, which join on it. */
-const titles = s.view(() => item, { select: { title: true, ownerId: true } });
+const itemTitles = s.view(() => item, {
+  select: { title: true, ownerId: true },
+});
 /** A JSON column named `owner` takes the name: that relation is not inherited. */
 const ownedItems = s.view(() => item, {
   select: { id: true, ownerId: true, owner: { select: { name: true } } },
@@ -555,7 +557,7 @@ const related = createClient({
     review,
     badge,
     liveItems,
-    titles,
+    itemTitles,
     ownedItems,
     liveIds,
     scores,
@@ -574,7 +576,7 @@ type _liveRelations = Expect<
     "owner" | "watcher" | "reviews" | "badges"
   >
 >;
-type _titlesRelations = Expect<Equal<RelationsOf<typeof titles>, "owner">>;
+type _titlesRelations = Expect<Equal<RelationsOf<typeof itemTitles>, "owner">>;
 type _ownedRelations = Expect<
   Equal<RelationsOf<typeof ownedItems>, "reviews" | "badges">
 >;
@@ -640,10 +642,10 @@ export const _inheritedReads = async () => {
     >
   >;
   // A relation whose key the view does not keep is no member of it.
-  // @ts-expect-error - `titles` keeps no `id`, which `reviews` joins on
-  related.titles.findMany({ include: { reviews: true } });
+  // @ts-expect-error - `itemTitles` keeps no `id`, which `reviews` joins on
+  related.itemTitles.findMany({ include: { reviews: true } });
   // @ts-expect-error - nor in a filter
-  related.titles.findMany({ where: { badges: { some: {} } } });
+  related.itemTitles.findMany({ where: { badges: { some: {} } } });
   // @ts-expect-error - `owner` is `ownedItems`' JSON column, not a relation
   related.ownedItems.findMany({ include: { owner: true } });
   // @ts-expect-error - `liveIds` keeps no `ownerId`
@@ -736,6 +738,95 @@ export const _variantCollection = async () => {
   await shelves.shelfIds.findMany({ include: { items: true } });
   // @ts-expect-error - without the row key, no member junction joins
   await shelves.shelfNames.findMany({ include: { items: true } });
+};
+
+// =============================================================================
+// A MATERIALIZED VIEW: $refresh on its delegate alone, .index() on its columns
+// =============================================================================
+
+const authorDigest = s
+  .view(() => author, {
+    select: { id: true, name: true, posts: { where: { published: true } } },
+  })
+  .materialized()
+  .index(["name"]);
+/** Keyless, and named after it was materialized. */
+const titles = s
+  .view(() => post, { select: { title: true } })
+  .materialized()
+  .map("titles");
+const stored = createClient({
+  schema: { author, post, publishedPost, authorDigest, titles },
+  driver: new PGliteDriver(),
+});
+
+type _refresh = Expect<
+  Equal<ReturnType<(typeof stored.authorDigest)["$refresh"]>, PromiseLike<void>>
+>;
+type _refreshKeyless = Expect<
+  Equal<"$refresh" extends keyof typeof stored.titles ? true : false, true>
+>;
+type _noRefreshOnAView = Expect<
+  Equal<
+    "$refresh" extends keyof typeof stored.publishedPost ? true : false,
+    false
+  >
+>;
+type _noRefreshOnATable = Expect<
+  Equal<"$refresh" extends keyof typeof stored.post ? true : false, false>
+>;
+
+export const _refreshes = async () => {
+  await stored.authorDigest.$refresh();
+  // Typed on any materialized view; refused when it runs on one without a key.
+  await stored.titles.$refresh({ concurrently: true });
+  await stored.$transaction(async (tx) => {
+    await tx.authorDigest.$refresh();
+  });
+  // An array transaction takes pending operations alone, and a refresh is
+  // not one: it is refused there, before it is awaited, so nothing is sent.
+  // @ts-expect-error - refused in the array form
+  await stored.$transaction([stored.authorDigest.$refresh()]);
+  // A materialized view keeps its reads, and its key.
+  await stored.authorDigest.findUnique({ where: { id: "a" } });
+  // @ts-expect-error - an ordinary view stores no rows to recompute
+  stored.publishedPost.$refresh;
+  // @ts-expect-error - nor a table
+  stored.post.$refresh;
+  // @ts-expect-error - a typo in the options
+  stored.authorDigest.$refresh({ concurently: true });
+  // Options held in a variable are checked as a literal is.
+  const blocking = { concurrently: false };
+  await stored.authorDigest.$refresh(blocking);
+  const misspelt = { concurrently: undefined, concurently: true };
+  // @ts-expect-error - a typo beside an option, in a held object
+  stored.authorDigest.$refresh(misspelt);
+};
+
+const storedChain = stored.$extends(
+  extension(
+    "stamps",
+    defaults(() => ({ post: { create: { published: false } } }))
+  )
+);
+export const _chainedRefresh = () => storedChain.authorDigest.$refresh();
+const storedCache = stored.$extends(cache({ driver: new MemoryCache() }));
+export const _cachedRefresh = () => {
+  // @ts-expect-error - a cached view reads, and recomputes nothing
+  storedCache.$withCache().authorDigest.$refresh;
+};
+
+export const _indexes = () => {
+  const view = s
+    .view(() => author, { select: { id: true, name: true, posts: true } })
+    .materialized();
+  view.index(["id", "name"], { unique: true });
+  // @ts-expect-error - a JSON column is no member of an index
+  view.index(["posts"]);
+  // @ts-expect-error - nor a column the view does not project
+  view.index(["balance"]);
+  // @ts-expect-error - only a view is materialized
+  author.materialized();
 };
 
 // =============================================================================

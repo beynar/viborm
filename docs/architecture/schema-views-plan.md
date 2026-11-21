@@ -213,6 +213,45 @@ await db.authorDigest.$refresh({ concurrently: true }); // readers are not block
   resolves without sending a statement.
 - No incremental refresh (`pg_ivm`) and no trigger emulation in this project.
 
+As built (2026-11-19):
+
+- **One fact says a database stores a view's rows**:
+  `MigrationDriver.materializesViews()`, true on PostgreSQL. Where it is
+  false the snapshot of a `.materialized()` view, its hash and its program
+  are those of the same ordinary view, `.index()` included.
+- **Snapshot**: `ViewDef.materialized` and `ViewDef.indexes` (a table's
+  `IndexDef`), both absent on an ordinary view. `materialized` is in the
+  hash, only when true: a change of kind replaces the view by the one
+  existing rule. The declared indexes are not in the hash. The view's keys
+  are: each is a unique index on stored rows, and one its source gains would
+  be built on the rows of the last refresh, which the source's new
+  constraint says nothing of (a review probe: the migration failed on a
+  duplicate the source no longer had). Replacing the view computes them
+  first.
+- **Indexes**: a unique index per key the view derives
+  (`getModelKeyCatalog(view).addressableKeys`), named as a table's primary
+  key and uniques are, then each declared `.index()`. A view that keeps its
+  hash has its indexes diffed into the existing `createIndex`/`dropIndex`
+  operations against its name, so an index change keeps the stored rows; a
+  replaced view is created with its indexes by its `createView`
+  (`withViewReplacements` leaves out an index operation on a view it
+  replaces).
+- **`.index()` on a view** (W002): only when materialized, on scalar columns,
+  never unique. A unique index is a key (`keys.ts`), and a view's keys are
+  the ones its query shows; MySQL and SQLite would not hold the rows to
+  another.
+- **`$refresh`** is the adapter's statement (`DatabaseAdapter.refresh`,
+  PostgreSQL's alone) sent as the delegate's own `$executeRaw`: in its
+  transaction, and what a raw statement is to an extension (no permissions
+  policy, no soft delete, no cache invalidation). It is sent when awaited
+  (a thenable), so the array form of `$transaction`, which takes operations
+  alone, refuses it with nothing sent. Typed on a materialized view's
+  delegate only (`MaterializedView`, asked in the view arm of `Client`).
+- **Measured on PostgreSQL 18**: `pg_get_viewdef` of a materialized view ends
+  with the marker; under one, a column type change, a column drop and a table
+  drop are refused, a rename is followed, a primary key change and an added
+  column are survived. So `changedTables` is the ordinary view's.
+
 ### 2.7 SurrealDB (PR 3)
 
 `DEFINE TABLE <view> AS SELECT <fields> FROM <source> WHERE <own-field filters>`.
@@ -220,6 +259,41 @@ Admitted: scalars of the source, filters on the source's own fields. Refused
 with a named message: any relation in the projection or the filter (measured
 stale), `take`/`skip`/`orderBy` (parse error). Aggregated forms arrive with
 PR 4. `.materialized()` changes nothing there.
+
+As built (2026-11-19):
+
+- The body is `SELECT id, <stored fields> FROM <source> [WHERE id != NONE
+  AND (<filter>)]`, written by the migration driver's own writer
+  (`drivers/surrealql/view.ts`). The filter is the read backend's lowering,
+  its bound values written as SurrealQL literals; a value with no exact
+  literal is refused. `id != NONE` is there because the server evaluates a
+  view's filter on a deleted row whose fields are all `NONE`.
+- A view row keeps its source record's id, compound ids included, so a
+  view's key order is its source's and `findUnique` holds when the view
+  projects the key.
+- The marker is the table's `COMMENT`; introspection reads a view table as a
+  view, and reset leaves out a view VibORM did not create.
+- The writer takes the read backend from the client the migration is bound
+  to: no migrations bundle imports the SDK, and an unbound driver refuses to
+  write a body.
+- A foreign key added or dropped on a table a view reads replaces the view
+  (`links` in `withViewReplacements`): the column then holds a record link,
+  or stops holding one, and the view's filter on it was written for the
+  other form. So does any change to a column: the filter is lowered for the
+  column as it was (a column that becomes nullable needs a `!= NONE` guard
+  its filter did not have, without which every write of `NULL` to the table
+  fails), and the hash holds neither the body nor a column the query only
+  filters by. A golden body in the SurrealDB provider tests stands where the
+  SQL dialects' stand: a release that lowers a filter differently fails it
+  and must raise `VIEW_REVISION`.
+- A view inherits its source's relations on SurrealDB too. A view's row is
+  its source record under the view's own table, and its column copied from
+  the source's link holds a record of the table that link targets: a slot
+  read at the view compares records with that table, and the view's own key
+  by the key it names (`#heldAs`); an edge table is walked from the source
+  record (`edgeOf`'s `from`), and a relation filter of a view is asked row by
+  row, since no holder list names a view's records (`#holders`). A write that
+  moves a key follows the links tables hold, never a view's (`slotsHeld`).
 
 ### 2.8 Aggregated views (PR 4)
 
@@ -422,8 +496,10 @@ fact by name; the list is kept closed in two places, neither of them a guard:
   +10 M otherwise: see `ViewQuery`). The compile, the literal renderer's caller, identity
   and DDL live in migrations. `pnpm package:build && pnpm size` before each
   push; the pg application and the D1 Worker are the two numbers that count.
-- The body's adapter comes from the dialect's migration driver
-  (`MigrationDriver.viewWriter`), never from an import of the three adapters:
+- A view's body is written by its migration driver's own writer
+  (`MigrationDriver.viewWriter().write`): the SQL dialects compile the read
+  with their own adapter (`sqlViewWriter`), SurrealDB lowers it with its read
+  backend. The adapter is never an import of the three:
   the first form put the MySQL and SQLite adapters in the PostgreSQL
   migrations bundle (measured on the pg + migrations Worker: 299.53 kB with
   the three, 294.17 kB with its own, 288.23 kB before views).

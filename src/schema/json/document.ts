@@ -71,6 +71,13 @@ export interface ViewDocument {
   query: Record<string, JsonValue>;
   /** `.map(viewName)`. */
   table?: string;
+  /** `.materialized()`: present only as `true`. */
+  materialized?: true;
+  /**
+   * `.index(fields, options)` calls in declaration order, as a model writes
+   * them: a materialized view's, on its scalar columns (W002).
+   */
+  indexes?: IndexDocument[];
 }
 
 export interface EnumDocument {

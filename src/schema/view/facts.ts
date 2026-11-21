@@ -19,6 +19,31 @@ export interface ViewFacts {
    * relations it alone knows (`settleCount`).
    */
   documents: readonly string[];
+  /**
+   * Declared with `.materialized()`: the database stores the view's rows
+   * (PostgreSQL's materialized view), so `.index()` may index its columns
+   * and `$refresh()` recomputes them. Where a database has no such view it
+   * is an ordinary one.
+   */
+  readonly materialized?: true;
+}
+
+/** The state of a view, at the type level: what `.materialized()` is called on. */
+export interface DeclaredViewState {
+  readonly view: object;
+}
+
+/** What `.materialized()` adds to a view's state, at the type level. */
+export interface MaterializedViewState {
+  readonly view: { readonly materialized: true };
+}
+
+/**
+ * A view declared `.materialized()`, at the type level: the client types
+ * `$refresh` on its delegate alone.
+ */
+export interface MaterializedView {
+  readonly "~": { readonly state: MaterializedViewState };
 }
 
 /** The view facts of `model`, or undefined when it is a table. */

@@ -189,9 +189,10 @@ function readViewFacts(model: AnyModel, path: string): ViewFacts | undefined {
 
 /**
  * A view as `s.view` declared it: its source's schema key, its query, its
- * name. Its columns and keys are derived from those two, so they are not
- * written. An index, `.withoutRowid()` or `.omit()` chained on a view has no
- * spelling in a view document, so it is named rather than dropped.
+ * name, whether it is materialized and its indexes. Its columns, keys and
+ * relations are derived from the first two, so they are not written. A raw
+ * index, `.withoutRowid()` or `.omit()` chained on a view has no spelling in
+ * a view document, so it is named rather than dropped.
  */
 function serializeView(
   model: AnyModel,
@@ -209,8 +210,10 @@ function serializeView(
       {},
   };
   if (state.tableName !== undefined) document.table = state.tableName;
+  if (facts.materialized) document.materialized = true;
+  const indexes = serializeIndexes(state.indexes, path, issues);
+  if (indexes.length > 0) document.indexes = indexes;
   const chained = [
-    state.indexes.length > 0 && "an index",
     model["~"].rawIndexes.length > 0 && "a raw index",
     model["~"].withoutRowid && "`.withoutRowid()`",
     state.omit !== undefined && "`.omit()`",

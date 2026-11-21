@@ -632,16 +632,29 @@ async function executeResetClear(
   };
   // A table or a view is dropped once, proven gone, and confirmed.
   const dropProven = async (
-    drop: { readonly name: string; readonly sql: string },
+    drop: {
+      readonly name: string;
+      readonly sql: string;
+      readonly materialized?: boolean;
+    },
     kind: "table" | "view"
   ) => {
-    const probe = kind === "view" ? viewExistsProbe : tableExistsProbe;
-    if (!(await evaluateProbe(pinned, probe(command, drop.name, true)))) {
+    const probe = (exists: boolean) =>
+      kind === "view"
+        ? viewExistsProbe(
+            command,
+            drop.name,
+            exists,
+            "live-command",
+            drop.materialized
+          )
+        : tableExistsProbe(command, drop.name, exists);
+    if (!(await evaluateProbe(pinned, probe(true)))) {
       await confirmResetStep(pinned, command, graph, attemptId, drop.sql);
       return;
     }
     await runClearStatement(drop.sql);
-    if (!(await evaluateProbe(pinned, probe(command, drop.name, false)))) {
+    if (!(await evaluateProbe(pinned, probe(false)))) {
       throw new MigrationError(
         `Reset clear did not drop ${kind} ${drop.name}`,
         VibORMErrorCode.MIGRATION_PARTIAL_EFFECT

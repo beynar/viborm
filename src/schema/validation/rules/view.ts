@@ -22,13 +22,16 @@ function sameMembers(
 /**
  * W001: a view's source is a model of the same schema, so the read that
  * defines it can be compiled. W002: every scalar and key of a view is its
- * source's own, and it takes no index and no omission: `.extends()`, `.id()`,
- * `.unique()`, `.index()`, `.rawIndex()`, `.withoutRowid()` and `.omit()`
- * state what a view cannot hold (a column a view should not return is one its
- * query does not project). W003: a view's relations are its source's, which
- * it inherits where it keeps their key columns: `.extends()` declares none.
- * W004: a JSON
- * column takes its selection's name, which no scalar's column may share.
+ * source's own, and it takes no raw index and no omission: `.extends()` with
+ * a scalar, `.id()`, `.unique()`, `.rawIndex()`, `.withoutRowid()` and
+ * `.omit()` state what a view cannot hold (a column a view should not return
+ * is one its query does not project). Only a materialized view takes
+ * `.index()`, on its scalar columns and never unique: a JSON column has no
+ * order, and a unique index would be a key its query does not show (that an
+ * index names a field of the view at all is I001's). W003: a view's
+ * relations are its source's, which it inherits where it keeps their key
+ * columns: `.extends()` declares none. W004: a JSON column takes its
+ * selection's name, which no scalar's column may share.
  *
  * W002 is the one owner of what a view cannot hold, and it reads each such
  * fact by name. `view-declaration.core.test.ts` lists every method and every
@@ -58,14 +61,33 @@ export function viewIsItsRead(
       sameMembers(state.compoundId, source.compoundId) &&
       sameMembers(state.compoundUniques, source.compoundUniques)
     ) ||
-    state.indexes.length > 0 ||
     view["~"].rawIndexes.length > 0 ||
     view["~"].withoutRowid ||
     state.omit
   )
     refused.push([
       "W002",
-      "declares a field, a key, an index or an omission beside its query",
+      "declares a field, a key, a raw index or an omission beside its query",
+    ]);
+  if (state.indexes.length > 0 && !facts.materialized)
+    refused.push([
+      "W002",
+      "declares an index, and only a materialized view stores rows to index: declare it .materialized()",
+    ]);
+  // A unique index is a key (`keys.ts`): one more than the query shows, which
+  // only PostgreSQL would hold the view's rows to.
+  if (state.indexes.some((index) => index.options.unique))
+    refused.push([
+      "W002",
+      "declares a unique index: a view's keys are the keys of its source that it projects, and nothing else says its rows are unique",
+    ]);
+  const indexedDocument = state.indexes
+    .flatMap((index) => index.fields)
+    .find((field) => facts.documents.includes(field));
+  if (indexedDocument !== undefined)
+    refused.push([
+      "W002",
+      `indexes its JSON column '${indexedDocument}': a document has no order an index could keep`,
     ]);
   if (!sameMembers(state.relations, source.relations))
     refused.push([

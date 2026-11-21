@@ -101,7 +101,15 @@ const FOREIGN_KEY_KEYS = [
 ] as const;
 const UNIQUE_CONSTRAINT_KEYS = ["columns", "name"] as const;
 const ENUM_KEYS = ["name", "values"] as const;
-const VIEW_KEYS = ["dependsOn", "hash", "name", "sql"] as const;
+const VIEW_KEYS = [
+  "dependsOn",
+  "hash",
+  "indexes",
+  "materialized",
+  "name",
+  "sql",
+] as const;
+const VIEW_REQUIRED_KEYS = ["dependsOn", "hash", "name", "sql"] as const;
 const RELATION_STORAGE_KEYS = [
   "idColumn",
   "index",
@@ -440,7 +448,7 @@ function ascending(names: readonly string[]): boolean {
 }
 
 function parseView(value: unknown, label: string): ViewDef {
-  const record = exactObject(value, VIEW_KEYS, VIEW_KEYS, label);
+  const record = exactObject(value, VIEW_KEYS, VIEW_REQUIRED_KEYS, label);
   if (!isViewHash(record.hash))
     refuse(`${label}.hash must be 40 lowercase hex characters`);
   const dependsOn = parseIdentifierArray(
@@ -449,12 +457,27 @@ function parseView(value: unknown, label: string): ViewDef {
   );
   if (!ascending(dependsOn))
     refuse(`${label}.dependsOn must be sorted, each name once`);
-  return {
+  const view: ViewDef = {
     name: parseRequiredString(record.name, `${label}.name`),
     hash: record.hash,
     sql: parseRequiredString(record.sql, `${label}.sql`),
     dependsOn,
   };
+  // Each present only as the serializer writes it: `true`, and indexes on a
+  // materialized view alone, never an empty list.
+  if ("materialized" in record) {
+    if (record.materialized !== true)
+      refuse(`${label}.materialized must be true when present`);
+    view.materialized = true;
+  }
+  if ("indexes" in record) {
+    if (!view.materialized)
+      refuse(`${label}.indexes belong to a materialized view`);
+    if (!Array.isArray(record.indexes) || record.indexes.length === 0)
+      refuse(`${label}.indexes must be a non-empty array when present`);
+    view.indexes = parseItems(record.indexes, `${label}.indexes`, parseIndex);
+  }
+  return view;
 }
 
 function parseToOneMember(

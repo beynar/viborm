@@ -15,6 +15,7 @@
  *
  */
 
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { markVerbatimBatchQuery } from "@drivers/driver-batch-query-kind";
 import type {
   AnyDriver,
@@ -27,6 +28,7 @@ import {
   InvalidTransactionInputError,
   QueryError,
   retainWriteOutcomeFailure,
+  UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
 import type { CallOrigin } from "@extensions/origin";
@@ -52,7 +54,9 @@ import {
   type TransactionOperation,
   type TransactionOperationOwner,
 } from "@query-engine/transaction-operation";
-import type { AnyModel } from "@schema/model";
+import { type AnyModel, getTableName } from "@schema/model";
+import { getModelKeyCatalog } from "@schema/model/keys";
+import { viewFacts } from "@schema/view/facts";
 import { isSql, Sql } from "@sql";
 
 /** The four raw methods, spelled exactly as a caller types them. */
@@ -110,6 +114,57 @@ export function createRowsFragment(
   }
   return new RawRows(model, alias, engine) as unknown as RowsFragment;
 }
+
+/**
+ * `<view>.$refresh(options)` on the client whose engine is `engine`: the
+ * adapter's statement that recomputes a materialized view, sent as that
+ * client's `$executeRaw` (in its transaction, and what its extensions see of
+ * a raw statement), or nothing on a database that stores no view's rows.
+ * `concurrently` is refused without a key wherever it runs, so that code
+ * written for one database runs on another.
+ */
+async function sendRefresh(
+  engine: QueryEngine,
+  model: AnyModel,
+  options: unknown
+): Promise<void> {
+  const name = model["~"].names.ts;
+  if (!viewFacts(model)?.materialized)
+    throw new UnsupportedOperationError(
+      `'${name}' is not a materialized view ($refresh).`
+    );
+  const concurrently =
+    (options as { concurrently?: unknown } | undefined)?.concurrently === true;
+  // PostgreSQL matches the rows of a concurrent refresh by a unique index.
+  if (concurrently && getModelKeyCatalog(model).addressableKeys.length === 0)
+    throw new UnsupportedOperationError(
+      `'${name}' has no key to be refreshed concurrently by ($refresh).`
+    );
+  const statement = (
+    engine.driver.adapter as Pick<DatabaseAdapter, "refresh">
+  ).refresh?.(getTableName(model), concurrently);
+  if (statement) await createRawSurface({ engine }).$executeRaw(statement);
+}
+
+/**
+ * `<view>.$refresh(options)`, sent once, when it is first awaited, as an
+ * operation is: one handed to the array form of `$transaction`, which takes
+ * operations alone, is refused there with nothing sent outside the
+ * transaction.
+ */
+export const refreshView = (
+  engine: QueryEngine,
+  model: AnyModel,
+  options: unknown
+): PromiseLike<void> => {
+  let sent: Promise<void> | undefined;
+  return {
+    then: (resolve, reject) => {
+      sent ??= sendRefresh(engine, model, options);
+      return sent.then(resolve, reject);
+    },
+  };
+};
 
 /**
  * The `FROM` item a `$rows` fragment stands for in a raw call of `engine`:

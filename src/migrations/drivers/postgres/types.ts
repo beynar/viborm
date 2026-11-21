@@ -110,6 +110,8 @@ export interface PgEnum {
 /** A view of the namespace: its deparsed definition and what it reads. */
 export interface PgView {
   view_name: string;
+  /** A materialized view (`relkind = 'm'`). */
+  materialized: boolean;
   definition: string | null;
   /** JSON text: the names of the namespace's relations its rule depends on. */
   depends_on: string;

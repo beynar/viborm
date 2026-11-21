@@ -15,6 +15,7 @@ import { createClient as createSnowflakeClient } from "@drivers/snowflake";
 import { SurrealDriver } from "@drivers/surrealdb";
 import {
   FeatureNotSupportedError,
+  ForbiddenError,
   UnsupportedOperationError,
   ValidationError,
 } from "@errors";
@@ -29,8 +30,10 @@ import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import { ordering } from "@src/ordering";
+import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import { v } from "@validation";
 import { describe, expect, test } from "vitest";
 
 const author = s
@@ -469,20 +472,162 @@ describe("a view at the client", () => {
   });
 });
 
-describe("drivers that hold no view", () => {
-  test("SurrealDB refuses a schema holding one as the client is created", () => {
-    const create = () =>
-      createClient({
-        schema,
-        driver: new SurrealDriver({ client: {} as never }),
-      });
-    expect(create).toThrow(FeatureNotSupportedError);
-    expect(create).toThrow(
-      "surrealdb.view is not supported. The schema declares 'published' as a view; views arrive on SurrealDB with materialized views."
+/**
+ * `$refresh` (plan §2.6): PostgreSQL's statement, sent as the client's raw
+ * statement on the connection its delegate is bound to; nothing on a
+ * database whose materialized view is an ordinary one. The refresh of a real
+ * materialized view: `tests/providers/view-migrations-behavior.ts`.
+ */
+describe("a materialized view's $refresh", () => {
+  const digest = s
+    .view(() => author, { select: { id: true, name: true } })
+    .materialized()
+    .map("author_digest");
+  /** Keyless: PostgreSQL has no unique index to match its rows by. */
+  const headings = s
+    .view(() => post, { select: { title: true } })
+    .materialized()
+    .map("headings");
+  const stored = { author, post, published, digest, headings };
+
+  /** A recording driver that also records where its transactions begin and end. */
+  class BoundedDriver extends RecordingDriver {
+    protected override async transaction<T>(
+      _client: null,
+      execute: (transaction: null) => Promise<T>
+    ): Promise<T> {
+      this.sent.push("BEGIN");
+      const result = await execute(null);
+      this.sent.push("COMMIT");
+      return result;
+    }
+  }
+
+  test("sends PostgreSQL's REFRESH, concurrent on request, to the view in the client's schema", async () => {
+    const driver = new RecordingDriver(
+      new PostgresAdapter("app"),
+      "postgresql"
     );
+    const client = createClient({ schema: stored, driver });
+    await expect(client.digest.$refresh()).resolves.toBeUndefined();
+    await client.digest.$refresh({ concurrently: true });
+    await client.digest.$refresh({ concurrently: false });
+    await client.headings.$refresh();
+    expect(driver.sent).toEqual([
+      'REFRESH MATERIALIZED VIEW "app"."author_digest"',
+      'REFRESH MATERIALIZED VIEW CONCURRENTLY "app"."author_digest"',
+      'REFRESH MATERIALIZED VIEW "app"."author_digest"',
+      'REFRESH MATERIALIZED VIEW "app"."headings"',
+    ]);
+  });
+
+  test.each([
+    ["SQLite", new SQLiteAdapter(), "sqlite"],
+    ["MySQL", new MySQLAdapter(), "mysql"],
+  ] as const)("sends nothing on %s, where a materialized view is an ordinary one", async (_, adapter, dialect) => {
+    const driver = new RecordingDriver(adapter, dialect);
+    const client = createClient({ schema: stored, driver });
+    await expect(client.digest.$refresh()).resolves.toBeUndefined();
+    await expect(
+      client.digest.$refresh({ concurrently: true })
+    ).resolves.toBeUndefined();
+    expect(driver.sent).toEqual([]);
+  });
+
+  test("refuses a model that is not a materialized view, and a concurrent refresh without a key, on every database", async () => {
+    for (const driver of [
+      new RecordingDriver(new PostgresAdapter(), "postgresql"),
+      new RecordingDriver(new SQLiteAdapter(), "sqlite"),
+    ]) {
+      const client = createClient({ schema: stored, driver });
+      // What a JavaScript caller, or a cast, reaches.
+      const loose = client as unknown as Record<
+        "published" | "post",
+        { $refresh(): Promise<void> }
+      >;
+      await expect(loose.published.$refresh()).rejects.toThrow(
+        "'published' is not a materialized view ($refresh)."
+      );
+      await expect(loose.post.$refresh()).rejects.toThrow(
+        UnsupportedOperationError
+      );
+      await expect(
+        client.headings.$refresh({ concurrently: true })
+      ).rejects.toThrow(
+        "'headings' has no key to be refreshed concurrently by ($refresh)."
+      );
+      expect(driver.sent).toEqual([]);
+    }
+  });
+
+  test("runs on the connection of the delegate it is called on: in a transaction, in it", async () => {
+    const driver = new BoundedDriver(new PostgresAdapter(), "postgresql");
+    const client = createClient({ schema: stored, driver });
+    await client.$transaction(async (tx) => {
+      await tx.digest.$refresh();
+    });
+    expect(driver.sent).toEqual([
+      "BEGIN",
+      'REFRESH MATERIALIZED VIEW "public"."author_digest"',
+      "COMMIT",
+    ]);
+  });
+
+  test("is sent once, when first awaited: the array form of $transaction refuses it with nothing sent", async () => {
+    const driver = new BoundedDriver(new PostgresAdapter(), "postgresql");
+    const client = createClient({ schema: stored, driver });
+    const pending = client.digest.$refresh();
+    expect(driver.sent).toEqual([]);
+    await expect(
+      client.$transaction([client.author.count(), pending as never] as never)
+    ).rejects.toThrow(
+      "$transaction array must contain only pending operations"
+    );
+    expect(driver.sent).toEqual([]);
+    await pending;
+    await pending;
+    expect(driver.sent).toEqual([
+      'REFRESH MATERIALIZED VIEW "public"."author_digest"',
+    ]);
+  });
+
+  test("is a raw statement to an extension chain: seen as one, and governed by no policy", async () => {
+    const driver = new RecordingDriver(new PostgresAdapter(), "postgresql");
+    const seen: string[] = [];
+    const client = createClient({ schema: stored, driver }).$extends(
+      extension(
+        "seen",
+        call((c) => {
+          seen.push(c.operation);
+        })
+      )
+    );
+    await client.digest.$refresh();
+    expect(seen).toEqual(["$executeRaw"]);
+    // A policy governs model calls: a view it does not list is not read,
+    // and is refreshed as a raw statement runs.
+    const governed = createClient({ schema: stored, driver })
+      .$extends(
+        permissions({
+          actor: v.object({ userId: v.string() }),
+          models: { post: { read: {} } },
+        } as never)
+      )
+      .$as({ userId: "u" } as never);
+    await expect(governed.digest.findMany()).rejects.toThrow(ForbiddenError);
+    await governed.digest.$refresh();
+    expect(driver.sent).toEqual([
+      'REFRESH MATERIALIZED VIEW "public"."author_digest"',
+      'REFRESH MATERIALIZED VIEW "public"."author_digest"',
+    ]);
+  });
+});
+
+describe("the drivers that hold a view, and the one that does not", () => {
+  test("SurrealDB holds one: a schema with views makes its client", () => {
     expect(() =>
       createClient({
-        schema: { author, post },
+        schema,
         driver: new SurrealDriver({ client: {} as never }),
       })
     ).not.toThrow();

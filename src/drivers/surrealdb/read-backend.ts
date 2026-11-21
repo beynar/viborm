@@ -32,6 +32,7 @@ import type {
 } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
 import { jsonNullKindOf } from "@schema/json-null";
+import { viewFacts, viewTable } from "@schema/view/facts";
 import { Sql, sql } from "@sql";
 import { timeStepUnsupported } from "@validation/model/args/time-step";
 import { Decimal, GeometryPoint, RecordId } from "surrealdb";
@@ -169,9 +170,36 @@ function isIntegerKey(model: AnyModel, field: string): boolean {
   return type === "int" || type === "bigint";
 }
 
-/** A key read back from text: an integer key's record names a number. */
+/**
+ * A key read back from another column: an integer key's record names an
+ * `int`, which a lookup by record tells from a narrower integer and from
+ * text. An unset value stays unset and names no record, where `<int>` would
+ * fail the statement (measured on SurrealDB 4.0).
+ */
 function keyCast(model: AnyModel, field: string, value: Sql): Sql {
-  return isIntegerKey(model, field) ? sql`<int>${value}` : value;
+  return isIntegerKey(model, field) ? sql`<option<int>>${value}` : value;
+}
+
+/**
+ * The type a record's key is cast to once read out of the record: a decimal
+ * or an instant, which the record holds as its text (`keyPart`) and every
+ * other column as the value. Any other key is read as it is held.
+ */
+function textKeyType(model: AnyModel, field: string): string | undefined {
+  const type = model["~"].state.scalars[field]?.["~"].state.type;
+  return type === "decimal" || type === "datetime" ? type : undefined;
+}
+
+/**
+ * A value as the key of the record that names it: an instant as the text
+ * `keyPart` writes (its ISO form to the millisecond), unset where the value
+ * is, and any other as a lookup by record reads it (`keyCast`; a decimal
+ * names its record by the text it prints as, measured).
+ */
+function recordKey(model: AnyModel, field: string, value: Sql): Sql {
+  return textKeyType(model, field) === "datetime"
+    ? sql`(IF ${value} { time::format(${value}, "%Y-%m-%dT%H:%M:%S%.3fZ") })`
+    : keyCast(model, field, value);
 }
 
 /** An exact decimal lands back on its scale, ties to even as `numeric` does here. */
@@ -754,6 +782,9 @@ export class SurrealReadBackend implements ReadBackend {
 
   #linked(edge: Reference): boolean {
     if (edge.pairs.length !== 1 || edge.discriminator) return false;
+    // A view's relation, its source's slot, is no link of its own: `<~` reads
+    // a field a table's `REFERENCE` defines, which a view has none of.
+    if (viewFacts(edge.source)) return false;
     const q = this.#queries;
     const { source, target } = edge.pairs[0]!;
     return edge.owner === "source"
@@ -781,20 +812,18 @@ export class SurrealReadBackend implements ReadBackend {
     const q = this.#queries;
     const pairs = edge.pairs.map(({ source, target }) => {
       const parent = sql`${sql.raw(row)}.${this.physical(edge.source, source)}`;
-      const column = this.physical(edge.target, target);
-      if (
-        isSingleKey(q, edge.target, target) &&
-        !this.holdsRecord(edge.source, source)
-      )
-        return sql`id = type::record(${tableOf(edge.target)}, ${keyCast(edge.target, target, parent)})`;
-      if (
+      const held = this.#heldAs(
+        edge.source,
+        source,
+        parent,
+        edge.target,
+        target
+      );
+      const carried =
+        edge.discriminator &&
         isSingleKey(q, edge.source, source) &&
-        !this.holdsRecord(edge.target, target)
-      ) {
-        const key = sql`record::id(${parent})`;
-        return sql`${column} = ${edge.discriminator ? this.#carried(edge.target, target, key) : key}`;
-      }
-      return sql`${column} = ${parent}`;
+        this.#heldTable(edge.target, target) === undefined;
+      return sql`${this.physical(edge.target, target)} = ${carried ? this.#carried(edge.target, target, held) : held}`;
     });
     const { discriminator } = edge;
     if (discriminator) {
@@ -1612,21 +1641,15 @@ export class SurrealReadBackend implements ReadBackend {
     return sql`${this.#part(model, field, value)}`;
   }
 
-  /** One part of an array id: a link stays a record, as its field holds it. */
+  /**
+   * One part of an array id: a link stays a record, as its field holds it. A
+   * view's record is its source's, under its own table: its parts are too.
+   */
   #part(model: AnyModel, field: string, value: unknown): unknown {
-    for (const slot of Object.keys(model["~"].state.relations)) {
-      const { edges } = this.#queries.countedMemberships(model, slot);
-      const edge = edges[0];
-      if (
-        edges.length === 1 &&
-        edge?.kind === "reference" &&
-        edge.owner === "source" &&
-        edge.pairs.length === 1 &&
-        edge.pairs[0]!.source === field &&
-        isSingleKey(this.#queries, edge.target, edge.pairs[0]!.target)
-      )
-        return new RecordId(tableOf(edge.target), value as string);
-    }
+    const facts = viewFacts(model);
+    if (facts) return this.#part(facts.source, field, value);
+    const link = this.#linkOf(model, field);
+    if (link) return new RecordId(tableOf(link.target), value as string);
     return stored(model["~"].state.scalars[field]?.["~"].state, value);
   }
 
@@ -1688,7 +1711,13 @@ export class SurrealReadBackend implements ReadBackend {
     const first = topology.sourceIsFirst ? topology.source : topology.target;
     const outward = edge.sourceSide === first;
     const arrow = outward ? "->" : "<-";
+    // The edge table links the source's records; a view's row is its source
+    // record under the view's own table, so the walk starts from that record.
+    const from = viewFacts(edge.source)
+      ? sql`(type::record(${tableOf(edge.sourceSide.model)}, record::id(id)))`
+      : sql``;
     return {
+      from,
       table: name(edge.table),
       near: name(outward ? "in" : "out"),
       far: name(outward ? "out" : "in"),
@@ -1716,21 +1745,81 @@ export class SurrealReadBackend implements ReadBackend {
     );
   }
 
-  /** Whether a model's field holds a record rather than the key's own value. */
+  /**
+   * Whether a model's field holds a record rather than the key's own value. A
+   * view's field holds what its source's holds (`DEFINE TABLE … AS SELECT`
+   * copies it).
+   */
   holdsRecord(model: AnyModel, field: string): boolean {
+    const facts = viewFacts(model);
+    if (facts) return this.holdsRecord(facts.source, field);
+    return this.#linkOf(model, field) !== undefined;
+  }
+
+  /**
+   * The table whose record a field holds: its model's own for its single
+   * key, the target's for a link it holds, none for a field holding the key
+   * itself. A view's field holds what its source's holds: a record of the
+   * table its source's link targets.
+   */
+  #heldTable(model: AnyModel, field: string): string | undefined {
+    if (isSingleKey(this.#queries, model, field)) return tableOf(model);
+    const facts = viewFacts(model);
+    if (facts) return this.#heldTable(facts.source, field);
+    const link = this.#linkOf(model, field);
+    // A variant relation's column holds the key itself, whichever model it names.
+    return link && !link.discriminator ? tableOf(link.target) : undefined;
+  }
+
+  /**
+   * `model`'s `field`, read as `read`, as `other`'s `otherField` holds it:
+   * the same record, the record of the key it names in another table, or the
+   * key itself. One end of a relation names the other's row by the key alone
+   * when the two hold it differently: a view's copy of its source's link is
+   * a record of the table that link targets, never of a view. An unset link
+   * names no record; a row's own key is always set.
+   */
+  #heldAs(
+    model: AnyModel,
+    field: string,
+    read: Sql,
+    other: AnyModel,
+    otherField: string
+  ): Sql {
+    const from = this.#heldTable(model, field);
+    const to = this.#heldTable(other, otherField);
+    if (from === to) return read;
+    if (to !== undefined)
+      return sql`type::record(${to}, ${from === undefined ? recordKey(other, otherField, read) : read})`;
+    const type = textKeyType(model, field);
+    const key = type
+      ? sql`<${sql.raw(type)}> record::id(${read})`
+      : sql`record::id(${read})`;
+    return isSingleKey(this.#queries, model, field)
+      ? key
+      : sql`(IF ${read} { ${key} })`;
+  }
+
+  /**
+   * The relation whose link a table's field holds as a record: one it owns,
+   * naming another table's single key (no relation targets a view).
+   */
+  #linkOf(model: AnyModel, field: string): Reference | undefined {
     const q = this.#queries;
-    return Object.keys(model["~"].state.relations).some((slot) => {
+    for (const slot of Object.keys(model["~"].state.relations)) {
       const { edges } = q.countedMemberships(model, slot);
       const edge = edges[0];
-      return (
+      if (
         edges.length === 1 &&
         edge?.kind === "reference" &&
         edge.owner === "source" &&
         edge.pairs.length === 1 &&
         edge.pairs[0]!.source === field &&
         isSingleKey(q, edge.target, edge.pairs[0]!.target)
-      );
-    });
+      )
+        return edge;
+    }
+    return undefined;
   }
 
   /** This link's columns against the row a variable holds, one side of it. */
@@ -1738,10 +1827,19 @@ export class SurrealReadBackend implements ReadBackend {
     const link = edge.declared!.model;
     return side.members.map((pair) => {
       const field = this.#linkField(edge, pair.junctionField);
-      const held = sql`${sql.raw(row)}.${this.physical(side.model, pair.referencedField)}`;
-      const plainKey =
-        isSingleKey(this.#queries, side.model, pair.referencedField) &&
-        !this.holdsRecord(link, field);
+      const read = sql`${sql.raw(row)}.${this.physical(side.model, pair.referencedField)}`;
+      const singleKey = isSingleKey(
+        this.#queries,
+        side.model,
+        pair.referencedField
+      );
+      const plainKey = singleKey && !this.holdsRecord(link, field);
+      // A view's row is its source record under the view's own table: the
+      // link names the source's.
+      const held =
+        singleKey && side === edge.sourceSide && viewFacts(edge.source)
+          ? sql`type::record(${tableOf(side.model)}, record::id(${read}))`
+          : read;
       return sql`${this.physical(link, field)} = ${plainKey ? sql`record::id(${held})` : held}`;
     });
   }
@@ -2209,11 +2307,11 @@ export class SurrealReadBackend implements ReadBackend {
       return sql`({ LET $owner = $this; LET $linked = (SELECT VALUE ${this.linkTarget(edge, edge.targetSide, "")} FROM ${this.#links(edge, "$owner")}); (SELECT VALUE id FROM ${name(tableOf(edge.target))}${where}) })`;
     }
     if (edge.kind === "junction") {
-      const { hop } = this.edgeOf(edge);
+      const { from, hop } = this.edgeOf(edge);
       const target = name(tableOf(edge.target));
       return predicate
-        ? sql`${hop}(${target} WHERE ${this.predicate(predicate, true)})`
-        : sql`${hop}${target}`;
+        ? sql`${from}${hop}(${target} WHERE ${this.predicate(predicate, true)})`
+        : sql`${from}${hop}${target}`;
     }
     return this.#traversal(reference(edge), predicate, { unordered: true });
   }
@@ -2508,14 +2606,14 @@ export class SurrealReadBackend implements ReadBackend {
     )
       return this.#distinctMembers(field.edge, args, members);
     if (field.edge.kind === "junction") {
-      const { hop } = this.edgeOf(field.edge);
+      const { from, hop } = this.edgeOf(field.edge);
       const target = field.edge.target;
       const { extras, clauses } = this.#clauses(
         target,
         args,
         args.selector?.predicate
       );
-      const read = sql`${hop}(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${name(tableOf(target))} ${sql.join(clauses, " ")})`;
+      const read = sql`${from}${hop}(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${name(tableOf(target))} ${sql.join(clauses, " ")})`;
       return field.edge.many
         ? sql`${read}${members}`
         : sql`((${read}${members})[0] ?? NULL)`;
@@ -2682,6 +2780,17 @@ export class SurrealReadBackend implements ReadBackend {
   }
 
   /** A walk's own statements in a block: `$w`, and the refusal an endless one owes. */
+  /**
+   * The record a walk from this row starts at: the row's own, or, for a
+   * view's, its source record, whose links the tables hold.
+   */
+  #walkRoot(edge: Membership): Sql {
+    const table = viewTable(edge.source);
+    return table === edge.source
+      ? sql.raw("$this.id")
+      : sql`type::record(${tableOf(table)}, record::id($this.id))`;
+  }
+
   #walked(walk: Sql, root: Sql = sql.raw("$this.id")): Sql {
     return sql`LET $root = ${root}; LET $w = ${walk}; IF array::len($w.level) > 0 AND $w.seen != NONE { THROW ${`A recursive read walked past ${MAX_WALK} levels.`} };`;
   }
@@ -2717,7 +2826,7 @@ export class SurrealReadBackend implements ReadBackend {
       depth === false ? sql.raw("") : sql.raw(", __rq_depth: $e.d");
     // A block answers with its last expression: a `RETURN` in one would leave
     // whatever expression holds the block, negations included.
-    return sql`({ ${this.#walked(walk)} { __rq_root: ${this.#identityOf(source, sql.raw("$root"))}, __rq_nodes: array::distinct($w.edges.c).map(|$n| { __rq_key: ${this.#identityOf(target, sql.raw("$n"))}, __rq_row: $n${members} }), __rq_edges: $w.edges.map(|$e| { __rq_parent: ${this.#identityOf(source, sql.raw("$e.p"))}, __rq_child: ${this.#identityOf(target, sql.raw("$e.c"))}${labelled} }) } })`;
+    return sql`({ ${this.#walked(walk, this.#walkRoot(edge))} { __rq_root: ${this.#identityOf(source, sql.raw("$root"))}, __rq_nodes: array::distinct($w.edges.c).map(|$n| { __rq_key: ${this.#identityOf(target, sql.raw("$n"))}, __rq_row: $n${members} }), __rq_edges: $w.edges.map(|$e| { __rq_parent: ${this.#identityOf(source, sql.raw("$e.p"))}, __rq_child: ${this.#identityOf(target, sql.raw("$e.c"))}${labelled} }) } })`;
   }
 
   /** Whether a `distinct` narrows at all: one holding the whole key does not. */
@@ -2744,7 +2853,7 @@ export class SurrealReadBackend implements ReadBackend {
     const { extras: inner, order: forward } = this.#ordered(terms);
     const sorted =
       edge.kind === "junction"
-        ? sql`${this.edgeOf(edge).hop}(SELECT ${sql.join([sql.raw("*"), ...inner], ", ")} FROM ${name(tableOf(target))}${predicate ? sql` WHERE ${this.predicate(predicate, true)}` : sql.raw("")} ORDER BY ${sql.join(forward, ", ")})`
+        ? sql`${this.edgeOf(edge).from}${this.edgeOf(edge).hop}(SELECT ${sql.join([sql.raw("*"), ...inner], ", ")} FROM ${name(tableOf(target))}${predicate ? sql` WHERE ${this.predicate(predicate, true)}` : sql.raw("")} ORDER BY ${sql.join(forward, ", ")})`
         : this.#traversal(reference(edge), predicate, {
             orderBy: args.orderBy,
           });
@@ -2771,18 +2880,28 @@ export class SurrealReadBackend implements ReadBackend {
    */
   #heldRecord(edge: Reference): Sql | undefined {
     if (edge.many || edge.owner !== "source") return undefined;
-    const keys = this.#queries.keyOrder(edge.target);
-    const parts = keys.map((key) => {
+    const parts: Sql[] = [];
+    for (const key of this.#queries.keyOrder(edge.target)) {
       const pair = edge.pairs.find(({ target }) => target === key);
-      return pair && sql`$owner.${this.physical(edge.source, pair.source)}`;
-    });
-    if (parts.some((part) => part === undefined)) return undefined;
-    const held = parts as Sql[];
-    const key =
-      held.length === 1
-        ? keyCast(edge.target, keys[0]!, held[0]!)
-        : sql`[${sql.join(held, ", ")}]`;
-    const record = sql`type::record(${tableOf(edge.target)}, ${key})`;
+      if (!pair) return undefined;
+      const part = this.#heldAs(
+        edge.source,
+        pair.source,
+        sql`$owner.${this.physical(edge.source, pair.source)}`,
+        edge.target,
+        key
+      );
+      // A lookup by record tells an integer part from a narrower integer.
+      parts.push(
+        this.#heldTable(edge.target, key) === undefined
+          ? keyCast(edge.target, key, part)
+          : part
+      );
+    }
+    const record =
+      parts.length === 1
+        ? parts[0]!
+        : sql`type::record(${tableOf(edge.target)}, [${sql.join(parts, ", ")}])`;
     // An arm another row's type names reads nothing; an unset part names no record.
     const { discriminator } = edge;
     return discriminator
@@ -3210,24 +3329,16 @@ export class SurrealReadBackend implements ReadBackend {
           ? Number(value)
           : keyPart(model, field, value)) as string
       )}`;
-    for (const slot of Object.keys(model["~"].state.relations)) {
-      const { edges } = q.countedMemberships(model, slot);
-      const edge = edges[0];
-      if (
-        edges.length === 1 &&
-        edge?.kind === "reference" &&
-        edge.owner === "source" &&
-        // A variant relation's column holds the key itself, whichever model it names.
-        !edge.discriminator &&
-        edge.pairs.length === 1 &&
-        edge.pairs[0]!.source === field &&
-        isSingleKey(q, edge.target, edge.pairs[0]!.target)
-      )
-        return sql`${new RecordId(
-          tableOf(edge.target),
-          keyPart(edge.target, edge.pairs[0]!.target, value) as string
-        )}`;
-    }
+    // A view's field holds what its source's holds, bound as the source's is.
+    const facts = viewFacts(model);
+    if (facts) return this.value(facts.source, field, value);
+    const link = this.#linkOf(model, field);
+    // A variant relation's column holds the key itself, whichever model it names.
+    if (link && !link.discriminator)
+      return sql`${new RecordId(
+        tableOf(link.target),
+        keyPart(link.target, link.pairs[0]!.target, value) as string
+      )}`;
     const sentinel = jsonNullKindOf(value);
     if (sentinel)
       return sentinel === "JsonNull" ? sql`${null}` : sql.raw("NONE");
@@ -3337,7 +3448,10 @@ export class SurrealReadBackend implements ReadBackend {
       }
     | undefined {
     const edge = filter.edge;
-    if (!this.#lets || filter.closure || filter.link) return undefined;
+    // A view's rows are its source's records under its own table, which no
+    // holder a link or an edge names: they are asked row by row.
+    if (!this.#lets || filter.closure || filter.link || viewFacts(edge.source))
+      return undefined;
     const target = edge.target;
     const distinct = (rows: Sql) => sql`array::distinct(${rows})`;
     const flat = (rows: Sql) => sql`array::flatten(${rows})`;
@@ -3538,11 +3652,10 @@ export class SurrealReadBackend implements ReadBackend {
     const args = (scope ? { selector: { predicate: scope } } : {}) as never;
     // Without `self`, a link's first step is the row's own value: a judged row's
     // is the one it would leave, not the one stored.
-    const root = sql.raw(
+    const root =
       edge.kind === "reference" && edge.owner === "source" && !closure.self
-        ? "$this"
-        : "$this.id"
-    );
+        ? sql.raw("$this")
+        : this.#walkRoot(edge);
     const recursion =
       closure.depth === false
         ? this.#reached(edge, args, sql.raw("$root"))
@@ -3572,11 +3685,11 @@ export class SurrealReadBackend implements ReadBackend {
     );
     if (relation.kind === "junction") {
       if (path) refuse("a to-many filter through a to-one link");
-      const { hop } = this.edgeOf(relation);
+      const { from, hop } = this.edgeOf(relation);
       const target = name(tableOf(relation.target));
       return narrowed
-        ? sql`${hop}(${target} WHERE ${this.predicate(narrowed, true)})`
-        : sql`${hop}${target}`;
+        ? sql`${from}${hop}(${target} WHERE ${this.predicate(narrowed, true)})`
+        : sql`${from}${hop}${target}`;
     }
     const edge = reference(relation);
     if (!edge.many && edge.owner === "source" && this.#linked(edge)) {

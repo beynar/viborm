@@ -146,7 +146,43 @@ const VIEW_DRIFT = [
   `CREATE VIEW "{ns}"."digest_foreign" AS SELECT "id" FROM "{ns}"."digest_posts"`,
 ];
 
+/**
+ * A materialized view pushed from its declaration with a key and two
+ * declared indexes, read by an ordinary view; then one of its indexes
+ * dropped, a materialized view VibORM marked created with its own, and one it
+ * did not: the digest projects the marked ones with their kind and indexes.
+ */
+const materializedViews = (): Record<string, AnyModel> => {
+  const post = s
+    .model({ id: s.string().id(), title: s.string(), score: s.int() })
+    .map("digest_mposts");
+  const feed = s
+    .view(() => post, {
+      where: { score: { gt: 0 } },
+      select: { id: true, title: true, score: true },
+    })
+    .materialized()
+    .index(["title"])
+    .index(["score"], { type: "hash" })
+    .map("digest_mfeed");
+  return {
+    post,
+    feed,
+    reader: s.view(() => feed, { select: { id: true } }).map("digest_mreader"),
+  };
+};
+
 export const catalogDigestCorpus: readonly DigestCase[] = [
+  {
+    id: "materialized views",
+    build: materializedViews,
+    drift: [
+      `DROP INDEX "{ns}"."digest_mfeed_title_idx"`,
+      `CREATE MATERIALIZED VIEW "{ns}"."digest_mmarked" AS SELECT * FROM (SELECT "id" FROM "{ns}"."digest_mposts") AS "viborm_view_${"e".repeat(40)}" WITH DATA`,
+      `CREATE UNIQUE INDEX "digest_mmarked_pkey" ON "{ns}"."digest_mmarked" ("id")`,
+      `CREATE MATERIALIZED VIEW "{ns}"."digest_mforeign" AS SELECT "id" FROM "{ns}"."digest_mposts"`,
+    ],
+  },
   {
     id: "views",
     build: () => ({

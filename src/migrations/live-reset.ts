@@ -34,6 +34,8 @@ import { orderViews } from "./view";
 interface PlannedTableDrop {
   readonly name: string;
   readonly sql: string;
+  /** A materialized view, which its probes read as its own kind. */
+  readonly materialized?: boolean;
 }
 
 /**
@@ -164,14 +166,22 @@ export async function planLiveNamespaceReset(
   // The views VibORM marked go first, each before what it reads. A view
   // without the marker is not in the snapshot, and RESTRICT keeps it.
   const views = snapshot.views ?? [];
+  const materialized = new Set(
+    views.flatMap((view) => (view.materialized ? [view.name] : []))
+  );
   const dropViews: PlannedTableDrop[] = orderViews(
     new Set(views.map((view) => view.name)),
     views,
     true
   ).map((name) => ({
     name,
+    materialized: materialized.has(name),
     sql: migrationDriver.generateDDL(
-      { type: "dropView", viewName: name },
+      {
+        type: "dropView",
+        viewName: name,
+        ...(materialized.has(name) ? { materialized: true } : {}),
+      },
       { destination: "live" }
     ),
   }));

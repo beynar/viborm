@@ -248,7 +248,7 @@ describe("refusals", () => {
           models,
           views: {
             "not-a-key": { source: "post", query: {} },
-            extra: { source: "post", query: {}, materialized: true },
+            extra: { source: "post", query: {}, columns: ["id"] },
             noQuery: { source: "post" },
             arrayQuery: { source: "post", query: [] },
             tagged: { source: "post", query: { $date: "2020-01-02" } },
@@ -259,7 +259,7 @@ describe("refusals", () => {
       )
     ).toEqual([
       "[J005] /views/not-a-key",
-      "[J003] /views/extra/materialized",
+      "[J003] /views/extra/columns",
       "[J004] /views/noQuery/query",
       "[J004] /views/arrayQuery/query",
       "[J004] /views/tagged/query",
@@ -313,9 +313,100 @@ describe("refusals", () => {
   });
 
   it("a declaration chained on a view has no spelling in its document", () => {
-    const indexed = s.view(() => post, { select: { id: true } }).index(["id"]);
-    expect(refused(() => serializeSchema({ user, post, indexed }))).toEqual([
+    const query = { select: { id: true, title: true } } as const;
+    const clustered = s.view(() => post, query).withoutRowid();
+    const indexed = s
+      .view(() => post, query)
+      .rawIndex("by_title", { pg: "CREATE INDEX {name} ON {table} ({title})" });
+    const hidden = s.view(() => post, query).omit({ title: true });
+    expect(
+      refused(() => serializeSchema({ user, post, clustered, indexed, hidden }))
+    ).toEqual([
+      "[J009] /views/clustered",
       "[J009] /views/indexed",
+      "[J009] /views/hidden",
+    ]);
+  });
+});
+
+/**
+ * A materialized view: `materialized`, written only as `true`, and its
+ * indexes in the form a model writes them.
+ */
+describe("a materialized view in a schema document", () => {
+  const digest = s
+    .view(() => user, { select: { id: true, name: true } })
+    .materialized()
+    .index(["name"], { name: "by_name" })
+    .index(["id", "name"], { type: "hash" });
+  const DIGEST = {
+    source: "user",
+    query: { select: { id: true, name: true } },
+    materialized: true,
+    indexes: [
+      { fields: ["name"], name: "by_name" },
+      { fields: ["id", "name"], type: "hash" },
+    ],
+  } as const;
+  const withDigest = (view: object): SchemaDocument =>
+    ({ version: 1, models: DOCUMENT.models, views: { digest: view } }) as never;
+
+  it("writes materialized and the view's indexes, and reads them back to the same view", () => {
+    expect(serializeSchema({ user, post, digest }).views).toEqual({
+      digest: DIGEST,
+    });
+    const parsed = parseSchema(JSON.stringify(withDigest(DIGEST)));
+    expect(viewFacts(parsed.digest!)?.materialized).toBe(true);
+    expect(parsed.digest!["~"].state.indexes).toEqual(
+      digest["~"].state.indexes
+    );
+    expect(serializeSchema(parsed)).toEqual(withDigest(DIGEST));
+    expect(validateSchema(parsed).errors).toEqual([]);
+  });
+
+  it("a view that is not materialized writes neither", () => {
+    expect(
+      serializeSchema(
+        parseSchema(withDigest({ ...DIGEST, materialized: false, indexes: [] }))
+      ).views
+    ).toEqual({ digest: { source: "user", query: DIGEST.query } });
+  });
+
+  it("refuses a flag that is not a boolean and an index a model's document refuses", () => {
+    expect(
+      refused(() =>
+        parseSchema({
+          version: 1,
+          models: DOCUMENT.models,
+          views: {
+            flag: { source: "user", query: {}, materialized: "yes" },
+            list: {
+              source: "user",
+              query: {},
+              materialized: true,
+              indexes: {},
+            },
+            partial: {
+              source: "user",
+              query: {},
+              materialized: true,
+              indexes: [{ fields: ["name"], where: "name <> ''" }],
+            },
+          },
+        } as never)
+      )
+    ).toEqual([
+      "[J004] /views/flag/materialized",
+      "[J004] /views/list/indexes",
+      "[J009] /views/partial/indexes/0/where",
+    ]);
+  });
+
+  it("an index on a view that is not materialized parses, and is W002's to refuse", () => {
+    const { materialized: _, ...plain } = DIGEST;
+    const parsed = parseSchema(withDigest(plain));
+    expect(validateSchema(parsed).errors.map(({ code }) => code)).toEqual([
+      "W002",
     ]);
   });
 });

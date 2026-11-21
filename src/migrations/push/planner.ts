@@ -347,6 +347,8 @@ function withDeclaredRawTemplates(
  * database holds a view's rewritten text and its marker, never the body it
  * was given, and MySQL and SQLite do not say what a view reads; a view whose
  * name and hash are declared is the declared one, body and reads included.
+ * What the database holds stays the database's: a materialized view's indexes
+ * are compared as they are.
  */
 function withDeclaredViews(
   current: SchemaSnapshot,
@@ -359,9 +361,11 @@ function withDeclaredViews(
   );
   return {
     ...current,
-    views: current.views.map(
-      (view) => declared.get(`${view.name}\0${view.hash}`) ?? view
-    ),
+    views: current.views.map((view) => {
+      const { sql, dependsOn } =
+        declared.get(`${view.name}\0${view.hash}`) ?? view;
+      return { ...view, sql, dependsOn };
+    }),
   };
 }
 

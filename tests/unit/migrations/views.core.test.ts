@@ -12,7 +12,6 @@ import assert from "node:assert/strict";
 import { s } from "@schema";
 import { type AnyModel, Model } from "@schema/model";
 import type { ViewFacts } from "@schema/view/facts";
-import { VibORMErrorCode } from "@src/errors";
 import { probeForGeneratedStatement } from "@src/migrations/catalog-probes";
 import { diff } from "@src/migrations/differ";
 import { getMigrationDriver } from "@src/migrations/drivers";
@@ -49,6 +48,7 @@ import {
   parseSnapshotDocument,
 } from "@src/migrations/v1-parse-snapshot";
 import {
+  readViewComment,
   readViewMarker,
   refuseRelationCollision,
   viewMarker,
@@ -94,7 +94,6 @@ const VIEW_OVER_FOREIGN_VIEW =
   /relation "v" is a view VibORM did not create, but this schema declares a view/;
 const SNOWFLAKE_VIEW = /Snowflake cannot create a view here/;
 const SNOWFLAKE_DROP = /Snowflake cannot drop a view here/;
-const SURREAL_VIEW = /SurrealDB migrations do not support a view yet/;
 const OUTSIDE_LIST = /declares a view outside the authenticated managed-table/;
 
 const table = (name: string, columns = ["id", "title"]): TableDef => ({
@@ -489,6 +488,32 @@ describe("the program rule", () => {
     ]);
   });
 
+  it("where a foreign key's column holds a link (SurrealDB), a foreign key and any change to a column replace the view; an added column does not", () => {
+    const linked = (operation: DiffOperation) =>
+      kinds(withViewReplacements([operation], current, current, false, true));
+    const around = (type: string) => [
+      "dropView digest",
+      "dropView feed",
+      type,
+      "createView feed",
+      "createView digest",
+    ];
+    const named = new Map(cases);
+    for (const name of ["addForeignKey", "dropForeignKey"])
+      expect(linked(named.get(name)!)).toEqual(around(name));
+    // A filter is lowered for the column as it was: nullable or not.
+    expect(
+      linked({
+        type: "alterColumn",
+        tableName: "posts",
+        columnName: "score",
+        from: { name: "score", type: "integer", nullable: false },
+        to: { name: "score", type: "integer", nullable: true },
+      })
+    ).toEqual(around("alterColumn"));
+    expect(linked(named.get("addColumn")!)).toEqual(["addColumn"]);
+  });
+
   it.each(
     cases
   )("%s on a table a view reads replaces it and every view reading it, where tables are rebuilt", (_, operation) => {
@@ -731,7 +756,7 @@ describe("DDL and marker", () => {
     ).toThrow(NOT_DECLARED);
   });
 
-  it("Snowflake and SurrealDB write no view", () => {
+  it("Snowflake writes no view; SurrealDB a table computed AS SELECT, its marker the comment", () => {
     expect(() =>
       snowflakeMigrationDriver.compileStatements(
         { type: "createView", view: feed },
@@ -744,21 +769,29 @@ describe("DDL and marker", () => {
         ddlContext("live")
       )
     ).toThrow(SNOWFLAKE_DROP);
-    for (const operation of [
-      { type: "createView", view: feed },
-      { type: "dropView", viewName: "feed" },
-    ] satisfies DiffOperation[]) {
-      let refusal: unknown;
-      try {
-        surrealMigrationDriver.compileStatements(operation, ddlContext("live"));
-      } catch (error) {
-        refusal = error;
-      }
-      expect(refusal).toMatchObject({
-        code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
-        message: expect.stringMatching(SURREAL_VIEW),
-      });
-    }
+    expect(
+      surrealMigrationDriver.compileStatements(
+        { type: "createView", view: feed },
+        ddlContext("live")
+      )
+    ).toEqual([
+      `DEFINE TABLE feed AS SELECT "id" FROM "posts" COMMENT "viborm_view_${H1}";`,
+    ]);
+    expect(
+      surrealMigrationDriver.compileStatements(
+        { type: "dropView", viewName: "feed" },
+        ddlContext("live")
+      )
+    ).toEqual(["REMOVE TABLE feed;"]);
+    expect(() =>
+      surrealMigrationDriver.compileStatements(
+        { type: "createView", view: { ...feed, sql: undefined } },
+        ddlContext("live")
+      )
+    ).toThrow(NOT_DECLARED);
+    expect(readViewComment(viewMarker(H1))).toBe(H1);
+    expect(readViewComment(`${viewMarker(H1)} `)).toBeUndefined();
+    expect(readViewComment(viewMarker("A".repeat(40)))).toBeUndefined();
   });
 
   it("reads the marker each catalog prints at the end, and nothing inside the body", () => {

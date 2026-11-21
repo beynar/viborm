@@ -20,7 +20,7 @@ import type { IndexPredicateCanonicalizer } from "./differ";
 import type { BoundMigrationDriver, MigrationDriver } from "./drivers";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import { canPinSession, runsMigrationBatches } from "./pinned-session";
-import type { SchemaSnapshot, TableDef } from "./types";
+import type { IndexDef, SchemaSnapshot, TableDef, ViewDef } from "./types";
 import { encodeSnapshot } from "./v1-parse-snapshot";
 import type { MarkerIndexPredicateV1, PushTargetIdentity } from "./v1-types";
 
@@ -107,24 +107,44 @@ export async function canonicalizeSnapshotPredicates(
   if (!canonicalize) return snapshot;
   const tables: TableDef[] = [];
   for (const table of snapshot.tables) {
-    const pending = table.indexes.filter((index) => index.where);
-    if (pending.length === 0) {
-      tables.push(table);
-      continue;
-    }
-    const predicates = pending.map((index) => index.where!);
-    const spellings = await canonicalize(table.name, predicates);
-    let next = 0;
-    tables.push({
-      ...table,
-      indexes: table.indexes.map((index) => {
-        if (!index.where) return index;
-        const spelling = spellings[next++];
-        return spelling === undefined ? index : { ...index, where: spelling };
-      }),
-    });
+    const indexes = await canonicalIndexes(
+      table.name,
+      table.indexes,
+      canonicalize
+    );
+    tables.push(indexes === table.indexes ? table : { ...table, indexes });
   }
-  return { ...snapshot, tables };
+  if (snapshot.views === undefined) return { ...snapshot, tables };
+  // A materialized view's partial index is spelled by the database as a
+  // table's is.
+  const views: ViewDef[] = [];
+  for (const view of snapshot.views) {
+    const indexes =
+      view.indexes &&
+      (await canonicalIndexes(view.name, view.indexes, canonicalize));
+    views.push(indexes === view.indexes ? view : { ...view, indexes });
+  }
+  return { ...snapshot, tables, views };
+}
+
+/** One relation's indexes, each partial one's predicate as the database spells it. */
+async function canonicalIndexes(
+  relation: string,
+  indexes: IndexDef[],
+  canonicalize: IndexPredicateCanonicalizer
+): Promise<IndexDef[]> {
+  const pending = indexes.filter((index) => index.where);
+  if (pending.length === 0) return indexes;
+  const spellings = await canonicalize(
+    relation,
+    pending.map((index) => index.where!)
+  );
+  let next = 0;
+  return indexes.map((index) => {
+    if (!index.where) return index;
+    const spelling = spellings[next++];
+    return spelling === undefined ? index : { ...index, where: spelling };
+  });
 }
 
 export async function fingerprintLive(
@@ -153,19 +173,30 @@ export function fingerprintDeparsed(
   driver: MigrationDriver
 ): Sha256 | undefined {
   let recorded = true;
-  const tables = snapshot.tables.map((table) => ({
-    ...table,
-    indexes: table.indexes.map((index) => {
-      if (!index.where) return index;
-      const where = predicates.find(
-        (record) => record.table === table.name && record.index === index.name
-      )?.deparsed;
-      recorded &&= where !== undefined;
-      return { ...index, where };
+  // A materialized view's partial index is recorded under the view's name.
+  const deparsed = <T extends { name: string; indexes?: IndexDef[] }>(
+    relation: T
+  ): T => ({
+    ...relation,
+    ...(relation.indexes && {
+      indexes: relation.indexes.map((index) => {
+        if (!index.where) return index;
+        const where = predicates.find(
+          (record) =>
+            record.table === relation.name && record.index === index.name
+        )?.deparsed;
+        recorded &&= where !== undefined;
+        return { ...index, where };
+      }),
     }),
-  }));
+  });
+  const tables = snapshot.tables.map(deparsed);
+  const views = snapshot.views?.map(deparsed);
   return recorded
-    ? fingerprintSnapshot({ ...snapshot, tables }, driver)
+    ? fingerprintSnapshot(
+        { ...snapshot, tables, ...(views ? { views } : {}) },
+        driver
+      )
     : undefined;
 }
 
@@ -198,21 +229,7 @@ export function fingerprintSnapshot(
             ...(table.primaryKey.withoutRowid ? { withoutRowid: true } : {}),
           }
         : null,
-      indexes: table.indexes
-        .map((index) =>
-          // A raw index is its text: what the database calls its method, its
-          // uniqueness or its predicate is the text's, and the hash says it.
-          index.raw
-            ? { name: index.name, raw: index.raw.hash, columns: index.columns }
-            : {
-                name: index.name,
-                columns: index.columns,
-                unique: index.unique ?? false,
-                type: index.type ?? "btree",
-                where: index.where?.trim() || null,
-              }
-        )
-        .sort(byName),
+      indexes: table.indexes.map(indexProjection).sort(byName),
       foreignKeys: table.foreignKeys
         .map((foreignKey) => ({
           name: driver.capabilities.introspectionReadsConstraintNames
@@ -238,10 +255,20 @@ export function fingerprintSnapshot(
   const enums = [...(snapshot.enums ?? [])]
     .map((item) => ({ name: item.name, values: item.values }))
     .sort(byName);
-  // A view is its name and hash; present only where one is, so a schema
-  // without a view keeps its fingerprint.
+  // A view is its name and hash, and a materialized one its kind and indexes
+  // (which no hash holds); present only where one is, so a schema without a
+  // view, or without a materialized one, keeps its fingerprint.
   const views = [...(snapshot.views ?? [])]
-    .map((view) => ({ name: view.name, hash: view.hash }))
+    .map((view) => ({
+      name: view.name,
+      hash: view.hash,
+      ...(view.materialized
+        ? {
+            materialized: true,
+            indexes: (view.indexes ?? []).map(indexProjection).sort(byName),
+          }
+        : {}),
+    }))
     .sort(byName);
   return domainHash(
     HASH_DOMAIN.snapshot,
@@ -249,6 +276,23 @@ export function fingerprintSnapshot(
       views.length > 0 ? { tables, enums, views } : { tables, enums }
     )
   );
+}
+
+/**
+ * An index as the fingerprint hashes it. A raw index is its text: what the
+ * database calls its method, its uniqueness or its predicate is the text's,
+ * and the hash says it.
+ */
+function indexProjection(index: IndexDef) {
+  return index.raw
+    ? { name: index.name, raw: index.raw.hash, columns: index.columns }
+    : {
+        name: index.name,
+        columns: index.columns,
+        unique: index.unique ?? false,
+        type: index.type ?? "btree",
+        where: index.where?.trim() || null,
+      };
 }
 
 /** A total btree unique index and a unique constraint enforce the same key. */

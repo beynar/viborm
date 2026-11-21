@@ -320,14 +320,20 @@ export function validateFieldsSinglePass(
 // INDEX RULES (I001-I005)
 // =============================================================================
 
-/** I001: Index fields must exist */
+/**
+ * I001: Index fields must exist. A view's JSON column is one of its fields,
+ * which W002 refuses in an index with its own reason.
+ */
 export function indexFieldsExist(
   _s: Schema,
   name: string,
   model: Model<any>
 ): SchemaValidationIssue[] {
   const errors: SchemaValidationIssue[] = [];
-  const fields = new Set(Object.keys(model["~"].state.scalars));
+  const fields = new Set([
+    ...Object.keys(model["~"].state.scalars),
+    ...(viewFacts(model)?.documents ?? []),
+  ]);
   for (const idx of model["~"].state.indexes) {
     for (const f of idx.fields) {
       if (!fields.has(f)) {

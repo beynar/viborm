@@ -10,7 +10,8 @@
  * `normalizeDefault`, `normalizeType`, `canonicalUniqueEntities`, the
  * managed-table list `selectManagedSnapshot` applies (its tables, the enums
  * they use and its views), the control tables left out, each view VibORM
- * marked as its name and hash (`views` only where there is one), RFC 8785
+ * marked as its name and hash, and a materialized one its kind and indexes,
+ * read and refused as a table's (`views` only where there is one), RFC 8785
  * bytes, the snapshot hash domain.
  *
  * Where reproducing a fact exactly would need more than SQL can say, the
@@ -252,6 +253,16 @@ columns AS (
     CASE WHEN ${quoted('lower(spelling COLLATE "C")')} THEN ${inner('lower(spelling COLLATE "C")')} ELSE lower(spelling COLLATE "C") END AS unquoted OFFSET 0) v
   CROSS JOIN LATERAL (SELECT ${DEFAULT_JSON} AS json OFFSET 0) f
 ),
+views AS (
+  SELECT view_name AS name, materialized, substring(definition FROM ${re(VIEW_MARKER_PATTERN)}) AS hash
+  FROM vw
+  WHERE $4::text[] IS NULL OR view_name = ANY ($4::text[])
+),
+holders AS (
+  SELECT table_name, selected, kept FROM scope
+  UNION ALL
+  SELECT name, true, true FROM views WHERE materialized AND hash IS NOT NULL
+),
 indexes AS (
   SELECT s.table_name, s.selected, s.kept, i.index_name::text AS name,
     min(i.index_comment) AS comment,
@@ -264,7 +275,7 @@ indexes AS (
     min(coalesce(i.filter_condition, '')) AS predicate,
     bool_or(i.column_name IS NULL) AS expression,
     '[' || string_agg(to_json(i.column_name::text)::text, ',' ORDER BY i.ordinal_position) || ']' AS columns
-  FROM idx i JOIN scope s ON s.table_name = i.table_name::text
+  FROM idx i JOIN holders s ON s.table_name = i.table_name::text
   GROUP BY s.table_name, s.selected, s.kept, i.index_name
 ),
 kept_indexes AS (
@@ -320,15 +331,12 @@ enums AS (
   WHERE $4::text[] IS NULL OR enum_name::text IN (SELECT ${elementType("c.type")} FROM columns c WHERE c.selected OR NOT c.kept)
   GROUP BY enum_name
 ),
-views AS (
-  SELECT view_name AS name, substring(definition FROM ${re(VIEW_MARKER_PATTERN)}) AS hash
-  FROM vw
-  WHERE $4::text[] IS NULL OR view_name = ANY ($4::text[])
-),
 projection AS (
   SELECT '{"enums":[' || coalesce((SELECT string_agg(json, ',' ORDER BY name COLLATE "C") FROM enums), '')
     || '],"tables":[' || coalesce((SELECT string_agg(json, ',' ORDER BY table_name COLLATE "C") FROM tables), '') || ']'
-    || coalesce((SELECT ',"views":[' || string_agg('{"hash":' || to_json(hash)::text || ',"name":' || to_json(name)::text || '}', ',' ORDER BY name COLLATE "C") || ']' FROM views WHERE hash IS NOT NULL), '')
+    || coalesce((SELECT ',"views":[' || string_agg('{"hash":' || to_json(v.hash)::text
+      || CASE WHEN v.materialized THEN ',"indexes":[' || coalesce((SELECT string_agg(i.json, ',' ORDER BY i.name COLLATE "C") FROM kept_indexes i WHERE i.table_name = v.name), '') || '],"materialized":true' ELSE '' END
+      || ',"name":' || to_json(v.name)::text || '}', ',' ORDER BY v.name COLLATE "C") || ']' FROM views v WHERE v.hash IS NOT NULL), '')
     || '}' AS json
 )
 SELECT CASE WHEN

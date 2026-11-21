@@ -1004,8 +1004,10 @@ dependency-safe clear are compiled before anything is dropped.
 | Refusal of an alteration INTO a binary column | `binary-conversion.ts` `refuseBinaryReencoding`, from the one `alterColumn` dispatch |
 | Text→identifier conversion pre-checks, and the message PostgreSQL's `col::uuid` does not give | `identifier-conversion.ts` |
 | A raw index's template reading, hash, rendering, refused words and marker | `raw-index.ts` |
-| A view's marker, wrapper, marker reader, hash format and order; the program rule that drops and creates a view around a change to what it reads; the refusal of a declared name the database holds as something VibORM cannot take over | `view.ts` |
-| A declared view's body, identity and reads | `view-definition.ts` `viewDefinition`, asked by the serializer |
+| A view's marker, wrapper, marker reader, hash format and order; the program rule that drops and creates a view around a change to what it reads (and leaves out an index operation on a view it replaces); the refusal of a declared name the database holds as something VibORM cannot take over | `view.ts` |
+| A declared view's body, identity, reads and kind | `view-definition.ts` `viewDefinition`, asked by the serializer |
+| Whether a view declared `.materialized()` is stored where the program runs | the bound driver's `materializesViews()` (PostgreSQL's answers yes); no layer compares a dialect name for it |
+| A materialized view's indexes: one unique per derived key, then each declared one | `serializer.ts` `materializedViewIndexes`, named by the driver's `finalizeTable` as a table's |
 
 If a new check cannot be assigned to exactly one row, fix the ownership before
 adding it. Consumers use trusted projections; they do not re-derive the fact.
@@ -1399,11 +1401,57 @@ Dropping a view loses no row: no consent, no warning. Each step has its probe
 statement. Reset and force-reset push drop the marked views first, dependents
 first, with their probes on a stepwise clear.
 
+A view declared `.materialized()` is stored where the bound driver
+`materializesViews()` (PostgreSQL and every server of its dialect); on MySQL
+and the SQLite family it is the ordinary view by the maintainer's choice, and
+its snapshot, hash and program are exactly the ordinary view's. Where it is
+stored, `ViewDef.materialized` is `true` and `ViewDef.indexes` holds its
+indexes in a table's `IndexDef` form (`materializedViewIndexes`): a unique
+index for each key it derives (what `findUnique` names, and what `REFRESH …
+CONCURRENTLY` needs), named as a table's primary key and uniques are
+(`<view>_pkey`, `<view>_<column>_key`, `<view>_<name>_key`), then each
+declared `.index()`, named and mapped as a table's, all through the driver's
+`finalizeTable`; both keys are absent on an ordinary view, so its bytes,
+hash, fingerprint and digest stay as they were. The kind is in the view's
+hash (`viewDefinition`, only where the driver materializes), the indexes are
+not: a view that keeps its hash has its indexes diffed by name as a table's
+are (`diffIndexes`), into `createIndex` / `dropIndex` against the view's
+name, so an index never computes the rows again; a changed hash, or the
+program rule, drops and creates it, and its creation is `CREATE MATERIALIZED
+VIEW … AS <wrapped body> WITH DATA` then its indexes, one operation, so
+`withViewReplacements` leaves out an index operation on a view it replaces.
+`dropView.materialized` comes from the snapshot that holds the view (`DROP
+MATERIALIZED VIEW`); the inverse of a drop is the previous snapshot's view
+with its indexes, and of a `dropIndex` on a view the previous view's index.
+Its probes read `relkind = 'm'` (`materialized-view:exists`), and each index
+its creation carries is proven by its index probe. Introspection reads a
+materialized view with the marker (`pg_get_viewdef` ends with it as for an
+ordinary view, measured on PostgreSQL 18 and PGlite) and its indexes through
+the table index reader, with its refusals; the fingerprint, the catalog
+digest (the same index CTEs a table's go through) and the predicates beside
+the marker add its kind and indexes. Measured on PostgreSQL 18 under a
+materialized view: a column type change and a column or table drop are
+refused, a column or table rename is followed, a primary key change and an
+added column are survived; `changedTables` is the ordinary view's rule, and
+an added column leaves the stored rows as they are (the view is not computed
+again, as for any change it survives). An index of a materialized view is
+never a low-lock step: only a refresh waits for its build. The plan says a
+created materialized view is computed by its `CREATE`, the view missing until
+it ends (`formatOperation`). `$refresh` is the client's (the adapter's
+`refresh`), never a migration.
+
 Preflight (`refuseRelationCollision`, from each SQL driver's
 `preflightSchemaRequirements`) refuses before effects, V11009, a declared
-table whose name is a view without the marker (or a materialized view), and a
+table whose name is a view, materialized or not, without the marker, and a
 declared view whose name is a table no snapshot declares, or a view without
-the marker; a marked view is VibORM's to drop or keep. A `tables` scope names
-a view as it names a table. Snowflake refuses both operations; SurrealDB
-refuses them until materialized views (`DEFINE TABLE … AS`) arrive. Pull
+the marker; a marked view of either kind is VibORM's to drop or keep. A `tables` scope names
+a view as it names a table. Snowflake refuses both operations. SurrealDB
+defines a view as a table the database computes (`DEFINE TABLE … AS SELECT`,
+`drivers/surrealql/view.ts`): its marker is the table's comment, its body is
+lowered by the read backend of the client the migration is bound to (no
+migrations bundle imports the SDK), and a foreign key added or dropped on a
+table it reads replaces it (`links` in `withViewReplacements`: the column
+then holds a record link, or stops holding one), and so does the rename of a
+table one of its foreign keys targets (the rename rewrites the links held
+there, and a filter on one was written with the old table's record). Pull
 (`viborm/schema/introspect`) still skips every database view.

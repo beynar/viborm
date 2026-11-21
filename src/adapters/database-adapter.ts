@@ -1065,5 +1065,13 @@ export interface DatabaseAdapter {
    */
   readonly period?: PeriodSql;
 
+  /**
+   * The statement that recomputes the materialized view stored as `table`
+   * (`$refresh()`), `concurrently` without blocking its readers. Absence
+   * means this database stores no view's rows: a materialized view is an
+   * ordinary one there, and `$refresh()` sends nothing.
+   */
+  readonly refresh?: (table: string, concurrently: boolean) => Sql;
+
   result: AdapterResultParser;
 }

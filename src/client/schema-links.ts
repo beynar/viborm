@@ -329,17 +329,15 @@ type SlotKind<Cardinality, Kind> = {
  * A view's declaration with its source relinked: a relation the view reads
  * is its source's slot, whose partner names the linked source.
  */
-type LinkedView<View, S extends Schema, L, K> = View extends {
-  readonly source: unknown;
-  readonly query: infer Query;
-}
-  ? [LinkAt<L, K, " source">] extends [never]
-    ? View
-    : {
-        readonly source: LinkedTarget<S, L, LinkAt<L, K, " source">>;
-        readonly query: Query;
-      }
-  : View;
+type LinkedView<View, S extends Schema, L, K> = [
+  LinkAt<L, K, " source">,
+] extends [never]
+  ? View
+  : {
+      [P in keyof View]: P extends "source"
+        ? LinkedTarget<S, L, LinkAt<L, K, " source">>
+        : View[P];
+    };
 
 /** Relinking operates only on the already-flat schema and its literal links. */
 type LinkedState<S extends Schema, L, K extends keyof S> = S[K] extends Model<

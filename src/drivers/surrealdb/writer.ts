@@ -41,6 +41,7 @@ import {
 } from "@query-engine/raptor3/write/statements";
 import type { PreparedGuardFailure } from "@query-engine/types";
 import { getModelKeyCatalog } from "@schema/model/keys";
+import { viewFacts } from "@schema/view/facts";
 import { Sql, sql } from "@sql";
 import { Decimal, RecordId } from "surrealdb";
 import type { SurrealQueries } from "./queries";
@@ -150,6 +151,14 @@ function arithmetic(
         ? a * b
         : Math.trunc(a / b);
 }
+
+/**
+ * The relations whose links a model's records hold, which a write that moves
+ * a key follows: a table's own. A view's rows are computed by the database
+ * from its source's, so the source's links are the ones a write moves.
+ */
+const slotsHeld = (model: AnyModel): readonly string[] =>
+  viewFacts(model) ? [] : Object.keys(model["~"].state.relations);
 
 /**
  * One call on SurrealDB. A write's own statement answers any read of the
@@ -1248,7 +1257,7 @@ export class SurrealWriter extends Writer {
     const keys = q.keyOrder(model);
     const found: FollowingEdge[] = [];
     for (const source of Object.values(this.operation.schema.schema))
-      for (const slot of Object.keys(source["~"].state.relations)) {
+      for (const slot of slotsHeld(source)) {
         const { edges } = q.countedMemberships(source, slot);
         for (const edge of edges)
           if (
@@ -1355,7 +1364,7 @@ export class SurrealWriter extends Writer {
     const follow: Sql[] = [];
     let quiet = false;
     for (const source of Object.values(schema.schema))
-      for (const slot of Object.keys(source["~"].state.relations)) {
+      for (const slot of slotsHeld(source)) {
         const { edges } = q.countedMemberships(source, slot);
         for (const edge of edges) {
           if (edge.target !== model) continue;

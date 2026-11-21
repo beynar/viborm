@@ -14,6 +14,7 @@ import { diff } from "@src/migrations/differ";
 import type { MigrationDriver } from "@src/migrations/drivers/base";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
+import { snowflakeMigrationDriver } from "@src/migrations/drivers/snowflake";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import { surrealMigrationDriver } from "@src/migrations/drivers/surrealql";
 import { serializeModels } from "@src/migrations/serializer";
@@ -183,9 +184,18 @@ describe("a declared view in a snapshot", () => {
     expect(() =>
       serialized(
         ({ post }) => ({ feed: view(() => post, QUERY) }),
+        snowflakeMigrationDriver
+      )
+    ).toThrow("VibORM creates no view on snowflake");
+  });
+
+  it("is refused on SurrealDB by a migration bound to no SurrealDB client", () => {
+    expect(() =>
+      serialized(
+        ({ post }) => ({ feed: view(() => post, QUERY) }),
         surrealMigrationDriver
       )
-    ).toThrow("views arrive there with materialized views");
+    ).toThrow("this migration is bound to none");
   });
 });
 

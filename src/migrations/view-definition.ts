@@ -16,6 +16,11 @@
  * and its primary key (the order a body breaks ties by). A program that
  * changes one of those replaces the view around the change
  * (`withViewReplacements`, `view.ts`), which is the other half of this rule.
+ *
+ * A materialized view's declared indexes are not here either: the serializer
+ * writes them beside the view, and a change to them is an index operation
+ * that leaves the stored rows as they are. Its keys are here: each is a
+ * unique index, which only fresh rows are known to satisfy.
  */
 
 import { inlineLiterals } from "../adapters/inline-literals";
@@ -24,6 +29,7 @@ import { viewBody } from "../query-engine/raptor3/view-body";
 import { fieldRefPayload, isFieldRef } from "../schema/field-ref";
 import { jsonNullKindOf } from "../schema/json-null";
 import { type AnyModel, Model } from "../schema/model";
+import { getModelKeyCatalog } from "../schema/model/keys";
 import { emptyRecord, put } from "../schema/record";
 import type { AnyRelation } from "../schema/relation";
 import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
@@ -32,7 +38,12 @@ import type { ValidationContext } from "../schema/validation/types";
 import { viewFacts } from "../schema/view/facts";
 import { createResolvedSchemaRegistry } from "../validation/builder";
 import { isRecord } from "../validation/value-guards";
-import type { MigrationDriver } from "./drivers/base";
+import type {
+  MigrationDriver,
+  ViewWriteContext,
+  ViewWriter,
+  WrittenView,
+} from "./drivers/base";
 import { domainHash, HASH_DOMAIN, utf8Bytes } from "./identity";
 
 export interface ViewDefinition {
@@ -42,6 +53,13 @@ export interface ViewDefinition {
   readonly hash: string;
   /** Physical names of the tables and views the body reads, sorted, each once. */
   readonly dependsOn: readonly string[];
+  /**
+   * The view is declared `.materialized()` and the driver materializes views:
+   * the database stores its rows. Part of the identity only then, so a view
+   * that changes kind is replaced, and a dialect that keeps such a view
+   * ordinary sees it as the same view.
+   */
+  readonly materialized: boolean;
 }
 
 /** What the serializer holds when it asks for a view's definition. */
@@ -196,6 +214,26 @@ function crossedRelations(
 }
 
 /**
+ * The body of `view` as `writer`'s database takes it: a SQL dialect's is the
+ * view's declared read compiled by the read compiler itself on the writer's
+ * adapter (`viewBody`), then written without parameters (`inlineLiterals`);
+ * another driver writes its own.
+ */
+export function writeView(
+  writer: ViewWriter,
+  context: ViewWriteContext,
+  view: AnyModel
+): WrittenView {
+  if ("write" in writer) return writer.write(context, view);
+  const body = viewBody({ ...context, adapter: writer.adapter }, view);
+  return {
+    sql: inlineLiterals(writer.dialect, body.statement),
+    shape: body.shape,
+    reads: body.reads,
+  };
+}
+
+/**
  * The definition of `view` for `context.migrationDriver`'s dialect: its body
  * written without parameters, what it reads, and its identity.
  */
@@ -208,7 +246,7 @@ export function viewDefinition(
   const writer = migrationDriver.viewWriter();
   if (writer === undefined)
     throw new MigrationError(
-      `The view "${view["~"].names.ts}" cannot be migrated: VibORM creates no view on ${dialect === "surrealql" ? "SurrealDB yet; views arrive there with materialized views" : dialect}.`,
+      `The view "${view["~"].names.ts}" cannot be migrated: VibORM creates no view on ${dialect}.`,
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
       { meta: { feature: "view", dialect } }
     );
@@ -239,11 +277,11 @@ export function viewDefinition(
       VibORMErrorCode.INVALID_INPUT,
       { meta: { feature: "view", model: view["~"].names.ts } }
     );
-  const body = viewBody(
+  const body = writeView(
+    writer,
     {
       schema: models,
       resolved: { index: relations, registry: schema.registry },
-      adapter: writer.adapter,
     },
     view
   );
@@ -254,6 +292,8 @@ export function viewDefinition(
   const facts = viewFacts(view)!;
   const crossed = new Map<string, unknown>();
   crossedRelations(facts.source, facts.query, relations, crossed);
+  const materialized =
+    facts.materialized === true && migrationDriver.materializesViews();
   const identity = JSON.stringify(
     {
       revision: VIEW_REVISION,
@@ -263,12 +303,26 @@ export function viewDefinition(
       relations: [...crossed].sort(([left], [right]) =>
         left < right ? -1 : 1
       ),
+      // Last and only when true: every ordinary view keeps its hash. A
+      // materialized view holds its keys too, each of which is a unique
+      // index on its stored rows: one its source gains would be built on the
+      // rows of the last refresh, which the source's new constraint says
+      // nothing of. Creating the view again computes them first.
+      ...(materialized
+        ? {
+            materialized,
+            keys: getModelKeyCatalog(view).addressableKeys.map(
+              (key) => key.fields
+            ),
+          }
+        : {}),
     },
     relationValue
   );
   return {
-    sql: inlineLiterals(writer.dialect, body.statement),
+    sql: body.sql,
     hash: domainHash(HASH_DOMAIN.view, utf8Bytes(identity)).slice(0, 40),
     dependsOn,
+    materialized,
   };
 }

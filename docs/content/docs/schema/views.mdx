@@ -109,12 +109,12 @@ is no column of the view.
 Inside a relation, everything stays allowed: `where`, `orderBy`, `take`,
 `skip`, `cursor` and nested relations. They shape the document, not the rows.
 
-A view declares nothing beside its query. `.id()`, `.unique()`, `.index()`,
+A view declares nothing beside its query. `.id()`, `.unique()`,
 `.rawIndex()`, `.withoutRowid()`, `.omit()` and `.extends()` are refused
 (`W002`), and so is a relation declared on a view (`W003`): its relations are
 its source's, [inherited](#relations). A view whose source is not in the schema
 (`W001`) and a selection named like the column of a selected field (`W004`) are
-refused too.
+refused too. `.index()` belongs to a [materialized view](#materialized-views).
 `viborm check`, `push` and `migrate` run these rules; creating a client does
 not, since a view exists only where a migration created it. To keep a column
 out of a view, leave it out of the query.
@@ -204,9 +204,87 @@ view inherits and the view keeps.
   the `author` relation is not inherited.
 - **Read only.** A view has no write operation, so nothing is written through
   its relations.
+- **Materialized too.** A [materialized view](#materialized-views) inherits
+  the same way: the related rows are joined from the live tables when it is
+  read, not stored with it.
 - **One way.** The target model gains no relation to the view, and a model
   cannot declare one (`R002`): `db.author.findMany({ include: { livePost: true } })`
   does not exist. Read the view from its own delegate.
+
+## Materialized views
+
+`.materialized()` asks the database to store the view's rows. A read of the
+view then reads the stored rows, and does not run the query again.
+
+```ts
+const authorDigest = s
+  .view(() => user, {
+    select: {
+      id: true,
+      name: true,
+      posts: { where: { published: true }, select: { id: true, title: true } },
+    },
+  })
+  .materialized()
+  .index(["name"]);
+```
+
+The stored rows are those of the last refresh. A write to `user` or `post`
+does not change them: you refresh the view.
+
+```ts
+await db.authorDigest.$refresh();
+await db.authorDigest.$refresh({ concurrently: true });
+```
+
+| Database | `.materialized()` | `.index()` | `$refresh()` |
+| --- | --- | --- | --- |
+| PostgreSQL | a materialized view, computed when it is created | creates the index | `REFRESH MATERIALIZED VIEW` |
+| MySQL, SQLite, libSQL, D1, Durable Objects | an ordinary view: every read runs the whole query | creates nothing | sends nothing |
+| SurrealDB | the view it already is: the database keeps its rows current | creates nothing | sends nothing |
+
+The same schema and the same code run on each database. Only PostgreSQL stores
+the rows: elsewhere `.materialized()` makes no read faster.
+
+### Indexes
+
+`.index(fields, options)` on a materialized view takes what it takes on a
+model: a name, a type, a partial `where`. Its fields are scalar columns of the
+view. Three things are refused (`W002`): an index on a view that is not
+materialized, an index on a JSON column, and a unique index. A view's keys
+are the keys of its source that it selects, and each of them gets a unique
+index on PostgreSQL without being declared: `findUnique` on a materialized
+view is an index lookup.
+
+### Refreshing
+
+- `$refresh()` recomputes the stored rows from the view's query. While it
+  runs, PostgreSQL blocks reads of the view.
+- `$refresh({ concurrently: true })` does not block them. PostgreSQL compares
+  the old rows and the new ones by a unique index, so the view needs a
+  [key](#the-key): without one the call is refused, on every database.
+- It refreshes that one view. A materialized view built on another
+  materialized view reads that view's stored rows, and refreshing either one
+  leaves the other as it was: refresh the innermost view first, then each
+  view built on it, outward.
+- `$refresh` exists only on a materialized view: it is absent from the type of
+  an ordinary view and of a model, and refused at run time.
+- It is sent when it is awaited, on the client it is called on. Inside
+  `db.$transaction(async (tx) => { await tx.authorDigest.$refresh(); })` it is
+  part of the transaction. The array form of `$transaction` does not take it,
+  and refuses it with nothing sent.
+- PostgreSQL lets the view's owner refresh it, and from version 17 a role
+  granted `MAINTAIN` on it. The owner is the role that ran the migration: an
+  application that connects as another role needs that grant, again after
+  each migration that replaces the view.
+- An extension sees it as a raw statement, like `$executeRaw`: no permissions
+  policy governs it and soft delete does not apply to it.
+- The [cache](/docs/extensions/cache) is not cleared by a refresh. A cached
+  read of the view lives until its TTL, or until you invalidate it.
+
+Nothing refreshes a view for you: no trigger, no schedule, no incremental
+refresh. Call `$refresh()` after the writes that matter, or from a scheduled
+job.
 
 ## Migrations
 
@@ -221,8 +299,24 @@ view inherits and the view keeps.
   | --- | --- |
   | PostgreSQL, MySQL | a table renamed or dropped; a column dropped, renamed or given another type; a primary key changed (a view orders its rows by it) |
   | SQLite, D1, libSQL, Durable Objects | any change to the table except an index, because SQLite rebuilds the table |
+  | SurrealDB | what PostgreSQL's row lists; a foreign key added or dropped (the column then holds a record link, or stops holding one); the rename of a table that a foreign key of a table it reads points to (the links held there are rewritten); and any change to a column, its nullability included, since a view's filter is written for the column as it was |
 
 - A view the schema no longer declares is dropped.
+
+A materialized view on PostgreSQL follows the same rules, with these
+differences:
+
+- Creating it runs its whole query, and so does replacing it. The migration
+  is one transaction, so readers of a replaced view wait until it commits.
+  The plan of a push says so beside the operation.
+- An index added to it or removed from it is an index operation. The stored
+  rows are kept.
+- A table it reads that gains a column or a foreign key leaves it as it is,
+  rows included.
+- A key its source gains or loses among the fields it selects replaces it.
+  Each key of the view is a unique index on its stored rows, and only rows
+  computed again are known to satisfy a new one.
+- A view that becomes materialized, or stops being so, is replaced.
 
 Dropping a view loses no data, so it asks no confirmation. Views are dropped
 before the tables they read and created after them. On MySQL, where a
@@ -297,17 +391,47 @@ facts.
 
 ## Databases
 
-| Database | Views |
-| --- | --- |
-| PostgreSQL | ✅ JSON columns are `json` |
-| MySQL | ✅ JSON columns are `JSON` |
-| SQLite | ✅ JSON columns are text |
-| libSQL, D1, Durable Objects | The SQL is SQLite's. Not run with views in VibORM's test suite yet; D1 takes them through `migrate`, since it refuses a live `push` |
-| Snowflake | A schema holding a view is refused |
-| SurrealDB | Not supported yet |
+| Database | Views | Materialized |
+| --- | --- | --- |
+| PostgreSQL | ✅ JSON columns are `json` | ✅ |
+| MySQL | ✅ JSON columns are `JSON` | an ordinary view |
+| SQLite | ✅ JSON columns are text | an ordinary view |
+| libSQL, D1, Durable Objects | The SQL is SQLite's. Not run with views in VibORM's test suite yet; D1 takes them through `migrate`, since it refuses a live `push` | an ordinary view |
+| SurrealDB | ✅ the source's own fields only, see [below](#surrealdb) | every view is kept current by the database |
+| Snowflake | A schema holding a view is refused | |
 
-Not supported yet, on any database: materialized views and aggregated views
-(a view over a `groupBy`).
+Not supported yet, on any database: aggregated views (a view over a
+`groupBy`).
+
+### SurrealDB
+
+A view on SurrealDB is a table the database computes
+(`DEFINE TABLE … AS SELECT`) and keeps current: a write to the source changes
+the view's rows in the same statement. It is read like any view, its inherited
+relations included, and a view over a view works.
+
+The database keeps such a table current only for what it reads from the
+source's own rows, so a view's query is narrower there:
+
+| A SurrealDB view's query | |
+| --- | --- |
+| scalars of the source: `select`, `omit`, or all of them | ✅ |
+| `where` on the source's own fields, with plain values | ✅ |
+| a relation, `_count` or `_aggregate` in `select` or `include` | refused: SurrealDB would not update it when the related row changes |
+| a relation filter in `where` | refused, for the same reason |
+| `take`, `skip`, `orderBy`, `distinct` | refused: `DEFINE TABLE … AS` has no order and no window |
+
+Each refusal names the view, at `viborm check` (`W005`) and before a migration
+changes anything.
+
+VibORM knows its own views by the table's comment, which holds the marker.
+A view you define again by hand under the same comment is taken for the one
+VibORM wrote, and is not replaced until its query changes.
+
+A view row keeps the record id of its source row, so a view that selects its
+source's key has `findUnique` and cursors, as on the other databases.
+`.materialized()` and `.index()` change nothing, and `$refresh()` sends
+nothing.
 
 ### MySQL string values
 

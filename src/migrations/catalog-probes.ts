@@ -94,18 +94,30 @@ export function tableExistsProbe(
   };
 }
 
-/** Whether a view of that name exists (a table of the name is not one). */
+/**
+ * Whether a view of that name exists (a table of the name is not one), of the
+ * kind asked: only PostgreSQL has a materialized one.
+ */
 export function viewExistsProbe(
   driver: MigrationDriver,
   viewName: string,
   exists: boolean,
-  lifetime: CatalogProbeLifetime = "live-command"
+  lifetime: CatalogProbeLifetime = "live-command",
+  materialized = false
 ): CatalogProbe {
-  const id = `view:${exists ? "exists" : "absent"}:${viewName}`;
+  const id = `${materialized ? "materialized-view" : "view"}:${exists ? "exists" : "absent"}:${viewName}`;
+  // A SurrealDB view is a table defined `AS SELECT`, which `INFO` reports.
+  if (driver.dialect === "surrealql")
+    return {
+      id,
+      sql: "RETURN [{ present: (INFO FOR DB STRUCTURE).tables.filter(|$t| $t.view != NONE).name CONTAINS $p1 }]",
+      parameters: [stringParam(viewName)],
+      equals: exists,
+    };
   if (driver.dialect === "postgresql")
     return {
       id,
-      sql: "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'v')",
+      sql: `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = '${materialized ? "m" : "v"}')`,
       parameters: [
         stringParam(boundCatalogNamespace(driver)),
         stringParam(viewName),
@@ -256,6 +268,9 @@ function commentedRawIndex(
 const CREATE_INDEX_HEADER =
   /^\s*CREATE\s+(?:UNIQUE\s+|SPATIAL\s+|FULLTEXT\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")+"|`(?:[^`]|``)+`|[\w$]+)\s+ON\b/i;
 
+/** A view's own creation, materialized or not, as the SQL drivers write it. */
+const VIEW_CREATION = /^CREATE (?:MATERIALIZED )?VIEW /;
+
 /** The name a `CREATE INDEX` statement gives its index, unquoted. */
 function createdIndexName(statement: string): string | undefined {
   const name = CREATE_INDEX_HEADER.exec(statement)?.[1];
@@ -264,6 +279,41 @@ function createdIndexName(statement: string): string | undefined {
   return quote === '"' || quote === "`"
     ? name.slice(1, -1).replaceAll(quote + quote, quote)
     : name;
+}
+
+/**
+ * The probes of a `CREATE INDEX` statement that an operation creating a
+ * relation runs after it (a table, a materialized view): the index named in
+ * its header, neither one whose name it extends (`by_email_b`) nor a column
+ * it indexes.
+ */
+function createdIndexProbes(
+  driver: MigrationDriver,
+  relation: string,
+  indexes: readonly IndexDef[],
+  statement: string
+): { pre: CatalogProbe; post: CatalogProbe } | null {
+  const text = statement.trim().toUpperCase();
+  if (!(text.startsWith("CREATE ") && text.includes("INDEX"))) return null;
+  const created = createdIndexName(statement);
+  const index = indexes.find((item) => item.name === created);
+  if (!index) return null;
+  return {
+    pre: indexExistsProbe(
+      driver,
+      relation,
+      index.name,
+      false,
+      "stored-artifact"
+    ),
+    post: indexExistsProbe(
+      driver,
+      relation,
+      index.name,
+      true,
+      "stored-artifact"
+    ),
+  };
 }
 
 export function probeForGeneratedStatement(
@@ -314,32 +364,12 @@ export function probeForGeneratedStatement(
           ),
         };
       }
-      if (text.startsWith("CREATE ") && text.includes("INDEX")) {
-        // The index this statement creates, read from its header: neither one
-        // whose name it extends (`by_email_b`) nor a column it indexes is it.
-        const created = createdIndexName(statement);
-        const index = operation.table.indexes.find(
-          (item) => item.name === created
-        );
-        if (!index) return null;
-        return {
-          pre: indexExistsProbe(
-            driver,
-            operation.table.name,
-            index.name,
-            false,
-            "stored-artifact"
-          ),
-          post: indexExistsProbe(
-            driver,
-            operation.table.name,
-            index.name,
-            true,
-            "stored-artifact"
-          ),
-        };
-      }
-      return null;
+      return createdIndexProbes(
+        driver,
+        operation.table.name,
+        operation.table.indexes,
+        statement
+      );
     case "dropTable":
       return {
         pre: tableExistsProbe(
@@ -441,18 +471,28 @@ export function probeForGeneratedStatement(
         ),
       };
     case "createView":
+      // A materialized view's creation is followed by its indexes.
+      if (!VIEW_CREATION.test(text))
+        return createdIndexProbes(
+          driver,
+          operation.view.name,
+          operation.view.indexes ?? [],
+          statement
+        );
       return {
         pre: viewExistsProbe(
           driver,
           operation.view.name,
           false,
-          "stored-artifact"
+          "stored-artifact",
+          operation.view.materialized
         ),
         post: viewExistsProbe(
           driver,
           operation.view.name,
           true,
-          "stored-artifact"
+          "stored-artifact",
+          operation.view.materialized
         ),
       };
     case "dropView":
@@ -461,13 +501,15 @@ export function probeForGeneratedStatement(
           driver,
           operation.viewName,
           true,
-          "stored-artifact"
+          "stored-artifact",
+          operation.materialized
         ),
         post: viewExistsProbe(
           driver,
           operation.viewName,
           false,
-          "stored-artifact"
+          "stored-artifact",
+          operation.materialized
         ),
       };
     default:
