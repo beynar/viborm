@@ -28,7 +28,8 @@ export function viewFacts(model: AnyModel): ViewFacts | undefined {
 
 /** The table `model` reads through every view it reads: itself for a table. */
 export function viewTable(model: AnyModel): AnyModel {
-  for (let facts = viewFacts(model); facts; facts = viewFacts(model))
-    model = facts.source;
-  return model;
+  let table = model;
+  for (let facts = viewFacts(table); facts; facts = viewFacts(table))
+    table = facts.source;
+  return table;
 }
