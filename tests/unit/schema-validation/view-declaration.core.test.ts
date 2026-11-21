@@ -726,6 +726,9 @@ describe("a view's variant collection", () => {
   it("is inherited where the view keeps the row key, as the types read it", () => {
     expect([...index.get(shelfIds)!.keys()]).toEqual(["items"]);
     expect([...index.get(shelfNames)!.keys()]).toEqual([]);
+  });
+});
+
 describe("an aggregated view", () => {
   const order = s.model({
     id: s.string().ulid().id().map("order_id"),
