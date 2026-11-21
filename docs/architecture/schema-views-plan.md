@@ -147,7 +147,9 @@ await db.livePost.findMany({
 5. No inverse on the target models.
 6. No `.extends()` on a view.
 7. A `select` of a relation in the view's definition stays a JSON column.
-8. Aggregated views (PR 4) inherit nothing.
+8. Aggregated views (PR 4) inherit nothing, but a to-one of the source whose
+   key fields are all in `by` (accepted 2026-11-20): every row of a group
+   holds the same key, so the group names the row each of them names.
 9. Materialized views (PR 3) inherit the same way, joined to the live source
    tables; on SurrealDB too.
 
@@ -313,6 +315,89 @@ const salesByDay = s.view(() => order, {
 ```
 
 Time steps exist on PostgreSQL only, as in `groupBy`.
+
+As built (2026-11-19), the sketch confirmed with one difference (a stepped
+column is text):
+
+- **A query with `by` is an aggregated view's.** `s.view` has two overloads,
+  so an ordinary view never instantiates `groupBy`'s types (`by?: never` on
+  `ViewQuery` is what sends a grouping query to the second). The query is
+  what `groupBy` takes, under the root rule ordinary views have (an order or
+  a skip only with a `take`).
+- **Columns**: a grouped field under its name; `count` for `_count: true` or
+  `_all`, `countField` for a counted field; `sumField`, `avgField`,
+  `minField`, `maxField`. Two columns of one name are W004's, and so is a
+  name past a column's 63 bytes (a prefix on a field name near the limit):
+  the derivation holds no scalar for it, so the schema's names never refuse
+  a field the user did not declare, and W004 names the field it reads.
+- **Each column is a scalar the view derives** (`derivedScalar`,
+  `ViewFacts.aggregated.scalars`), named by the view: no `.map()`, default,
+  key or generator flag of the field it reads carries over. `_min`/`_max`:
+  the field's scalar, nullable. `_avg`: a number, the field's decimal for a
+  decimal. `_sum`: a number for an int or a double (what `groupBy` answers
+  past the int range), a bigint for a bigint, and for a decimal one of the
+  field's scale as wide as every provider that stores the field stores one:
+  18 - s digits where SQLite stores it (p + s <= 18), 65 - s where MySQL does
+  and SQLite does not, 1000 beyond. A first form, `max(p, 18 - s)`, left a
+  field with p + s >= 18 no room above its own range (a review probe: two
+  rows of `decimal(20, 2)` near its maximum failed every read of the view on
+  PostgreSQL, and would have blocked the refresh of a materialized one). `_count`: an int. A stepped `by`
+  member: a string, the `YYYY-MM-DD` text `groupBy` publishes for a period.
+- **One fact says where a column comes from**: `ViewFacts.aggregated.origins`
+  and `heldField(facts, column)`, which the identifier domains read: `_min`/
+  `_max` of an identifier keep its stored format that way.
+- **A to-one whose key it groups by.** An aggregated view inherits a to-one
+  its source owns when every field of the foreign key is a plain `by` member
+  (no step), and reads it through the source's slot (§2.5, rule 8). A to-many
+  or a to-one partly in `by` is absent from the types and refused at run time
+  with the reason; on SurrealDB the group's key part names the target's record.
+- **The key is the `by` list** when no member is nullable: one member is a
+  single-field key, several a compound key named as `.id([...])` names one.
+  A materialized aggregated view therefore has its unique index, and a
+  concurrent refresh, with nothing added.
+- **The body is the read compiler's own `groupBy`** (`view-body.ts`), its
+  root projected flat, and without the order `groupBy` gives its groups when
+  the query takes no window (`groupOrderTerms`): a view has no order. A column is always a column of its scalar: the
+  dialect's migration driver casts an aggregate to the scalar's column type
+  (`ViewColumnSql.viewCast`) where the cast keeps its value. MySQL casts
+  doubles only: its `CAST` to `SIGNED` or `DECIMAL` clamps an out-of-range
+  value with a warning, where its own `COUNT` and `SUM` are exact. It casts
+  the aggregate plus `0.0`: `CAST(AVG(x) AS DOUBLE)` of integers read the
+  `DECIMAL` average `groupBy` answers (`1.333333333`) through `findMany` and
+  the double quotient (`1.3333333333333333`) through `findUnique`, whose key
+  filter MySQL pushes into the groups (a review probe, 8.4). A total
+  past what its column holds is a refused read, never another number.
+- **On SurrealDB** an aggregated view is `DEFINE TABLE … AS SELECT <by>,
+  <aggregates> FROM <source> [WHERE …] GROUP BY <by>`, which the database
+  keeps current through an insert, an update of an aggregated, grouped or
+  filtered field, and a delete down to an empty group (measured). A group's
+  record id is the list of its `by` values, even of one, so the view's key
+  order is its `by` list and `findUnique` fetches the record; a key or a
+  link in `by` is grouped by its value (`record::id`, behind `IF` where the
+  link may be unset: `record::id` of none fails every such write), an
+  integer as an `int` (`<option<int>>` where it may be unset: the column is
+  an `i32`, which a lookup by value does not find in a record id), and a
+  key or a link that is a decimal or an instant as that value (`<decimal>`,
+  `<datetime>`: a record's key holds its text, which a lookup by value does
+  not name). Each aggregate is written so that the view holds what
+  `groupBy` answers (a bigint sum on a decimal accumulator, which a write
+  never overflows, `<option<decimal>>` where the field may be unset: a plain
+  cast of none fails every such write; a decimal average rounded as the read
+  rounds it; `NULL` for a group with no value). Refused, with the view named: a `having`, a
+  time step, a sum or an average of doubles (the stored total drifts after
+  deletes), a minimum or a maximum of text, an enum or a boolean, and any
+  aggregate of a key or a link (a record there).
+- **A derived column is no key in its type either.** `columnOf` clears what
+  the source declared for its own column, and the type does the same
+  (`Keyless`): `.extends()`, which W003 refuses on a view but the types
+  admit, reads a view's keys from its columns again, and typed the least id
+  of a group, or one member of a compound `by`, as a key that the run time
+  refuses.
+- **A list in a query** (`in: [...]`, `orderBy: [...]`, `OR: [...]`) is a
+  read-only tuple under `const`. The constraint of both overloads takes
+  every list read-only (`ReadonlyLists`): with a mutable one the inference
+  failed in silence and the view was typed with every scalar of its source,
+  a defect of the first views PR found here.
 
 ## 3. Hard points
 

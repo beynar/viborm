@@ -72,7 +72,8 @@ const quote = createIdentifierQuoter('"');
 function storageColumns(models: Record<string, AnyModel>): StorageColumn[] {
   const columns: StorageColumn[] = [];
   for (const [name, model] of Object.entries(models)) {
-    // A view stores nothing: its columns are its source's, audited there.
+    // A view stores nothing: what its columns read is its source's, audited
+    // there, and an aggregated view's totals are computed when it is read.
     if (viewFacts(model)) continue;
     const table = getTableName(model, name);
     const state: ModelState = model["~"].state;

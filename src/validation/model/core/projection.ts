@@ -101,7 +101,17 @@ export type StateDocumentKeys<State> = 0 extends 1 & State
     : never;
 
 /** The JSON columns a view of `Source` declared by `Query` has. */
-export type DeclaredDocumentKeys<Source extends AnyModel, Query> = Exclude<
+export type DeclaredDocumentKeys<
+  Source extends AnyModel,
+  Query,
+> = Query extends {
+  readonly by: unknown;
+}
+  ? // An aggregated view's columns are flat: it holds no document.
+    never
+  : ViewDocumentsOf<Source, Query>;
+
+type ViewDocumentsOf<Source extends AnyModel, Query> = Exclude<
   Query extends { select: infer Selection extends object }
     ? CountedKeys<
         Source,

@@ -4512,14 +4512,16 @@ export class SqlQueries extends Queries {
     return {
       fields,
       fields_: selection.shape,
-      columns: (alias) => this.#aggregateColumns(model, selection, alias),
+      columns: (alias) => this.aggregateColumns(model, selection, alias),
     };
   }
   /**
    * Each selected aggregate as its column: `_count: true`'s row count, or the
    * carrier of the fields it selects, members in the order its shape lists them.
+   * A view's body holds a grouped root's aggregates as flat columns instead
+   * (`raptor3/view-body.ts`).
    */
-  #aggregateColumns(
+  protected aggregateColumns(
     model: AnyModel,
     { shape, members }: PreparedAggregates,
     alias: string
@@ -5025,7 +5027,7 @@ export class SqlQueries extends Queries {
       entry.selector && this.lowerSelector(entry.selector, childAlias);
     return this.#scalar({
       columns: this.carriedDocument(
-        this.#aggregateColumns(target, entry.selection, childAlias)
+        this.aggregateColumns(target, entry.selection, childAlias)
       ),
       from: this.table(target, childAlias),
       where: this.#and(
@@ -5811,7 +5813,7 @@ export class SqlQueries extends Queries {
             )
           : undefined,
         orderBy: this.#lowerOrder(
-          this.#groupOrderTerms(model, args.orderBy, alias, grouped, periods)
+          this.groupOrderTerms(model, args.orderBy, alias, grouped, periods)
         ),
         limit: args.take === undefined ? undefined : this.value(args.take),
         offset: args.skip === undefined ? undefined : this.value(args.skip),
@@ -5855,8 +5857,10 @@ export class SqlQueries extends Queries {
   /**
    * A grouped read orders by a grouped field or by an aggregate; admission
    * refuses any other field at its `orderBy` path (`args/aggregate.ts`).
+   * A view's body states no order for a grouped root that takes no window
+   * (`raptor3/view-body.ts`).
    */
-  #groupOrderTerms(
+  protected groupOrderTerms(
     model: AnyModel,
     input: Arguments["orderBy"],
     alias: string,

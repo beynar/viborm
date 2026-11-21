@@ -11,6 +11,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
+import { renderSchemaType } from "@client/schema-introspection";
 import { createClient as createSnowflakeClient } from "@drivers/snowflake";
 import { SurrealDriver } from "@drivers/surrealdb";
 import {
@@ -110,15 +111,17 @@ const WRITERS = {
 };
 const writing = (dialect: keyof typeof WRITERS) =>
   WRITERS[dialect].viewWriter().adapter;
+/** The adapter and the driver's column spelling a migration of `dialect` writes with. */
+const writer = (dialect: keyof typeof WRITERS) => ({
+  adapter: writing(dialect),
+  columns: WRITERS[dialect],
+});
 
 /** A declared query the body refuses, as the view that declares it. */
 const refused = (query: object) => {
   const bad = s.view(() => post, query as never).map("bad_view");
   return () =>
-    viewBody(
-      { schema: { author, post, bad }, adapter: writing("postgresql") },
-      bad
-    );
+    viewBody({ schema: { author, post, bad }, ...writer("postgresql") }, bad);
 };
 
 const text = (statement: Sql) => statement.toStatement("$n");
@@ -132,10 +135,7 @@ const WINDOW_ORDER = /ORDER BY .q0.\..id. DESC LIMIT/;
 
 describe("a view's body", () => {
   test("projects its root scalars as stored and its documents as a read carries them", () => {
-    const body = viewBody(
-      { schema, adapter: writing("postgresql") },
-      published
-    );
+    const body = viewBody({ schema, ...writer("postgresql") }, published);
     const statement = text(body.statement);
     // A bigint and a decimal column as stored, under their column names.
     expect(statement).toMatch(STORED_ROOT);
@@ -153,14 +153,14 @@ describe("a view's body", () => {
   test("keeps the root order of a window", () => {
     for (const dialect of ["postgresql", "mysql", "sqlite"] as const) {
       const statement = text(
-        viewBody({ schema, adapter: writing(dialect) }, latest).statement
+        viewBody({ schema, ...writer(dialect) }, latest).statement
       );
       expect(statement).toMatch(WINDOW_ORDER);
     }
   });
 
   test("reads a source view's documents as its plain columns", () => {
-    const body = viewBody({ schema, adapter: writing("sqlite") }, popular);
+    const body = viewBody({ schema, ...writer("sqlite") }, popular);
     expect(text(body.statement)).toBe(
       'SELECT "q0"."id" AS "id", "q0"."author" AS "author" FROM "published_posts" AS "q0"'
     );
@@ -169,13 +169,21 @@ describe("a view's body", () => {
 
   test("names its tables as the adapter it is written with names them", () => {
     const pg = viewBody(
-      { schema, adapter: new PostgresAdapter("app", true) },
+      {
+        schema,
+        adapter: new PostgresAdapter("app", true),
+        columns: postgresMigrationDriver,
+      },
       published
     );
     expect(text(pg.statement)).toContain('"app"."posts" AS "q0"');
     expect(text(pg.statement)).toContain('"app"."authors"');
     const mysql = viewBody(
-      { schema, adapter: new MySQLAdapter("shop") },
+      {
+        schema,
+        adapter: new MySQLAdapter("shop"),
+        columns: mysqlMigrationDriver,
+      },
       counted
     );
     expect(text(mysql.statement)).toContain("`shop`.`authors` AS `q0`");
@@ -183,10 +191,7 @@ describe("a view's body", () => {
   });
 
   test("states the shape a view row is decoded with, as JSON data", () => {
-    const { shape } = viewBody(
-      { schema, adapter: writing("sqlite") },
-      published
-    );
+    const { shape } = viewBody({ schema, ...writer("sqlite") }, published);
     expect(JSON.parse(JSON.stringify(shape))).toEqual(shape);
     expect(shape).toMatchObject({
       kind: "object",
@@ -648,5 +653,102 @@ describe("the drivers that hold a view, and the one that does not", () => {
     expect(create).toThrow(
       "snowflake.view is not supported. The schema declares 'published' as a view"
     );
+  });
+});
+
+describe("an aggregated view", () => {
+  const totals = s
+    .view(() => post, {
+      by: ["authorId", "published"],
+      _count: true,
+      _sum: { views: true, score: true },
+      _max: { deletedAt: true },
+    })
+    .map("post_totals");
+  const daily = s
+    .view(() => post, {
+      by: [{ deletedAt: "week" }],
+      timeZone: "Europe/Paris",
+      _count: true,
+    })
+    .map("post_weeks");
+  const grouped = { author, post, totals, daily };
+
+  test("renders its row as its flat columns, then the to-one it inherits by its grouped foreign key", () => {
+    expect(renderSchemaType({ author, post, totals })).toContain(`  totals: {
+    authorId: number;
+    published: boolean;
+    count: number;
+    sumViews: bigint | null;
+    sumScore: import("viborm").Decimal | null;
+    maxDeletedAt: Date | null;
+    author: VibORMSchema["author"];
+  };`);
+  });
+
+  test("keeps a window's order and limit, and refuses what a view of rows refuses at its root", () => {
+    const windowed = s
+      .view(() => post, {
+        by: ["published"],
+        _count: true,
+        orderBy: { _count: { published: "desc" } },
+        take: 1,
+      })
+      .map("top_kind");
+    const statement = text(
+      viewBody(
+        { schema: { author, post, windowed }, ...writer("postgresql") },
+        windowed
+      ).statement
+    );
+    expect(statement).toContain('ORDER BY COUNT("q0"."published") DESC');
+    expect(statement).toContain("LIMIT");
+    for (const [query, clause] of [
+      [
+        { by: ["published"], _count: true, take: -1 },
+        "takes a negative window",
+      ],
+      [
+        { by: ["published"], _count: true, orderBy: { published: "asc" } },
+        "orders its rows without a take",
+      ],
+      [
+        { by: ["published"], _count: true, skip: 1 },
+        "skips rows without a take",
+      ],
+    ] as const) {
+      const bad = s.view(() => post, query as never).map("bad_view");
+      expect(() =>
+        viewBody(
+          { schema: { author, post, bad }, ...writer("postgresql") },
+          bad
+        )
+      ).toThrow(`View 'bad' cannot be created from a query that ${clause}`);
+    }
+  });
+
+  test("refuses a query groupBy does not take on its source, and a time step where the database has none, naming the view", () => {
+    const summed = s
+      .view(() => post, { by: ["published"], _sum: { title: true } } as never)
+      .map("bad_sum");
+    expect(() =>
+      viewBody(
+        { schema: { author, post, summed }, ...writer("postgresql") },
+        summed
+      )
+    ).toThrow(
+      "View 'summed' cannot be created from a query that its source does not take"
+    );
+    for (const dialect of ["mysql", "sqlite"] as const)
+      expect(() =>
+        viewBody({ schema: grouped, ...writer(dialect) }, daily)
+      ).toThrow(
+        "View 'daily' cannot be created from a query that this database cannot read: groupBy.timeStep is not supported. Grouping by a time step is supported on PostgreSQL only."
+      );
+    expect(
+      text(
+        viewBody({ schema: grouped, ...writer("postgresql") }, daily).statement
+      )
+    ).toContain("to_char(");
   });
 });

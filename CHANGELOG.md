@@ -59,8 +59,23 @@ Versioning.
     order or a window is refused with the view named, because SurrealDB does
     not keep those current. A view inherits its source's relations there
     too.
-  - **Not yet:** aggregated views. Snowflake refuses a schema that holds a
-    view.
+  - **Aggregated views: a view over a `groupBy`.**
+    `s.view(() => order, { by: [{ createdAt: "day" }, "currency"], _sum: { amount: true }, _count: true })`
+    is a view with one row per group and flat, typed columns: `createdAt`,
+    `currency`, `sumAmount`, `count`. Each column holds what `groupBy` answers
+    for the same selection (the sum of a `bigInt` is a `bigint`, of a
+    `decimal` an exact `Decimal`), so a total is filtered, ordered, aggregated
+    and, on a materialized view, indexed like any column. The `by` list is
+    the view's key when none of its fields is nullable: `findUnique` and
+    cursors follow, and a materialized one has its unique index, so
+    `$refresh({ concurrently: true })` works. It inherits a to-one of
+    its source whose fields are all in its `by` (`by: ["authorId"]` reads
+    `author`), and no other relation. Time steps are PostgreSQL's, as in
+    `groupBy`. On SurrealDB an aggregated view is a grouped table the
+    database keeps current; a sum or an average of doubles, a minimum or a
+    maximum of text and a `having` are refused there, since SurrealDB would
+    not keep them equal to `groupBy`.
+  - Snowflake refuses a schema that holds a view.
   - **`viborm/schema/json`** documents state a view in a `views` section, and
     Studio lists views as read-only.
 - **Aggregates of a relation's rows: `_aggregate`, and an `orderBy` by

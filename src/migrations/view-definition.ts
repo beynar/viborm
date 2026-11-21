@@ -225,7 +225,10 @@ export function writeView(
   view: AnyModel
 ): WrittenView {
   if ("write" in writer) return writer.write(context, view);
-  const body = viewBody({ ...context, adapter: writer.adapter }, view);
+  const body = viewBody(
+    { ...context, adapter: writer.adapter, columns: writer.columns },
+    view
+  );
   return {
     sql: inlineLiterals(writer.dialect, body.statement),
     shape: body.shape,
@@ -291,7 +294,14 @@ export function viewDefinition(
     .sort();
   const facts = viewFacts(view)!;
   const crossed = new Map<string, unknown>();
-  crossedRelations(facts.source, facts.query, relations, crossed);
+  // An aggregated view's query names relations in its `where` alone: its
+  // `_count: true` counts the source's rows, and the rest names fields.
+  crossedRelations(
+    facts.source,
+    facts.aggregated ? facts.query.where : facts.query,
+    relations,
+    crossed
+  );
   const materialized =
     facts.materialized === true && migrationDriver.materializesViews();
   const identity = JSON.stringify(

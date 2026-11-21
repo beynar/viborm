@@ -19,6 +19,7 @@ import type {
 } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type { ResolvedSchemaViews } from "../../query-engine/raptor3/shared/schema";
+import type { ViewColumnSql } from "../../query-engine/raptor3/view-body";
 import { refuseBinaryReencoding } from "../binary-conversion";
 import type { Sha256 } from "../identity";
 import type { ResolvedMigrationLimits } from "../limits";
@@ -204,6 +205,8 @@ export interface SqlViewWriter {
   readonly dialect: SqlDialect;
   /** Made for one body: its table renderer is wrapped to note what the body reads. */
   readonly adapter: DatabaseAdapter;
+  /** How the dialect spells an aggregated view's columns: its migration driver. */
+  readonly columns: ViewColumnSql;
 }
 
 /** A driver that writes a view's body in its own language (SurrealDB). */

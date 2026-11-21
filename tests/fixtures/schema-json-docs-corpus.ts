@@ -1836,4 +1836,55 @@ export const docsFenceCorpus: DocsFenceCase[] = [
       },
     },
   },
+  {
+    id: "views.mdx#4",
+    coded: () => {
+      const order = s.model({
+        id: s.string().id(),
+        customerId: s.string(),
+        currency: s.enum(["EUR", "USD"]),
+        status: s.string(),
+        amount: s.decimal({ precision: 10, scale: 2 }),
+        createdAt: s.dateTime(),
+      });
+      const salesByDay = s
+        .view(() => order, {
+          by: [{ createdAt: "day" }, "currency"],
+          timeZone: "Europe/Paris",
+          where: { status: "paid" },
+          _sum: { amount: true },
+          _count: true,
+        })
+        .map("sales_by_day");
+      return { order, salesByDay };
+    },
+    document: {
+      version: 1,
+      models: {
+        order: {
+          fields: {
+            id: ID,
+            customerId: STRING,
+            currency: { type: "enum", enum: ["EUR", "USD"] },
+            status: STRING,
+            amount: { type: "decimal", precision: 10, scale: 2 },
+            createdAt: { type: "datetime" },
+          },
+        },
+      },
+      views: {
+        salesByDay: {
+          source: "order",
+          query: {
+            by: [{ createdAt: "day" }, "currency"],
+            timeZone: "Europe/Paris",
+            where: { status: "paid" },
+            _sum: { amount: true },
+            _count: true,
+          },
+          table: "sales_by_day",
+        },
+      },
+    },
+  },
 ];

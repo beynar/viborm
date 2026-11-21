@@ -62,6 +62,17 @@ const CENSUS: Readonly<Record<string, string>> = {
     "LIMIT: ORDER BY, LIMIT and START do not parse in DEFINE TABLE … AS",
   "keeps one row per distinct value":
     "LIMIT: a view holds one row per row of its source",
+  // An aggregated view (DEFINE TABLE … AS SELECT … GROUP BY) keeps what the
+  // database maintains for each write to its source, and nothing else.
+  "keeps the groups a having holds":
+    "LIMIT: a view of groups has no filter of the groups themselves (no HAVING)",
+  "groups by a time step": "LIMIT: groupBy reads no time step here",
+  "… the double '…'":
+    "LIMIT: a view's sum is kept by adding and subtracting each write, which drifts on doubles",
+  "… '…', which holds a record":
+    "LIMIT: a key or a link is a record, which a view's math reads as no number",
+  "… '…', which is no number and no dateTime":
+    "LIMIT: a view keeps math::min/max of numbers and time::min/max of dateTimes only",
   "pages from a cursor": "SAME AS SQL: a paging anchor is not a row set",
   "filters with an SQL fragment":
     "SAME AS SQL: a view's query holds plain values, written as literals",

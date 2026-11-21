@@ -132,7 +132,12 @@ const kinds = (operations: readonly DiffOperation[]) =>
 
 /** A view of `source` the way `s.view` holds one: its scalars, no relation. */
 function viewOf(source: AnyModel, name: string): AnyModel {
-  const facts: ViewFacts = { source, query: {}, documents: [] };
+  const facts: ViewFacts = {
+    source,
+    query: {},
+    columns: Object.keys(source["~"].state.scalars),
+    documents: [],
+  };
   const state = {
     ...source["~"].state,
     relations: {},

@@ -406,6 +406,15 @@ const GOLDEN = {
     'SELECT "q0"."id" AS "id", "q0"."views" AS "views", (SELECT json_array("q2"."name") FROM (SELECT "q1"."name" AS "name" FROM "users" AS "q1" WHERE "q0"."authorId" = "q1"."id" LIMIT 1.0) AS "q2") AS "author", json_array((SELECT COUNT(*) FROM "users" AS "q3" WHERE "q0"."authorId" = "q3"."id")) AS "_count" FROM "posts" AS "q0" WHERE ("q0"."published" = 1.0 AND instr("q0"."title" COLLATE BINARY, \'it\'\'s\') > 0)',
 };
 
+const AGGREGATED_GOLDEN = {
+  postgresql:
+    'SELECT "q0"."authorId", "q0"."published", CAST(COUNT(*) AS integer) AS "count", CAST(COUNT("q0"."editorId") AS integer) AS "countEditorId", CAST(AVG("q0"."views") AS double precision) AS "avgViews", CAST(SUM("q0"."views") AS bigint) AS "sumViews", MIN("q0"."id") AS "minId", MIN("q0"."at") AS "minAt" FROM "public"."posts" AS "q0" WHERE NOT ("q0"."title" = \'it\'\'s\') GROUP BY "q0"."authorId", "q0"."published" HAVING SUM("q0"."views") >= \'10\'',
+  mysql:
+    "SELECT `q0`.`authorId`, `q0`.`published`, COUNT(*) AS `count`, COUNT(`q0`.`editorId`) AS `countEditorId`, CAST((AVG(`q0`.`views`) + 0.0) AS DOUBLE) AS `avgViews`, SUM(`q0`.`views`) AS `sumViews`, MIN(`q0`.`id`) AS `minId`, MIN(`q0`.`at`) AS `minAt` FROM `posts` AS `q0` WHERE NOT ((`q0`.`title` = 'it''s' AND BINARY `q0`.`title` = 'it''s')) GROUP BY `q0`.`authorId`, `q0`.`published` HAVING SUM(`q0`.`views`) >= 10",
+  sqlite:
+    'SELECT "q0"."authorId" AS "authorId", "q0"."published" AS "published", CAST(COUNT(*) AS INTEGER) AS "count", CAST(COUNT("q0"."editorId") AS INTEGER) AS "countEditorId", CAST(AVG("q0"."views") AS REAL) AS "avgViews", CAST(SUM("q0"."views") AS INTEGER) AS "sumViews", MIN("q0"."id") AS "minId", MIN("q0"."at") AS "minAt" FROM "posts" AS "q0" WHERE NOT ("q0"."title" COLLATE BINARY = \'it\'\'s\') GROUP BY "q0"."authorId", "q0"."published" HAVING CASE WHEN (SUM("q0"."views" >> 32) + (SUM("q0"."views" - (("q0"."views" >> 32) << 32)) >> 32)) > 2147483647 THEN (SUM("q0"."views" >> 32) + (SUM("q0"."views" - (("q0"."views" >> 32) << 32)) >> 32)) * 4294967296.0 + (SUM("q0"."views" - (("q0"."views" >> 32) << 32)) & 4294967295) WHEN (SUM("q0"."views" >> 32) + (SUM("q0"."views" - (("q0"."views" >> 32) << 32)) >> 32)) >= -2147483648 THEN (SUM("q0"."views" >> 32) + (SUM("q0"."views" - (("q0"."views" >> 32) << 32)) >> 32)) * 4294967296 + (SUM("q0"."views" - (("q0"."views" >> 32) << 32)) & 4294967295) ELSE MIN((SUM("q0"."views" >> 32) + (SUM("q0"."views" - (("q0"."views" >> 32) << 32)) >> 32)) * 4294967296.0 + (SUM("q0"."views" - (("q0"."views" >> 32) << 32)) & 4294967295), -9223372036854777856.0) END >= 10.0',
+};
+
 /**
  * The body each dialect writes for one view, as text. The text is not a
  * view's identity, so a change here plans no migration by itself: this test
@@ -436,5 +445,54 @@ describe("the body of a view, VIEW_REVISION 1", () => {
     ["SQLite", sqlite3MigrationDriver, GOLDEN.sqlite],
   ] as const)("%s", (_, migrationDriver, expected) => {
     expect(body(migrationDriver)).toBe(expected);
+  });
+});
+
+/**
+ * An aggregated view's body: the read compiler's `groupBy`, its root
+ * projected as flat columns (a grouped field as stored, each aggregate cast
+ * to its column's scalar, a compact identifier stored back as its column
+ * stores it). Same rule as above: a respelling updates the text, a change of
+ * what a column holds raises `VIEW_REVISION`.
+ */
+describe("the body of an aggregated view, VIEW_REVISION 1", () => {
+  const AGGREGATED_QUERY = {
+    by: ["authorId", "published"],
+    where: { title: { not: "it's" } },
+    having: { views: { _sum: { gte: 10 } } },
+    _count: { _all: true, editorId: true },
+    _sum: { views: true },
+    _avg: { views: true },
+    _min: { id: true, at: true },
+  };
+  const definition = (migrationDriver: MigrationDriver) =>
+    serialized(
+      ({ post }) => ({
+        totals: view(() => post, AGGREGATED_QUERY).map("totals"),
+      }),
+      migrationDriver
+    ).views![0]!;
+  it.each([
+    ["PostgreSQL", postgresMigrationDriver, AGGREGATED_GOLDEN.postgresql],
+    ["MySQL", mysqlMigrationDriver, AGGREGATED_GOLDEN.mysql],
+    ["SQLite", sqlite3MigrationDriver, AGGREGATED_GOLDEN.sqlite],
+  ] as const)("%s", (_, migrationDriver, expected) => {
+    expect(definition(migrationDriver).sql).toBe(expected);
+  });
+
+  it("reads its source alone: a count of rows crosses no relation", () => {
+    expect(definition(sqlite3MigrationDriver).dependsOn).toEqual(["posts"]);
+  });
+
+  it("keeps its hash when its source gains a to-many relation: a count of rows counts no relation", () => {
+    const hash = (extra?: Parameters<typeof models>[0]) =>
+      serialized(
+        ({ user }) => ({
+          tally: view(() => user, { by: ["name"], _count: true }).map("tally"),
+        }),
+        sqlite3MigrationDriver,
+        extra
+      ).views![0]!.hash;
+    expect(hash({ liked: true })).toBe(hash());
   });
 });

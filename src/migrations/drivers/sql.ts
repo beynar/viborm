@@ -8,7 +8,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { AnyDriver } from "@drivers/driver";
 import { jsonNullKindOf } from "@schema/json-null";
 import type { Scalar, ScalarState } from "@schema/scalars";
-import { sql } from "@sql";
+import { type Sql, sql } from "@sql";
 import {
   type DecimalDialect,
   decimalDefaultText,
@@ -16,6 +16,7 @@ import {
 } from "@validation/primitives/decimal-codec";
 import { stringifyJson } from "../../adapters/shared/standard-sql";
 import { MigrationError, VibORMErrorCode } from "../../errors";
+import type { ViewColumnSql } from "../../query-engine/raptor3/view-body";
 import type { ColumnDef, ReferentialAction } from "../types";
 import { wrappedViewBody } from "../view";
 import {
@@ -26,7 +27,20 @@ import {
   MigrationDriver,
 } from "./base";
 
-export abstract class SqlMigrationDriver extends MigrationDriver {
+export abstract class SqlMigrationDriver
+  extends MigrationDriver
+  implements ViewColumnSql
+{
+  /**
+   * An aggregate as a view's column (`count`, `sumAmount`): cast to the type
+   * a column of its scalar is created with, so a filter, an order or an
+   * aggregate on the view reads it as it reads that scalar's column.
+   */
+  viewCast(expression: Sql, scalar: Scalar): Sql {
+    const type = this.mapScalarType(scalar, scalar["~"].state);
+    return sql`CAST(${expression} AS ${sql.raw(type)})`;
+  }
+
   override async tableHoldsRows(
     producer: AnyDriver,
     table: string

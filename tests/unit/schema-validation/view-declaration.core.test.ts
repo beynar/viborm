@@ -12,6 +12,7 @@ import { hydrateSchemaNames } from "@src/schema/hydration";
 import { type AnyModel, Model } from "@src/schema/model";
 import { getModelKeyCatalog } from "@src/schema/model/keys";
 import { resolveSchemaOrThrow, validateSchema } from "@src/schema/validation";
+import { idDomainOf } from "@src/schema/validation/id-domains";
 import { uninheritedRelationMessage } from "@src/schema/validation/relation-resolution";
 import { viewFacts } from "@src/schema/view/facts";
 import { describe, expect, it } from "vitest";
@@ -44,8 +45,7 @@ const TWO_COLUMNS = /does not keep '.+', '.+', which the relation joins on$/;
 
 const codes = (result: ReturnType<typeof validateSchema>) =>
   result.errors.map(({ code }) => code);
-const scalarsOf = (model: typeof post | ReturnType<typeof s.view>) =>
-  Object.keys(model["~"].state.scalars);
+const scalarsOf = (model: AnyModel) => Object.keys(model["~"].state.scalars);
 
 describe("a view's derived model", () => {
   it("holds the scalars its selection names, by the source's own objects, in the source's order", () => {
@@ -91,8 +91,7 @@ describe("a view's derived model", () => {
   });
 
   it("has no column for a _count that counts no relation, as a read has no key", () => {
-    const documentsOf = (declared: ReturnType<typeof s.view>) =>
-      viewFacts(declared)?.documents;
+    const documentsOf = (declared: AnyModel) => viewFacts(declared)?.documents;
     expect(
       documentsOf(s.view(() => post, { include: { _count: true } }))
     ).toEqual([]);
@@ -177,8 +176,8 @@ describe("a view's derived model", () => {
   });
 
   it("refuses views that read each other in a cycle", () => {
-    const first: ReturnType<typeof s.view> = s.view(() => second, {});
-    const second: ReturnType<typeof s.view> = s.view(() => first, {});
+    const first: AnyModel = s.view(() => second, {});
+    const second: AnyModel = s.view(() => first, {});
     expect(() => first["~"].state.scalars).toThrow("A view cannot read itself");
   });
 
@@ -730,6 +729,265 @@ describe("a view's variant collection", () => {
   });
 });
 
+describe("an aggregated view", () => {
+  const order = s.model({
+    id: s.string().ulid().id().map("order_id"),
+    customerId: s.string(),
+    region: s.string().nullable(),
+    units: s.int().default(1),
+    big: s.bigInt(),
+    ratio: s.number(),
+    amount: s.decimal({ precision: 10, scale: 2 }),
+    wide: s.decimal({ precision: 30, scale: 2 }),
+    status: s.enum(["paid", "open"]),
+    placedAt: s.dateTime(),
+  });
+  const state = (view: AnyModel) => view["~"].state;
+  const typeOf = (view: AnyModel, column: string) => {
+    const { type, nullable, decimal } = state(view).scalars[column]!["~"].state;
+    return { type, nullable, ...(decimal ? { decimal } : {}) };
+  };
+
+  it("holds its grouped fields, then each aggregate as a flat column, and its origins", () => {
+    const totals = s.view(() => order, {
+      by: [{ placedAt: "day" }, "customerId"],
+      _count: { _all: true, region: true },
+      _sum: { units: true },
+      _max: { amount: true },
+    });
+    expect(Object.keys(state(totals).scalars)).toEqual([
+      "placedAt",
+      "customerId",
+      "count",
+      "countRegion",
+      "sumUnits",
+      "maxAmount",
+    ]);
+    // Its relations are its source's, kept by the schema's resolution where
+    // a to-one's fields are all grouped.
+    expect(state(totals).shape).toEqual({
+      ...state(totals).scalars,
+      ...state(totals).relations,
+    });
+    expect(viewFacts(totals)?.documents).toEqual([]);
+    expect(viewFacts(totals)?.aggregated).toMatchObject({
+      by: ["placedAt", "customerId"],
+      origins: {
+        placedAt: { field: "placedAt", step: "day" },
+        customerId: { field: "customerId" },
+        count: { aggregate: "_count" },
+        countRegion: { field: "region", aggregate: "_count" },
+        sumUnits: { field: "units", aggregate: "_sum" },
+        maxAmount: { field: "amount", aggregate: "_max" },
+      },
+    });
+  });
+
+  it("holds each aggregate in the scalar that decodes what groupBy answers", () => {
+    const totals = s.view(() => order, {
+      by: "status",
+      _count: true,
+      _sum: { units: true, big: true, ratio: true, amount: true, wide: true },
+      _avg: { units: true, big: true, amount: true },
+      _min: { status: true, placedAt: true },
+    });
+    const amount = { precision: 10, scale: 2 };
+    expect(typeOf(totals, "status")).toEqual({ type: "enum", nullable: false });
+    expect(typeOf(totals, "count")).toEqual({ type: "int", nullable: false });
+    // An int sum passes the int range where groupBy answers it.
+    expect(typeOf(totals, "sumUnits")).toEqual({
+      type: "number",
+      nullable: true,
+    });
+    expect(typeOf(totals, "sumBig")).toEqual({
+      type: "bigint",
+      nullable: true,
+    });
+    expect(typeOf(totals, "sumRatio")).toEqual({
+      type: "number",
+      nullable: true,
+    });
+    // A decimal sum at the field's scale, as wide as every provider that
+    // stores the field stores one: SQLite's 18 digits less the scale, and
+    // MySQL's 65 for a field SQLite does not store.
+    expect(typeOf(totals, "sumAmount")).toEqual({
+      type: "decimal",
+      nullable: true,
+      decimal: { precision: 16, scale: 2 },
+    });
+    expect(typeOf(totals, "sumWide").decimal).toEqual({
+      precision: 63,
+      scale: 2,
+    });
+    expect(typeOf(totals, "avgUnits")).toEqual({
+      type: "number",
+      nullable: true,
+    });
+    expect(typeOf(totals, "avgBig")).toEqual({
+      type: "number",
+      nullable: true,
+    });
+    expect(typeOf(totals, "avgAmount")).toEqual({
+      type: "decimal",
+      nullable: true,
+      decimal: amount,
+    });
+    expect(typeOf(totals, "minStatus")).toEqual({
+      type: "enum",
+      nullable: true,
+    });
+    expect(typeOf(totals, "minPlacedAt")).toEqual({
+      type: "datetime",
+      nullable: true,
+    });
+    // A period is the day groupBy answers for it, as text.
+    const daily = s.view(() => order, {
+      by: [{ placedAt: "month" }],
+      _count: true,
+    });
+    expect(typeOf(daily, "placedAt")).toEqual({
+      type: "string",
+      nullable: false,
+    });
+  });
+
+  it("names each column by its field: no .map(), default, key or generator of what it aggregates", () => {
+    const totals = s.view(() => order, {
+      by: ["customerId"],
+      _min: { id: true },
+      _max: { units: true },
+    });
+    for (const column of ["minId", "maxUnits"]) {
+      const scalar = state(totals).scalars[column]!["~"].state;
+      expect(scalar).toMatchObject({
+        columnName: undefined,
+        isId: false,
+        isUnique: false,
+        autoGenerate: undefined,
+        hasDefault: true,
+        default: null,
+        nullable: true,
+      });
+    }
+  });
+
+  it("is keyed by its by list where no member is nullable", () => {
+    const pair = s.view(() => order, {
+      by: ["customerId", "status"],
+      _count: true,
+    });
+    expect(getModelKeyCatalog(pair).addressableKeys).toEqual([
+      {
+        kind: "primary",
+        name: "customerId_status",
+        fields: ["customerId", "status"],
+      },
+    ]);
+    const one = s
+      .view(() => order, { by: ["customerId"], _count: true })
+      // A relation declared beside it keeps the key, as it keeps a table's.
+      .extends({});
+    expect(getModelKeyCatalog(one).addressableKeys).toEqual([
+      { kind: "unique", fields: ["customerId"] },
+    ]);
+    const nullable = s.view(() => order, {
+      by: ["customerId", "region"],
+      _count: true,
+    });
+    expect(getModelKeyCatalog(nullable).addressableKeys).toEqual([]);
+  });
+
+  it("is admitted as it derives itself, and refuses a field, a key or a unique beside its query (W002)", () => {
+    const totals = s.view(() => order, {
+      by: ["customerId"],
+      _sum: { amount: true },
+    });
+    expect(validateSchema({ order, totals }).errors).toEqual([]);
+    const redeclared = totals.extends({ sumAmount: s.string() });
+    expect(codes(validateSchema({ order, redeclared }))).toEqual(["W002"]);
+    const pair = s.view(() => order, {
+      by: ["customerId", "status"],
+      _count: true,
+    });
+    expect(validateSchema({ order, pair }).errors).toEqual([]);
+    // A second primary key (F002) whose selector is a field's name (I006).
+    const keyed = pair.id(["status"]);
+    expect(codes(validateSchema({ order, keyed }))).toContain("W002");
+    const unique = pair.unique(["customerId", "status"], { name: "seat" });
+    expect(codes(validateSchema({ order, unique }))).toEqual(["W002"]);
+  });
+
+  it("refuses two columns of one name (W004)", () => {
+    const counted = s.model({
+      id: s.string().id(),
+      count: s.int(),
+      sumAmount: s.int(),
+      amount: s.int(),
+    });
+    const byCount = s.view(() => counted, { by: ["count"], _count: true });
+    expect(codes(validateSchema({ counted, byCount }))).toEqual(["W004"]);
+    const twice = s.view(() => counted, {
+      by: ["sumAmount"],
+      _sum: { amount: true },
+    });
+    expect(codes(validateSchema({ counted, twice }))).toEqual(["W004"]);
+    const once = s.view(() => counted, {
+      by: ["count"],
+      _sum: { amount: true },
+    });
+    expect(codes(validateSchema({ counted, once }))).toEqual([]);
+  });
+
+  it("refuses an aggregate's column whose name is longer than a column's, naming the field it reads (W004)", () => {
+    // 61 bytes: a field's name may be 63, `avg` and `sum` make it 64 here.
+    const long = `l${"o".repeat(59)}g`;
+    const measured = s.model({
+      id: s.string().id(),
+      kind: s.string(),
+      [long]: s.int(),
+    });
+    const averaged = s.view(() => measured, {
+      by: ["kind"],
+      _avg: { [long]: true },
+      _count: true,
+    });
+    const schema = { measured, averaged };
+    // What `viborm check` runs before the rules: the schema's own names hold
+    // no field the view's query did not name.
+    expect(() => hydrateSchemaNames(schema)).not.toThrow();
+    const { errors } = validateSchema(schema);
+    expect(errors).toEqual([
+      expect.objectContaining({ code: "W004", model: "averaged" }),
+    ]);
+    expect(errors[0]!.message).toBe(
+      `View 'averaged' names the _avg of '${long}' 'avgL${long.slice(1)}': a column's name takes at most 63 bytes`
+    );
+    // One byte shorter is a column.
+    const short = long.slice(1);
+    const fits = s.model({ id: s.string().id(), [short]: s.int() });
+    const summed = s.view(() => fits, {
+      by: ["id"],
+      _sum: { [short]: true },
+    });
+    expect(validateSchema({ fits, summed }).errors).toEqual([]);
+  });
+
+  it("holds its source's identifier format in a grouped field, a _min and a _max, and in none of what it counts", () => {
+    const totals = s.view(() => order, {
+      by: ["customerId"],
+      _count: { id: true },
+      _min: { id: true },
+      _max: { id: true },
+    });
+    const index = resolveSchemaOrThrow({ order, totals });
+    const ulid = idDomainOf(order, "id", index);
+    expect(ulid).toMatchObject({ format: "ulid" });
+    expect(idDomainOf(totals, "minId", index)).toEqual(ulid);
+    expect(idDomainOf(totals, "maxId", index)).toEqual(ulid);
+    expect(idDomainOf(totals, "countId", index)).toBeUndefined();
+  });
+});
+
 describe("a view's relations through a self junction whose sides reference different keys", () => {
   const link = s
     .model({
@@ -765,5 +1023,99 @@ describe("a view's relations through a self junction whose sides reference diffe
   it("joins each end on its own side's key, as the types read it", () => {
     expect([...index.get(ids)!.keys()]).toEqual(["parents"]);
     expect([...index.get(slugs)!.keys()]).toEqual(["children"]);
+  });
+});
+
+/**
+ * An aggregated view inherits a to-one of its source whose own foreign key
+ * fields are all in its `by`, without a step: every row of a group shares
+ * that value. No to-many, no to-one it groups only part of, or by a period.
+ */
+describe("the relations an aggregated view inherits", () => {
+  const region = s
+    .model({
+      code: s.string(),
+      zone: s.int(),
+      sales: s.toMany(() => sale),
+    })
+    .id(["code", "zone"]);
+  const shop = s.model({
+    id: s.string().id(),
+    sales: s.toMany(() => sale),
+  });
+  const sale = s.model({
+    id: s.string().id(),
+    shopId: s.string(),
+    regionCode: s.string(),
+    regionZone: s.int(),
+    soldAt: s.dateTime(),
+    amount: s.int(),
+    shop: s
+      .toOne(() => shop)
+      .fields("shopId")
+      .references("id"),
+    region: s
+      .toOne(() => region)
+      .fields("regionCode", "regionZone")
+      .references("code", "zone"),
+  });
+  const byShop = s.view(() => sale, { by: ["shopId"], _sum: { amount: true } });
+  const byRegion = s.view(() => sale, {
+    by: ["regionCode", "regionZone"],
+    _count: true,
+  });
+  const byCode = s.view(() => sale, { by: ["regionCode"], _count: true });
+  const shopCounts = s.view(() => shop, { by: ["id"], _count: true });
+  const schema = { region, shop, sale, byShop, byRegion, byCode, shopCounts };
+  hydrateSchemaNames(schema);
+  const index = resolveSchemaOrThrow(schema);
+  const fields = (model: AnyModel) => [...index.get(model)!.keys()];
+
+  it("keeps the source's to-one whose foreign key it groups by, and no other", () => {
+    expect(fields(byShop)).toEqual(["shop"]);
+    expect(index.get(byShop)!.get("shop")).toBe(index.get(sale)!.get("shop"));
+    expect(fields(byRegion)).toEqual(["region"]);
+    expect(fields(byCode)).toEqual([]);
+    expect(fields(shopCounts)).toEqual([]);
+    expect(validateSchema(schema).errors).toEqual([]);
+  });
+
+  it("says why it does not read the others", () => {
+    expect(uninheritedRelationMessage(byCode, "region", index)).toBe(
+      "The view 'byCode' does not read 'region': an aggregated view reads only a to-one of its source whose fields are all in its `by`, and 'regionZone' is not"
+    );
+    expect(uninheritedRelationMessage(shopCounts, "sales", index)).toBe(
+      "The view 'shopCounts' does not read 'sales': an aggregated view reads only a to-one of its source whose fields are all in its `by`"
+    );
+  });
+});
+
+describe("the `_count: true` of a view over an aggregated view", () => {
+  const author = s.model({
+    id: s.string().id(),
+    name: s.string(),
+    posts: s.toMany(() => post),
+  });
+  const post = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    authorId: s.string(),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
+  });
+  const groups = s.view(() => author, { by: ["name"], _count: true });
+  const overGroups = s.view(() => groups, { include: { _count: true } });
+  const selectingOverGroups = s.view(() => groups, {
+    select: { name: true, _count: true },
+  });
+  const schema = { author, post, groups, overGroups, selectingOverGroups };
+  hydrateSchemaNames(schema);
+  resolveSchemaOrThrow(schema);
+
+  it("is no column: a group inherits no to-many", () => {
+    expect(viewFacts(overGroups)!.documents).toEqual([]);
+    expect(viewFacts(selectingOverGroups)!.documents).toEqual([]);
   });
 });

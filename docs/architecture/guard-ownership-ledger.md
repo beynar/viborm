@@ -3688,3 +3688,38 @@ holds it. A view's copied link is a record of the table its source's link
 targets: towards that table it compares as a record, and towards anything
 else, another view included, by the key it names, an unset value naming no
 record (`<option<int>>`, `IF x { record::id(x) }`).
+
+## Addendum — aggregated views (views plan §2.8, 2026-11-19)
+
+No guard added: an aggregated view is a view, and the rules that own what a
+view cannot hold now read what the view derived instead of its source.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/schema/validation/rules/view.ts` W002 · compared against `facts.aggregated ?? source` | Every scalar and key of a view is the one its query derives. | Advice and every migration of a view. | A field, a compound key or a unique declared beside an aggregated view's query: the source's own are no longer the reference there. | `view-declaration.core.test.ts` "is admitted as it derives itself, and refuses a field, a key or a unique beside its query (W002)" (comparison against the source restored: an admitted aggregated view is refused). |
+| same, W004 · a name `facts.columns` lists twice | Two columns of an aggregated view take two names. | same | A grouped field named `count` beside `_count: true`, or a field named `sumAmount` grouped beside `_sum: { amount }`: an ordinary view's columns never repeat. | same file, "refuses two columns of one name (W004)". |
+| `src/schema/view/view.ts` `ViewQuery` · `by?: never` | A query that groups is an aggregated view's. | The first overload of `s.view`. | Without it a grouping query is taken by the ordinary overload and the view is typed as its source's rows. | `schema-views.core.types.ts`, the aggregated type tests. |
+
+Not guards: the cast a view body puts around an aggregate
+(`ViewColumnSql.viewCast`), which makes the column one of its scalar's type;
+a total past the column's range is refused by the database or by the
+column's decoder, which exist already. A time step outside PostgreSQL is the
+read compiler's refusal; `viewBody` raises it again with the view named.
+
+On SurrealDB the writer of a view's body (`src/migrations/drivers/surrealql/view.ts`)
+owns five more refusals, each for a total the database would not keep equal
+to `groupBy`'s, each named in `surrealdb-refusal-census.test.ts` and proven
+in `surrealdb-aggregated-views.test.ts`:
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `surrealViewWriter` · "keeps the groups a having holds" | No `having` in a SurrealDB view. | The writer, which `viewDefinition` and `viborm check` (W005) call. | SurrealQL has no `HAVING`: the view would hold every group. | the refusal cases of `surrealdb-aggregated-views.test.ts` (each removed once: the case fails). |
+| same · "groups by a time step" | No time step. | same | The body would group by each raw instant under a column typed as a period's text; the read backend's own refusal fires only on a read, which the writer never asks. | same |
+| same · a `_sum` or `_avg` of a double | A stored total equals `groupBy`'s. | same | The database updates a float total incrementally: 0.4000000000000001 after a delete (measured). | same |
+| same · an aggregate of a key or a link | same | same | The field is a record there: `math::sum` gives 0, `math::mean` and `math::min` give NaN. | same |
+| same · a `_min`/`_max` of what is no number and no dateTime | same | same | `math::min` gives NaN, and `time::min` makes every write to the source fail. | same |
+
+Not guards: `record::id` around a grouped key or link, the `<int>` cast of a
+grouped integer, the decimal accumulator of a bigint total and the `NULL` a
+group with no value answers: they are what makes the body hold `groupBy`'s
+values.

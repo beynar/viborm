@@ -830,6 +830,290 @@ export const _indexes = () => {
 };
 
 // =============================================================================
+// AGGREGATED VIEWS: ONE ROW PER GROUP, FLAT TYPED COLUMNS, KEYED BY `by`
+// =============================================================================
+
+const shop = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  sales: s.toMany(() => sale),
+});
+const sale = s.model({
+  id: s.string().ulid().id(),
+  shopId: s.string(),
+  currency: s.enum(["EUR", "USD"]),
+  region: s.string().nullable(),
+  units: s.int(),
+  big: s.bigInt(),
+  ratio: s.number(),
+  amount: s.decimal({ precision: 10, scale: 2 }),
+  note: s.string().map("sale_note"),
+  soldAt: s.dateTime(),
+  shop: s
+    .toOne(() => shop)
+    .fields("shopId")
+    .references("id"),
+});
+const salesQuery = {
+  by: [{ soldAt: "day" }, "currency"],
+  timeZone: "Europe/Paris",
+  where: { units: { gt: 0 } },
+  _count: { _all: true, region: true },
+  _sum: { units: true, big: true, ratio: true, amount: true },
+  _avg: { units: true, amount: true },
+  _min: { id: true, note: true, soldAt: true, currency: true },
+  _max: { amount: true },
+} as const;
+const salesByDay = s.view(() => sale, salesQuery);
+/** One grouped field, not nullable: the view's key is that field alone. */
+const salesByShop = s.view(() => sale, {
+  by: ["shopId"],
+  _sum: { amount: true },
+});
+/** A nullable grouped field: no key. */
+const salesByRegion = s.view(() => sale, { by: "region", _count: true });
+/** A view of an aggregated view, and an aggregated view of a view. */
+const busyDays = s.view(() => salesByDay, {
+  where: { count: { gt: 1 } },
+  select: { soldAt: true, currency: true, count: true },
+});
+/** Grouped by its key: a to-many of its source is no relation of a group. */
+const shopCounts = s.view(() => shop, { by: ["id"], _count: true });
+const liveSale = s.view(() => sale, {
+  where: { units: { gt: 0 } },
+  select: { id: true, shopId: true, units: true },
+});
+const unitsByShop = s.view(() => liveSale, {
+  by: ["shopId"],
+  _sum: { units: true },
+});
+const aggregatedSchema = {
+  shop,
+  sale,
+  salesByDay,
+  salesByShop,
+  salesByRegion,
+  busyDays,
+  liveSale,
+  unitsByShop,
+  shopCounts,
+};
+const aggregated = createClient({
+  schema: aggregatedSchema,
+  driver: new PGliteDriver(),
+});
+
+type SalesRow = {
+  soldAt: string;
+  currency: "EUR" | "USD";
+  count: number;
+  countRegion: number;
+  avgUnits: number | null;
+  avgAmount: Decimal | null;
+  sumUnits: number | null;
+  sumBig: bigint | null;
+  sumRatio: number | null;
+  sumAmount: Decimal | null;
+  minId: string | null;
+  minNote: string | null;
+  minSoldAt: Date | null;
+  minCurrency: "EUR" | "USD" | null;
+  maxAmount: Decimal | null;
+};
+type _salesRow = Expect<Equal<RowOf<typeof aggregated.salesByDay>, SalesRow>>;
+
+/**
+ * What `groupBy` answers for the same selection, column by column (its `by`
+ * takes a mutable list).
+ */
+type Grouped = Awaited<
+  ReturnType<
+    typeof aggregated.sale.groupBy<
+      Omit<typeof salesQuery, "by"> & { by: [{ soldAt: "day" }, "currency"] }
+    >
+  >
+>[number];
+type _asGroupBy = Expect<
+  Equal<
+    [
+      SalesRow["soldAt"],
+      SalesRow["count"],
+      SalesRow["sumUnits"],
+      SalesRow["sumBig"],
+      SalesRow["sumAmount"],
+      SalesRow["avgUnits"],
+      SalesRow["avgAmount"],
+      SalesRow["minSoldAt"],
+      SalesRow["minCurrency"],
+    ],
+    [
+      Grouped["soldAt"],
+      Grouped["_count"]["_all"],
+      Grouped["_sum"]["units"],
+      Grouped["_sum"]["big"],
+      Grouped["_sum"]["amount"],
+      Grouped["_avg"]["units"],
+      Grouped["_avg"]["amount"],
+      Grouped["_min"]["soldAt"],
+      Grouped["_min"]["currency"],
+    ]
+  >
+>;
+type _shopRow = Expect<
+  Equal<
+    RowOf<typeof aggregated.salesByShop>,
+    { shopId: string; sumAmount: Decimal | null }
+  >
+>;
+type _overAggregated = Expect<
+  Equal<
+    RowOf<typeof aggregated.busyDays>,
+    { soldAt: string; currency: "EUR" | "USD"; count: number }
+  >
+>;
+type _aggregatedOverView = Expect<
+  Equal<
+    RowOf<typeof aggregated.unitsByShop>,
+    { shopId: string; sumUnits: number | null }
+  >
+>;
+// No key where a grouped field is nullable.
+type _noGroupKey = Expect<
+  Equal<
+    "findUnique" extends keyof typeof aggregated.salesByRegion ? true : false,
+    false
+  >
+>;
+
+export const _aggregatedReads = async () => {
+  // A filter, an order and an aggregate on the flat columns.
+  await aggregated.salesByDay.findMany({
+    where: { sumAmount: { gt: "1000" }, count: { gte: 2 }, minNote: null },
+    orderBy: [{ soldAt: "desc" }, { sumUnits: "asc" }],
+  });
+  const max = await aggregated.salesByDay.aggregate({
+    _max: { sumAmount: true },
+    _sum: { count: true },
+  });
+  type _max = Expect<Equal<typeof max._max.sumAmount, Decimal | null>>;
+  // The key: the `by` list, as `.id([...])` would name it; one field alone.
+  const day = await aggregated.salesByDay.findUnique({
+    where: { soldAt_currency: { soldAt: "2024-01-01", currency: "EUR" } },
+  });
+  type _day = Expect<Equal<NonNullable<typeof day>, SalesRow>>;
+  await aggregated.salesByShop.findUnique({ where: { shopId: "s" } });
+  // A to-one whose fields are all grouped: read as the source reads it.
+  const shopped = await aggregated.salesByShop.findMany({
+    where: { shop: { name: "North" } },
+    orderBy: { shop: { name: "asc" } },
+    include: { shop: true },
+  });
+  const sold = await aggregated.sale.findMany({ include: { shop: true } });
+  type _shop = Expect<
+    Equal<(typeof shopped)[number]["shop"], (typeof sold)[number]["shop"]>
+  >;
+  // No to-many: a group stands for many rows of its source.
+  // @ts-expect-error - `sales` is a to-many of `shop`
+  aggregated.shopCounts.findMany({ include: { sales: true } });
+  // Nor a to-one whose foreign key is not grouped.
+  // @ts-expect-error - `salesByDay` groups no `shopId`
+  aggregated.salesByDay.findMany({ include: { shop: true } });
+  aggregated.salesByDay.findMany({
+    // @ts-expect-error - a source column the view does not group is none of its own
+    where: { units: { gt: 1 } },
+  });
+  // @ts-expect-error - no key where a grouped field is nullable
+  aggregated.salesByRegion.findUnique;
+  // @ts-expect-error - an aggregated view is never written
+  aggregated.salesByDay.create;
+};
+
+/**
+ * `.extends()` reads a view's keys from its columns again: a column derived
+ * from a key of the source (its least id, a member of a compound `by`) is no
+ * key of the view, which is keyed by its `by` list alone.
+ */
+export const _extendedAggregatedKeys = () => {
+  const firsts = s
+    .view(() => sale, {
+      by: ["shopId"],
+      _min: { id: true },
+      _max: { id: true },
+    })
+    .extends({
+      shop: s
+        .toOne(() => shop)
+        .fields("shopId")
+        .references("id"),
+    });
+  const pairs = s
+    .view(() => sale, { by: ["id", "currency"], _count: true })
+    .extends({});
+  const regions = s
+    .view(() => sale, { by: ["region", "id"], _count: true })
+    .extends({});
+  const extended = createClient({
+    schema: { shop, sale, firsts, pairs, regions },
+    driver: new PGliteDriver(),
+  });
+  extended.firsts.findUnique({ where: { shopId: "s" } });
+  // @ts-expect-error - the least id of a group is no key of the view
+  extended.firsts.findUnique({ where: { minId: "x" } });
+  // @ts-expect-error - nor is the greatest
+  extended.firsts.findUnique({ where: { maxId: "x" } });
+  extended.pairs.findUnique({
+    where: { id_currency: { id: "x", currency: "EUR" } },
+  });
+  // @ts-expect-error - one member of a compound key is no key
+  extended.pairs.findUnique({ where: { id: "x" } });
+  // @ts-expect-error - no key where a grouped field is nullable
+  extended.regions.findUnique;
+};
+
+/**
+ * A compound `by` keys the view by its compound id alone, read off the view's
+ * own state (no `.extends()`, which reads its keys from the columns again): no
+ * member of it, nor any other column, names a row.
+ */
+export const _compoundAggregatedKey = async () => {
+  const tally = s.model({
+    id: s.string().id(),
+    kind: s.string(),
+    g: s.int(),
+  });
+  const tallies = s.view(() => tally, { by: ["kind", "g"], _count: true });
+  const keyed = createClient({
+    schema: { tally, tallies },
+    driver: new PGliteDriver(),
+  });
+  const one = await keyed.tallies.findUnique({
+    where: { kind_g: { kind: "a", g: 1 } },
+  });
+  type _one = Expect<
+    Equal<NonNullable<typeof one>, { kind: string; g: number; count: number }>
+  >;
+  await keyed.tallies.findMany({
+    cursor: { kind_g: { kind: "a", g: 1 } },
+    take: 2,
+  });
+  // @ts-expect-error - one member of a compound key is no key
+  keyed.tallies.findUnique({ where: { kind: "a" } });
+  // @ts-expect-error - nor is an aggregate column
+  keyed.tallies.findUnique({ where: { count: 1 } });
+  // @ts-expect-error - nor is it a cursor
+  keyed.tallies.findMany({ cursor: { count: 1 } });
+};
+
+export const _refusedAggregatedQueries = () => {
+  // @ts-expect-error - a field the source does not have
+  s.view(() => sale, { by: ["nope"], _count: true });
+  // @ts-expect-error - a sum of a string
+  s.view(() => sale, { by: ["currency"], _sum: { note: true } });
+  // @ts-expect-error - a time step of a column that holds no date
+  s.view(() => sale, { by: [{ units: "day" }] });
+};
+
+// =============================================================================
 // A SELF JUNCTION WHOSE SIDES REFERENCE DIFFERENT KEYS: EACH END ITS OWN SIDE
 // =============================================================================
 
@@ -873,4 +1157,64 @@ export const _selfJunctionSides = async () => {
   await nodes.nodeSlugs.findMany({ include: { children: true } });
   // @ts-expect-error - and `parents` needs `id`
   await nodes.nodeSlugs.findMany({ include: { parents: true } });
+};
+
+// =============================================================================
+// A LIST IN A VIEW'S QUERY: THE VIEW'S COLUMNS ARE STILL ITS QUERY'S
+// =============================================================================
+
+/**
+ * A query is inferred `const`, so a list in it is a read-only tuple. Where
+ * the constraint took only a mutable list, the inference failed in silence
+ * and the view had every scalar of its source.
+ */
+export const _listsInAQuery = () => {
+  const entry = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    status: s.string(),
+    hits: s.int(),
+  });
+  const listed = s.view(() => entry, {
+    where: { status: { in: ["a", "b"] } },
+    select: { id: true, title: true },
+  });
+  type ListedColumn = keyof (typeof listed)["~"]["state"]["scalars"];
+  const listedColumns: ListedColumn[] = ["id", "title"];
+  // @ts-expect-error - the view does not project hits
+  const notListed: ListedColumn = "hits";
+
+  const ordered = s.view(() => entry, {
+    orderBy: [{ hits: "desc" }],
+    take: 3,
+    select: { id: true },
+  });
+  // @ts-expect-error - the view does not project title
+  const notOrdered: keyof (typeof ordered)["~"]["state"]["scalars"] = "title";
+
+  const either = s.view(() => entry, {
+    where: { OR: [{ status: "a" }, { hits: { gt: 3 } }] },
+    select: { id: true },
+  });
+  // @ts-expect-error - the view does not project title
+  const notEither: keyof (typeof either)["~"]["state"]["scalars"] = "title";
+
+  const grouped = s.view(() => entry, {
+    by: ["status"],
+    where: { status: { in: ["a", "b"] }, OR: [{ hits: { gt: 1 } }] },
+    _sum: { hits: true },
+  });
+  type GroupedColumn = keyof (typeof grouped)["~"]["state"]["scalars"];
+  const groupedColumns: GroupedColumn[] = ["status", "sumHits"];
+  // @ts-expect-error - an aggregated view has its grouped fields and its aggregates
+  const notGrouped: GroupedColumn = "title";
+
+  return [
+    listedColumns,
+    notListed,
+    notOrdered,
+    notEither,
+    groupedColumns,
+    notGrouped,
+  ];
 };

@@ -44,11 +44,11 @@ import { getModelKeyCatalog } from "@schema/model/keys";
 import { viewFacts } from "@schema/view/facts";
 import { Sql, sql } from "@sql";
 import { Decimal, RecordId } from "surrealdb";
+import { quantized } from "./quantized";
 import type { SurrealQueries } from "./queries";
 import {
   isOneValue,
   onceEach,
-  quantized,
   type SurrealReadBackend,
   walksFurther,
 } from "./read-backend";

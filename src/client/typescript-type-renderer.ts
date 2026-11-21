@@ -626,7 +626,10 @@ function schemaModelType(
       `Model '${modelName}' has unknown field '${fieldName}'.`
     );
   }
-  if (facts) fields.push(...documentFields(facts, admit, index, declarations));
+  // Only a view with JSON columns reads its query again: an aggregated
+  // view's query is no `findMany`, and its columns are its scalars.
+  if (facts?.documents.length)
+    fields.push(...documentFields(facts, admit, index, declarations));
   return objectOf(fields);
 }
 

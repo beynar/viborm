@@ -50,6 +50,7 @@ export function testView(
   const facts: ViewFacts = {
     source,
     query: {},
+    columns: Object.keys(source["~"].state.scalars),
     documents: [],
     ...(options.materialized ? { materialized: true } : {}),
   };
