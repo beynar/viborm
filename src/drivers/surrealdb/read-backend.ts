@@ -32,7 +32,7 @@ import type {
 } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
 import { jsonNullKindOf } from "@schema/json-null";
-import { viewFacts } from "@schema/view/facts";
+import { viewFacts, viewTable } from "@schema/view/facts";
 import { Sql, sql } from "@sql";
 import { timeStepUnsupported } from "@validation/model/args/time-step";
 import { Decimal, GeometryPoint, RecordId } from "surrealdb";
@@ -2785,9 +2785,7 @@ export class SurrealReadBackend implements ReadBackend {
    * view's, its source record, whose links the tables hold.
    */
   #walkRoot(edge: Membership): Sql {
-    let table = edge.source;
-    for (let facts = viewFacts(table); facts; facts = viewFacts(table))
-      table = facts.source;
+    const table = viewTable(edge.source);
     return table === edge.source
       ? sql.raw("$this.id")
       : sql`type::record(${tableOf(table)}, record::id($this.id))`;
