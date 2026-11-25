@@ -42,10 +42,23 @@ const secretive = s
     id: s.string().id(),
     label: s.string(),
     vaultKey: s.string(),
+    vaultPin: s.int(),
+    vaultTags: s.string().array(),
+    ownerId: s.string(),
+    owner: s
+      .toOne(() => keeper)
+      .fields("ownerId")
+      .references("id")
+      .name("vault"),
   })
-  .omit({ vaultKey: true });
+  .omit({ vaultKey: true, vaultPin: true, vaultTags: true });
 
-const secretiveSchemas = createSchemaRegistry({ secretive }).proxy;
+const keeper = s.model({
+  id: s.string().id(),
+  vaults: s.toMany(() => secretive).name("vault"),
+});
+
+const secretiveSchemas = createSchemaRegistry({ secretive, keeper }).proxy;
 
 const allHidden = s.model({
   id: s.string().id(),
@@ -304,6 +317,71 @@ describe("model-level .omit() outranks the query", () => {
       omit: { label: true },
     });
     expect(result.issues).toBeUndefined();
-    expect(value(result).select).toEqual({ id: true });
+    expect(value(result).select).toEqual({ id: true, ownerId: true });
+  });
+});
+
+describe("model-level .omit() outranks an aggregate", () => {
+  const refused = (args: unknown, operation: "aggregate" | "groupBy") =>
+    messages(parse(secretiveSchemas.secretive.args[operation], args));
+
+  test("no value aggregate returns a hidden field", () => {
+    expect(refused({ _max: { vaultKey: true } }, "aggregate")).toContain(
+      "vaultKey"
+    );
+    expect(refused({ _min: { vaultPin: true } }, "aggregate")).toContain(
+      "vaultPin"
+    );
+    expect(refused({ _sum: { vaultPin: true } }, "aggregate")).toContain(
+      "vaultPin"
+    );
+    expect(refused({ _avg: { vaultPin: true } }, "aggregate")).toContain(
+      "vaultPin"
+    );
+    expect(
+      refused({ by: ["label"], _max: { vaultPin: true } }, "groupBy")
+    ).toContain("vaultPin");
+  });
+
+  test("a hidden list keeps the list refusal its type promises", () => {
+    expect(refused({ _max: { vaultTags: true } }, "aggregate")).toContain(
+      "A list cannot be projected by '_max'"
+    );
+  });
+
+  test("groupBy cannot group by a hidden field", () => {
+    expect(refused({ by: ["vaultKey"] }, "groupBy")).not.toBe("");
+    expect(refused({ by: "vaultPin" }, "groupBy")).not.toBe("");
+  });
+
+  test("a relation's _aggregate refuses it the same way", () => {
+    const result = parse(secretiveSchemas.keeper.args.findMany, {
+      select: {
+        id: true,
+        _aggregate: { vaults: { _max: { vaultPin: true } } },
+      },
+    });
+    expect(messages(result)).toContain("vaultPin");
+  });
+
+  test("an order returns no value: groupBy and a relation sort by it", () => {
+    const grouped = parse(secretiveSchemas.secretive.args.groupBy, {
+      by: ["label"],
+      orderBy: { _max: { vaultPin: "desc" } },
+    });
+    expect(grouped.issues).toBeUndefined();
+    const parents = parse(secretiveSchemas.keeper.args.findMany, {
+      orderBy: { vaults: { _max: { vaultPin: "desc" } } },
+    });
+    expect(parents.issues).toBeUndefined();
+  });
+
+  test("what returns no value keeps it: _count, where", () => {
+    const result = parse(secretiveSchemas.secretive.args.aggregate, {
+      where: { vaultPin: { gt: 3 } },
+      _count: { vaultKey: true },
+      _max: { label: true },
+    });
+    expect(result.issues).toBeUndefined();
   });
 });

@@ -29,6 +29,10 @@ import {
   type SortOrderSchema,
   sortOrderSchema,
 } from "../core/orderby";
+import {
+  type ModelOmittedKeys,
+  projectableScalarNames,
+} from "../core/projection";
 import type { ScalarSchemas } from "../index";
 import {
   type PaginationSkipSchema,
@@ -83,6 +87,16 @@ const isSummableScalar = (state: ScalarState): boolean =>
  */
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
 
+/**
+ * A field the model's `.omit()` hides never leaves the database, so no value
+ * aggregate (`_avg`, `_sum`, `_min`, `_max`) and no `by` names it: each would
+ * return the value, or a value computed from it, that `select` refuses.
+ * `_count`, `where`, `having` and `orderBy` keep it, as `where` and `orderBy`
+ * of a find do: none returns the value. So only the projections subtract it;
+ * the eligible keys below are shared with the order members and keep it.
+ */
+type ProjectableKeys<M extends AnyModel, K> = Exclude<K, ModelOmittedKeys<M>>;
+
 type AggregateScalarKeys<M extends AnyModel> = Exclude<
   NonPointScalarKeys<ModelStateOf<M>["scalars"]>,
   ListScalarKeys<M>
@@ -103,7 +117,7 @@ type PointAggregateEntries<M extends AnyModel> = V.FromKeys<
 >["entries"];
 
 type AggregateValueSchema<M extends AnyModel, K extends string> = V.Object<
-  V.FromKeys<K[], OptionalBoolean>["entries"] &
+  V.FromKeys<ProjectableKeys<M, K>[], OptionalBoolean>["entries"] &
     ListAggregateEntries<M> &
     PointAggregateEntries<M>
 >;
@@ -134,26 +148,23 @@ export const getAggregateScalarSchemas = <M extends AnyModel>(
   const listKeys: string[] = [];
   const pointKeys: string[] = [];
 
+  // A field the model omits is counted and refused by name like any other;
+  // only the value projections (`_avg`, `_sum`, `_min`, `_max`) leave it out.
+  const projectable = new Set(projectableScalarNames(model));
   for (const name of Object.keys(state.scalars)) {
     const scalar = state.scalars[name]!;
 
     // Count can include all scalars
     countKeys.push(name);
 
-    // Avg/Sum only for numeric types
-    if (isSummableScalar(scalar["~"].state)) {
-      numericKeys.push(name);
-    }
-
     // Value aggregates never compare list containers.
-    if (
-      scalar["~"].state.array !== true &&
-      scalar["~"].state.type !== "point"
-    ) {
-      minMaxKeys.push(name);
-    }
     if (scalar["~"].state.array === true) listKeys.push(name);
-    if (scalar["~"].state.type === "point") pointKeys.push(name);
+    else if (scalar["~"].state.type === "point") pointKeys.push(name);
+    else if (projectable.has(name)) {
+      minMaxKeys.push(name);
+      // Avg/Sum only for numeric types
+      if (isSummableScalar(scalar["~"].state)) numericKeys.push(name);
+    }
   }
 
   const booleanOptional = v.boolean({ optional: true });
@@ -909,14 +920,19 @@ export const getGroupByOrderBySchema = <M extends AnyModel>(
 /**
  * GroupBy args: { by, where?, having?, orderBy?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? }
  */
-type GroupByScalarKeys<M extends AnyModel> = NonPointScalarKeys<
-  ModelStateOf<M>["scalars"]
+type GroupByScalarKeys<M extends AnyModel> = ProjectableKeys<
+  M,
+  NonPointScalarKeys<ModelStateOf<M>["scalars"]>
 >;
 
 type EnumOfScalarMap<M extends AnyModel> = V.Enum<GroupByScalarKeys<M>[]>;
 
 /** The single `date` and `dateTime` columns a time step can group. */
-type TemporalScalarKeys<M extends AnyModel> = {
+type TemporalScalarKeys<M extends AnyModel> = ProjectableKeys<
+  M,
+  TemporalKeysOf<M>
+>;
+type TemporalKeysOf<M extends AnyModel> = {
   [K in keyof ModelStateOf<M>["scalars"]]: ModelStateOf<M>["scalars"][K]["~"]["state"] extends {
     array: true;
   }
@@ -1131,8 +1147,9 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   core: CoreSchemas<M, F>
 ): GroupByArgs<M, F> => {
   const state = model["~"].state;
-  // Build "by" schema - array of scalar names or single scalar
-  const scalarKeys = Object.keys(state.scalars).filter(
+  // Build "by" schema - array of scalar names or single scalar. A field the
+  // model omits is not a member: the grouped row would carry its value.
+  const scalarKeys = projectableScalarNames(model).filter(
     (field) => state.scalars[field]!["~"].state.type !== "point"
   ) as GroupByScalarKeys<M>[];
 
