@@ -56,8 +56,10 @@ import type {
 // Every filter below binds the resolved database as DATA (§5.2). The name is
 // never spliced into the statement, and `DATABASE()` — the connection's ambient
 // default, which the ORM never configured — appears nowhere.
+// A table's comment rides along: one that is a view's marker holds a view
+// kept by triggers (`.materialized({ refresh: "auto" })`).
 const TABLES_QUERY = `
-SELECT TABLE_NAME
+SELECT TABLE_NAME, TABLE_COMMENT
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = ?
   AND TABLE_TYPE = 'BASE TABLE'
@@ -68,16 +70,6 @@ const VIEWS_QUERY = `
 SELECT TABLE_NAME, VIEW_DEFINITION
 FROM information_schema.VIEWS
 WHERE TABLE_SCHEMA = ?
-ORDER BY TABLE_NAME
-`;
-
-/** The tables whose comment is a view's marker: each holds a view kept by triggers. */
-const AUTO_TABLES_QUERY = `
-SELECT TABLE_NAME, TABLE_COMMENT
-FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = ?
-  AND TABLE_TYPE = 'BASE TABLE'
-  AND TABLE_COMMENT LIKE 'viborm_view_%'
 ORDER BY TABLE_NAME
 `;
 
@@ -574,15 +566,6 @@ export async function introspect(
     [catalogNamespace, catalogNamespace]
   );
   const viewsResult = await executeRaw<MySQLView>(VIEWS_QUERY, scope);
-  const autoTablesResult = await executeRaw<{
-    TABLE_NAME: string;
-    TABLE_COMMENT: string | null;
-  }>(AUTO_TABLES_QUERY, scope);
-  const autoKeepersResult = await executeRaw<{
-    TRIGGER_NAME: string;
-    EVENT_OBJECT_TABLE: string;
-    ACTION_STATEMENT: string | null;
-  }>(AUTO_KEEPERS_QUERY, scope);
 
   admitContainedForeignKeys(
     foreignKeysResult.rows,
@@ -779,7 +762,7 @@ export async function introspect(
   // A table whose comment is a view's marker holds a view kept by triggers,
   // which is the view and not a table.
   const autoTables: LiveAutoTable[] = [];
-  for (const row of autoTablesResult.rows) {
+  for (const row of tablesResult.rows) {
     const hash = readViewComment(row.TABLE_COMMENT);
     const at = tables.findIndex(({ name }) => name === row.TABLE_NAME);
     if (hash === undefined || at < 0) continue;
@@ -791,6 +774,12 @@ export async function introspect(
     tables.splice(at, 1);
   }
   if (autoTables.length > 0) {
+    // What keeps such a view is read only where one is.
+    const autoKeepersResult = await executeRaw<{
+      TRIGGER_NAME: string;
+      EVENT_OBJECT_TABLE: string;
+      ACTION_STATEMENT: string | null;
+    }>(AUTO_KEEPERS_QUERY, scope);
     const keepers = autoKeepersResult.rows.flatMap((row): LiveAutoKeeper[] => {
       const hash = readKeeperMarker(row.ACTION_STATEMENT);
       return hash === undefined

@@ -6,6 +6,8 @@
 
 export interface MySQLTable {
   TABLE_NAME: string;
+  /** Its comment: a view's marker where it holds a view kept by triggers. */
+  TABLE_COMMENT?: string | null;
 }
 
 export interface MySQLColumn {

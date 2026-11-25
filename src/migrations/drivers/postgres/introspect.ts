@@ -402,9 +402,12 @@ WHERE rel_namespace.nspname = $1
 `;
 /**
  * The views and, as JSON text, the relations of the namespace each one's rule
- * depends on: what a drop under RESTRICT must come after.
+ * depends on: what a drop under RESTRICT must come after. Then, `stored`, each
+ * table whose comment may be a view's marker, its comment as its definition:
+ * a table that holds a view kept by triggers (`.materialized({ refresh:
+ * "auto" })`), read in the same statement.
  */
-const VIEWS_QUERY = `SELECT v.view_name, v.materialized, v.definition, coalesce((
+const VIEWS_QUERY = `SELECT v.view_name, v.materialized, v.definition, false AS stored, coalesce((
   SELECT json_agg(DISTINCT read_rel.relname::text)
   FROM pg_catalog.pg_rewrite rw
   JOIN pg_catalog.pg_depend dep
@@ -418,19 +421,13 @@ const VIEWS_QUERY = `SELECT v.view_name, v.materialized, v.definition, coalesce(
     AND read_namespace.nspname = $1
 )::text, '[]') AS depends_on
 FROM (${VIEWS_SOURCE}) v
-ORDER BY v.view_name;
-`;
-
-/**
- * The namespace's tables whose comment is a view's marker: each holds a view
- * kept by triggers (`.materialized({ refresh: "auto" })`).
- */
-const AUTO_TABLES_QUERY = `SELECT c.relname::text AS table_name, pg_catalog.obj_description(c.oid, 'pg_class') AS comment
+UNION ALL
+SELECT c.relname::text, false, pg_catalog.obj_description(c.oid, 'pg_class'), true, '[]'
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relkind = 'r'
   AND pg_catalog.obj_description(c.oid, 'pg_class') LIKE 'viborm_view_%'
-ORDER BY c.relname;
+ORDER BY 1;
 `;
 
 /**
@@ -855,22 +852,22 @@ export async function introspectPostgresSchema(
   );
   const enumsResult = await read<PgEnum>("enums", ENUMS_QUERY);
   const viewsResult = await read<PgView>("views", VIEWS_QUERY);
-  const autoTablesResult = await read<{
-    table_name: string;
-    comment: string | null;
-  }>("views kept by triggers", AUTO_TABLES_QUERY);
-  const autoKeepersResult = await read<{
-    function_name: string;
-    source: string | null;
-    trigger_name: string | null;
-    table_name: string | null;
-  }>("triggers of views", AUTO_KEEPERS_QUERY);
-  // A table that holds a view kept by triggers is the view, not a table.
+  // A table that holds a view kept by triggers is the view, not a table;
+  // what keeps it is read only where one is.
   const autoTables = new Map<string, string>();
-  for (const row of autoTablesResult.rows) {
-    const hash = readViewComment(row.comment);
-    if (hash !== undefined) autoTables.set(row.table_name, hash);
+  for (const row of viewsResult.rows) {
+    const hash = row.stored ? readViewComment(row.definition) : undefined;
+    if (hash !== undefined) autoTables.set(row.view_name, hash);
   }
+  const autoKeepersResult =
+    autoTables.size === 0
+      ? { rows: [] }
+      : await read<{
+          function_name: string;
+          source: string | null;
+          trigger_name: string | null;
+          table_name: string | null;
+        }>("triggers of views", AUTO_KEEPERS_QUERY);
 
   assertNoCrossSchemaForeignKeys(crossSchemaForeignKeysResult.rows, scope);
 
@@ -1029,6 +1026,7 @@ export async function introspectPostgresSchema(
   // holds its indexes, read as a table's are.
   const views: ViewDef[] = [];
   for (const row of viewsResult.rows) {
+    if (row.stored) continue;
     const hash = readViewMarker(row.definition);
     if (hash === undefined) continue;
     const reads: unknown = JSON.parse(row.depends_on);

@@ -20,7 +20,7 @@ import {
 } from "@migrations/dialects/all";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { describe, expect, test } from "vitest";
+import { describe, expect, onTestFinished, test } from "vitest";
 
 const byShopQuery = {
   where: { status: "paid" },
@@ -225,6 +225,19 @@ export function runAutoViewsBehavior(provider: AutoViewsProvider): void {
     shared ??= Promise.resolve(provider.createDriver());
     return shared;
   };
+  /**
+   * A database emptied of what a test before left: its history (whose marker
+   * a push refuses), then every table and view. The suites after this file
+   * may share the database.
+   */
+  async function cleared(driver: AnyDriver): Promise<void> {
+    const client = createClient({ driver, schema: {} });
+    for (const table of [CONTROL_TABLES.log, CONTROL_TABLES.state])
+      await client.$executeRawUnsafe(
+        `DROP TABLE IF EXISTS ${dialect === "mysql" ? `\`${table}\`` : `"${table}"`}`
+      );
+    await syncLiveSchema(client as never, { force: true });
+  }
   /** A database with the tables, no view, and a few rows. */
   async function seeded(): Promise<AnyDriver> {
     const driver = await database();
@@ -521,10 +534,9 @@ export function runAutoViewsBehavior(provider: AutoViewsProvider): void {
 
     test("generate, apply, verify, down and reset converge", async () => {
       const driver = await database();
-      // An empty database: what a test before left is dropped.
-      await syncLiveSchema(createClient({ driver, schema: {} }) as never, {
-        force: true,
-      });
+      await cleared(driver);
+      // Its history stays behind it otherwise, which a later push refuses.
+      onTestFinished(() => cleared(driver));
       const storage = new MemoryEstateStorage();
       const step = async (name: string, views: boolean) => {
         const migrations = createMigrationClient(
