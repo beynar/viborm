@@ -31,6 +31,7 @@ import type {
   ViewDef,
 } from "../../types";
 import {
+  holdsAutoViewBody,
   type LiveAutoKeeper,
   type LiveAutoTable,
   readAutoViews,
@@ -551,7 +552,7 @@ export async function introspect(
     autoTables.unshift({ name: table.name, hash, indexes: table.indexes });
     tables.splice(at, 1);
   }
-  if (autoTables.length > 0) {
+  if (autoTables.length > 0 || holdsAutoViewBody(views)) {
     const triggers = await executeRaw<{
       name: string;
       tbl_name: string;

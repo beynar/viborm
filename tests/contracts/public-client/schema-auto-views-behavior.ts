@@ -18,7 +18,7 @@ import {
   createMigrationClient,
   MemoryEstateStorage,
 } from "@migrations/dialects/all";
-import { s } from "@schema";
+import { PG, s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, onTestFinished, test } from "vitest";
 
@@ -66,7 +66,8 @@ function schema<const Views extends boolean>(views: Views, note = false) {
     .map("av_customers");
   const fields = {
     id: s.string().id(),
-    shopId: s.string(),
+    // Stored under another name: a trigger reads it as the source names it.
+    shopId: s.string().map("shop_id"),
     customerId: s.string().nullable(),
     status: s.string(),
     amount: s.int().nullable(),
@@ -211,6 +212,8 @@ export interface AutoViewsProvider {
   readonly transactions?: boolean;
   /** The database takes two writers at once (PostgreSQL, MySQL). */
   readonly concurrent?: boolean;
+  /** The database has roles a test may create (PostgreSQL's server). */
+  readonly roles?: boolean;
 }
 
 type Client = ReturnType<typeof viewsClient>;
@@ -377,6 +380,78 @@ export function runAutoViewsBehavior(provider: AutoViewsProvider): void {
       }
       await expectCurrent(client);
     });
+
+    test.runIf(dialect === "postgresql")(
+      "a native json column is kept: an update compares what the view reads as text",
+      async () => {
+        const driver = await database();
+        await cleared(driver);
+        const event = s
+          .model({
+            id: s.string().id(),
+            kind: s.string(),
+            payload: s.json(PG.JSON.JSON),
+          })
+          .map("av_events");
+        const kept = s
+          .view(() => event, { select: { id: true, payload: true } })
+          .materialized({ refresh: "auto" })
+          .map("av_kept_events");
+        const client = createClient({ driver, schema: { event, kept } });
+        await syncLiveSchema(client as never);
+        await client.event.create({
+          data: { id: "e1", kind: "a", payload: { n: 1 } },
+        });
+        await client.event.update({
+          where: { id: "e1" },
+          data: { payload: { n: 2 } },
+        });
+        await client.event.update({ where: { id: "e1" }, data: { kind: "b" } });
+        expect(await client.kept.findMany()).toEqual([
+          { id: "e1", payload: { n: 2 } },
+        ]);
+        await cleared(driver);
+      }
+    );
+
+    test.runIf(provider.roles)(
+      "a role that writes the source and reads the view needs no right on the view's table",
+      async () => {
+        const driver = await seeded();
+        const client = viewsClient(driver);
+        await syncLiveSchema(client as never);
+        const role = "av_writer";
+        await client.$executeRawUnsafe(`DROP ROLE IF EXISTS ${role}`);
+        await client.$executeRawUnsafe(`CREATE ROLE ${role}`);
+        await client.$executeRawUnsafe(
+          `GRANT USAGE ON SCHEMA public TO ${role}`
+        );
+        await client.$executeRawUnsafe(
+          `GRANT SELECT, INSERT ON "av_sales" TO ${role}`
+        );
+        await client.$executeRawUnsafe(
+          `GRANT SELECT ON "av_shops", "av_customers" TO ${role}`
+        );
+        try {
+          await client.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(`SET LOCAL ROLE ${role}`);
+            await tx.$executeRawUnsafe(
+              `INSERT INTO "av_sales" ("id", "shop_id", "status", "amount") VALUES ('r1', 'a', 'paid', 7)`
+            );
+          });
+          await expectCurrent(client);
+          expect(await groups(client)).toContainEqual({
+            shopId: "a",
+            count: 2,
+            sumAmount: 12,
+            maxAmount: 7,
+          });
+        } finally {
+          await client.$executeRawUnsafe(`DROP OWNED BY ${role}`);
+          await client.$executeRawUnsafe(`DROP ROLE ${role}`);
+        }
+      }
+    );
 
     test.runIf(provider.concurrent)(
       "two writers to one group at once both land, at each isolation level",

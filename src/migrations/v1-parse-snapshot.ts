@@ -125,6 +125,7 @@ const AUTO_STORAGE_KEYS = [
   "keyed",
   "reads",
   "source",
+  "sourceKey",
 ] as const;
 const AUTO_KEYED_KEYS = ["NEW", "OLD"] as const;
 const AUTO_CASCADE_KEYS = ["children", "table", "trigger"] as const;
@@ -506,7 +507,7 @@ function parseAutoView(value: unknown, label: string): AutoViewDef {
   const storage = exactObject(
     record.storage,
     AUTO_STORAGE_KEYS,
-    ["columns", "grouped", "key", "reads", "source"],
+    ["columns", "grouped", "key", "reads", "source", "sourceKey"],
     `${label}.storage`
   );
   if (!Array.isArray(storage.columns) || storage.columns.length === 0)
@@ -524,6 +525,10 @@ function parseAutoView(value: unknown, label: string): AutoViewDef {
       parseColumn
     ),
     key: parseIdentifierArray(storage.key, `${label}.storage.key`),
+    sourceKey: parseIdentifierArray(
+      storage.sourceKey,
+      `${label}.storage.sourceKey`
+    ),
     grouped: storage.grouped,
     reads,
   };

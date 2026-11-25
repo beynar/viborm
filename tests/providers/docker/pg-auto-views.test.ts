@@ -11,6 +11,7 @@ describeIf("pg Driver", () => {
     name: "pg",
     dialect: "postgresql",
     concurrent: true,
+    roles: true,
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
 });

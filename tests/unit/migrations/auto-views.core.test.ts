@@ -24,7 +24,11 @@ import {
   encodeSnapshot,
   parseSnapshotDocument,
 } from "@src/migrations/v1-parse-snapshot";
-import { withViewReplacements } from "@src/migrations/view";
+import {
+  readAutoViews,
+  refuseRelationCollision,
+  withViewReplacements,
+} from "@src/migrations/view";
 import { describe, expect, it } from "vitest";
 import { ddlContext } from "./_estate";
 
@@ -47,7 +51,14 @@ const READ_ON_UPDATE =
   /changes its column 'shopId', which the view reads, on an update of 'shops' \(onUpdate "cascade"\)/;
 const BOTH_KINDS = /materialized or kept by triggers, not both/;
 const UNSORTED_OBJECTS = /objects must be sorted by kind, then name/;
-const CUT_NAME = /^v+_[0-9a-f]{8}_viborm_body$/;
+const H = "a".repeat(40);
+const NARROWED_KEY =
+  /View 'by_url' cannot be kept current by triggers: its key 'url' would be stored as VARCHAR\(191\), narrower than its source's TEXT/;
+const LOCKED_FILL =
+  /^INSERT INTO `by_shop` \(`shopId`, `count`, `sumAmount`\) SELECT `shopId`, `count`, `sumAmount` FROM \(SELECT .* FOR SHARE\) AS `b` ON DUPLICATE KEY UPDATE/;
+const FOREIGN_BODY =
+  /relation "by_shop_viborm_body" is a view VibORM did not create, but this schema declares a view of that name/;
+const CUT_NAME = /^by_shop_viborm_on_p+_[0-9a-f]{8}$/;
 
 type Fields = Record<string, unknown>;
 const model = s.model as unknown as (shape: Fields) => Model<any>;
@@ -191,6 +202,122 @@ describe("what a view kept by triggers may hold", () => {
   });
 });
 
+describe("review of the first round (Devin, 2026-11-25)", () => {
+  it("reads a mapped grouped field by its source's column in the triggers", () => {
+    const sale = model({
+      id: s.string().id(),
+      shopId: s.string().map("shop_id"),
+    }).map("sales");
+    const byShop = view(() => sale, { by: ["shopId"], _count: true })
+      .materialized({ refresh: "auto" })
+      .map("by_shop");
+    const [def] = serializeModels(
+      { sale, byShop },
+      { migrationDriver: sqlite3MigrationDriver }
+    ).views!;
+    expect(def!.auto!.storage).toMatchObject({
+      key: ["shopId"],
+      sourceKey: ["shop_id"],
+    });
+    const statements = sqlite3MigrationDriver
+      .compileStatements({ type: "createView", view: def! }, ddlContext("live"))
+      .join("\n");
+    expect(statements).toContain('WHERE "shopId" = NEW."shop_id"');
+    expect(statements).not.toContain('NEW."shopId"');
+  });
+
+  it("refuses on MySQL a key stored narrower than its source stores it, and takes one its source indexes", () => {
+    const narrowed = (indexed: boolean) => () => {
+      let doc: Model<any> = model({
+        id: s.string().id(),
+        url: s.string(),
+      });
+      if (indexed) doc = doc.index(["url"]);
+      doc = doc.map("docs");
+      return serializeModels(
+        {
+          doc,
+          byUrl: view(() => doc, { by: ["url"], _count: true })
+            .materialized({ refresh: "auto" })
+            .map("by_url"),
+        },
+        { migrationDriver: mysqlMigrationDriver }
+      );
+    };
+    expect(narrowed(false)).toThrow(NARROWED_KEY);
+    expect(narrowed(true)).not.toThrow();
+  });
+
+  it("fills on MySQL with a locking read of the source, past which a write still open is read as it commits", () => {
+    const [def] = snapshotOf(BY_SHOP, mysqlMigrationDriver).views!;
+    const fill = mysqlMigrationDriver
+      .compileStatements({ type: "createView", view: def! }, ddlContext("live"))
+      .at(-1)!;
+    expect(fill).toMatch(LOCKED_FILL);
+  });
+
+  it("reads PostgreSQL's update guard as text, and runs its function as its owner", () => {
+    const [def] = snapshotOf(BY_SHOP, postgresMigrationDriver).views!;
+    const ddl = postgresMigrationDriver
+      .compileStatements({ type: "createView", view: def! }, ddlContext("live"))
+      .join("\n");
+    expect(ddl).toContain(
+      'WHEN (ROW(CAST(OLD."amount" AS text), CAST(OLD."shopId" AS text), CAST(OLD."status" AS text)) IS DISTINCT FROM'
+    );
+    expect(ddl).toContain(
+      "SECURITY DEFINER SET search_path = pg_catalog, pg_temp"
+    );
+  });
+
+  it("creates nothing over a helper's name it did not mark: the body's view is a declared relation", () => {
+    const desired = snapshotOf(BY_SHOP, postgresMigrationDriver);
+    expect(() =>
+      refuseRelationCollision(
+        "PostgreSQL",
+        [desired],
+        [{ name: "by_shop_viborm_body", kind: "view", definition: "SELECT 1" }]
+      )
+    ).toThrow(FOREIGN_BODY);
+    const statements = postgresMigrationDriver.compileStatements(
+      { type: "createView", view: desired.views![0]! },
+      ddlContext("live")
+    );
+    expect(statements.filter((sql) => sql.startsWith("DROP "))).toEqual([]);
+  });
+
+  it("reads what a hand left of one (its body's view and triggers, no table) as a view to drop, never its name's table", () => {
+    const views = [
+      { name: "by_shop_viborm_body", hash: H, dependsOn: ["sales"] },
+    ];
+    const [left] = readAutoViews(
+      [],
+      [{ kind: "trigger", name: "by_shop_viborm_i", table: "sales", hash: H }],
+      views
+    );
+    expect(views).toEqual([]);
+    expect(left).toMatchObject({
+      name: "by_shop",
+      hash: "0".repeat(40),
+      auto: {
+        tableless: true,
+        objects: [
+          { kind: "trigger", name: "by_shop_viborm_i", table: "sales" },
+          { kind: "view", name: "by_shop_viborm_body" },
+        ],
+      },
+    });
+    expect(
+      sqlite3MigrationDriver.compileStatements(
+        { type: "dropView", viewName: "by_shop", auto: left!.auto },
+        ddlContext("live")
+      )
+    ).toEqual([
+      'DROP TRIGGER IF EXISTS "by_shop_viborm_i"',
+      'DROP VIEW IF EXISTS "by_shop_viborm_body"',
+    ]);
+  });
+});
+
 describe("MySQL's cascades", () => {
   it("records a trigger on each parent whose cascade reaches the source", () => {
     const auto = snapshotOf(BY_SHOP, mysqlMigrationDriver, {
@@ -232,7 +359,7 @@ describe("MySQL's cascades", () => {
     // The column read nowhere by the view: its update fires nothing it needs.
     expect(() =>
       snapshotOf(
-        { where: { status: "paid" }, by: ["status"], _count: true },
+        { where: { status: "paid" }, select: { id: true, status: true } },
         mysqlMigrationDriver,
         { onUpdate: "cascade" }
       )
@@ -411,10 +538,6 @@ describe("DDL and probes", () => {
     expect(
       statements.map((statement) => statement.split(" (")[0]!.split("\n")[0])
     ).toEqual([
-      'DROP TRIGGER IF EXISTS "by_shop_viborm_d"',
-      'DROP TRIGGER IF EXISTS "by_shop_viborm_i"',
-      'DROP TRIGGER IF EXISTS "by_shop_viborm_u"',
-      'DROP VIEW IF EXISTS "by_shop_viborm_body"',
       'CREATE TABLE "by_shop"',
       'CREATE VIEW "by_shop_viborm_body" AS SELECT "shopId", "count", "sumAmount" FROM',
       'CREATE TRIGGER "by_shop_viborm_i" AFTER INSERT ON "sales" BEGIN',
@@ -426,10 +549,6 @@ describe("DDL and probes", () => {
       probeForGeneratedStatement(sqlite3MigrationDriver, operation, statement)
         ?.post.id;
     expect(statements.map(probe)).toEqual([
-      undefined,
-      undefined,
-      undefined,
-      undefined,
       "table:exists:by_shop",
       "view:exists:by_shop_viborm_body",
       "trigger:exists:sales.by_shop_viborm_i",
@@ -482,12 +601,14 @@ describe("advice", () => {
 });
 
 describe("names", () => {
-  it("names each keeper after its view, cut and hashed past 63 characters", () => {
+  it("names each keeper after its view, cut and hashed past 63 characters, a cascade's parent of any length included", () => {
     expect(autoViewObjectName("by_shop", "_i")).toBe("by_shop_viborm_i");
-    const long = "v".repeat(63);
-    const name = autoViewObjectName(long, "_body");
+    const parent = "p".repeat(63);
+    const name = autoViewObjectName("by_shop", `_on_${parent}`);
     expect(name).toHaveLength(63);
     expect(name).toMatch(CUT_NAME);
-    expect(autoViewObjectName(`${long.slice(1)}w`, "_body")).not.toBe(name);
+    expect(autoViewObjectName("by_shop", `_on_${parent.slice(1)}q`)).not.toBe(
+      name
+    );
   });
 });

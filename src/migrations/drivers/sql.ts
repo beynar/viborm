@@ -517,8 +517,7 @@ export abstract class SqlMigrationDriver
   }
 
   /**
-   * A view kept by triggers, in one operation: what a hand left of it, the
-   * table that holds its rows
+   * A view kept by triggers, in one operation: the table that holds its rows
    * (its marker beside it, its key its primary key, then its indexes), the
    * ordinary view that holds its body, the triggers that keep it, and its
    * rows. Where DDL is transactional the rows are computed in the
@@ -533,9 +532,6 @@ export abstract class SqlMigrationDriver
     const storage = declaredAutoViewStorage(view);
     const body = autoViewBodyName(view.name);
     return [
-      // What a hand left of it (its table dropped, its triggers kept) goes
-      // first: those would refuse the new ones their names.
-      ...this.dropAutoViewObjects(view.auto?.objects ?? [], context),
       ...this.autoViewTable(
         {
           name: view.name,
@@ -628,10 +624,12 @@ export abstract class SqlMigrationDriver
       context.destination
     );
     const columns = this.autoViewColumns(storage);
+    // The view's column, named as the view names it, against the trigger
+    // row's, named as its source does (a `.map()`ped field differs).
     const match = storage.key
       .map(
-        (column) =>
-          `${this.escapeIdentifier(column)} = ${ref}.${this.escapeIdentifier(column)}`
+        (column, at) =>
+          `${this.escapeIdentifier(column)} = ${ref}.${this.escapeIdentifier(storage.sourceKey[at]!)}`
       )
       .join(" AND ");
     return [
@@ -652,7 +650,9 @@ export abstract class SqlMigrationDriver
   ): string[] {
     return [
       ...this.dropAutoViewObjects(auto.objects, context),
-      `DROP TABLE ${this.tableRef(op.viewName, context.destination)}`,
+      ...(auto.tableless
+        ? []
+        : [`DROP TABLE ${this.tableRef(op.viewName, context.destination)}`]),
     ];
   }
 

@@ -668,7 +668,8 @@ async function executeResetClear(
       await runClearStatement(sql);
       await confirmResetStep(pinned, command, graph, attemptId, sql);
     }
-    await dropProven(view, view.keepers ? "table" : "view");
+    if (!view.tableless)
+      await dropProven(view, view.keepers ? "table" : "view");
   }
   for (const sql of livePlan.dropForeignKeys) {
     await runClearStatement(sql);

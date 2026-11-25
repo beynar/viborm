@@ -10,8 +10,9 @@ const OBJECT_NAME_BYTES = 63;
 
 /**
  * `<view>_viborm<suffix>`, unique in the schema as MySQL and SQLite want a
- * trigger's name to be. Where that passes 63 bytes (a table's name is ASCII),
- * the view's name is cut and an eight-character hash of the whole follows it
+ * trigger's name to be. Where that passes 63 bytes (a table's name is ASCII;
+ * a MySQL cascade's suffix holds its parent's whole name), its first 54
+ * characters are kept and an eight-character hash of the whole follows them
  * (a 32-bit polynomial hash: a name, not a secret).
  */
 export function autoViewObjectName(view: string, suffix: string): string {
@@ -20,8 +21,7 @@ export function autoViewObjectName(view: string, suffix: string): string {
   let hash = 5381;
   for (let at = 0; at < name.length; at++)
     hash = (hash * 33 + name.charCodeAt(at)) % 0x1_00_00_00_00;
-  const tail = `_${hash.toString(16).padStart(8, "0")}_viborm${suffix}`;
-  return `${view.slice(0, OBJECT_NAME_BYTES - tail.length)}${tail}`;
+  return `${name.slice(0, OBJECT_NAME_BYTES - 9)}_${hash.toString(16).padStart(8, "0")}`;
 }
 
 /** The longest name of a view kept by triggers: its body's view's then fits in 63 bytes. */

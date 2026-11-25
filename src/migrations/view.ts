@@ -122,19 +122,48 @@ export function readKeeperMarker(
 }
 const KEEPER_MARKER = new RegExp(`${MARKER_PREFIX}([0-9a-f]{40})`);
 
+/** The name a view kept by triggers gives the view of its body ends so. */
+const BODY_SUFFIX = "_viborm_body";
+
+/**
+ * Whether a namespace whose marked views are `views` may hold what is left
+ * of a view kept by triggers whose table a hand dropped: the view of its
+ * body, marked. Its triggers are read then too.
+ */
+export const holdsAutoViewBody = (views: readonly ViewDef[]): boolean =>
+  views.some(({ name }) => name.endsWith(BODY_SUFFIX));
+
+/**
+ * The hash of what is left of a view kept by triggers without its table: no
+ * declaration's, so the differ drops it whatever is declared.
+ */
+const LEFT_BEHIND = "0".repeat(40);
+
 /**
  * The views kept by triggers of a live namespace, each a marked table with
  * the objects that carry its marker under the names its view gives them
  * (two views of one declaration share a hash, never a name), its body's
  * view taken out of `views`. One missing is missing from its objects, which
- * the declared view then does not match.
+ * the declared view then does not match. What is left of one whose table a
+ * hand dropped (a marked view of its body, the triggers of the same marker)
+ * is read as a view with no table, of no declaration's hash: the next
+ * program drops its objects, and leaves alone whatever now holds its name.
  */
 export function readAutoViews(
   tables: readonly LiveAutoTable[],
   keepers: readonly LiveAutoKeeper[],
   views: ViewDef[]
 ): ViewDef[] {
-  return tables.map(({ name, hash, indexes }) => {
+  const kept = new Set(tables.map(({ name }) => name));
+  const left: LiveAutoTable[] = views.flatMap((view) => {
+    const name = view.name.slice(0, -BODY_SUFFIX.length);
+    return view.name.endsWith(BODY_SUFFIX) &&
+      !kept.has(name) &&
+      autoViewBodyName(name) === view.name
+      ? [{ name, hash: view.hash, indexes: [] }]
+      : [];
+  });
+  return [...tables, ...left].map(({ name, hash, indexes }) => {
     const objects: AutoViewObject[] = [];
     const names = new Set(
       ["", "_i", "_u", "_d"].map((suffix) => autoViewObjectName(name, suffix))
@@ -156,12 +185,16 @@ export function readAutoViews(
     );
     const [body] = at < 0 ? [] : views.splice(at, 1);
     if (body) objects.push({ kind: "view", name: body.name });
+    const tableless = !kept.has(name);
     return {
       name,
-      hash,
+      hash: tableless ? LEFT_BEHIND : hash,
       dependsOn: body?.dependsOn ?? [],
       ...(indexes.length > 0 ? { indexes: [...indexes] } : {}),
-      auto: { objects: sortAutoViewObjects(objects) },
+      auto: {
+        objects: sortAutoViewObjects(objects),
+        ...(tableless ? { tableless: true as const } : {}),
+      },
     };
   });
 }
@@ -453,6 +486,15 @@ export function withViewReplacements(
   ];
 }
 
+/**
+ * The relations a view takes in the namespace: its name, and a view kept by
+ * triggers the view of its body too, which a relation VibORM did not create
+ * must not hold (its creation would take it over).
+ */
+export function viewRelationNames(view: ViewDef): string[] {
+  return view.auto ? [view.name, autoViewBodyName(view.name)] : [view.name];
+}
+
 /** One relation of the live namespace, as a dialect's preflight reads it. */
 export interface LiveRelation {
   readonly name: string;
@@ -485,7 +527,7 @@ export function refuseRelationCollision(
   );
   const views = new Set(
     snapshots.flatMap((snapshot) =>
-      (snapshot.views ?? []).map(({ name }) => name)
+      (snapshot.views ?? []).flatMap(viewRelationNames)
     )
   );
   for (const relation of relations) {

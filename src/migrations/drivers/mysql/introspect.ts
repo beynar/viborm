@@ -26,6 +26,7 @@ import type {
   ViewDef,
 } from "../../types";
 import {
+  holdsAutoViewBody,
   type LiveAutoKeeper,
   type LiveAutoTable,
   readAutoViews,
@@ -773,8 +774,8 @@ export async function introspect(
     });
     tables.splice(at, 1);
   }
-  if (autoTables.length > 0) {
-    // What keeps such a view is read only where one is.
+  if (autoTables.length > 0 || holdsAutoViewBody(views)) {
+    // What keeps such a view, or is left of one, is read only where one is.
     const autoKeepersResult = await executeRaw<{
       TRIGGER_NAME: string;
       EVENT_OBJECT_TABLE: string;

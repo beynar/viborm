@@ -12,7 +12,11 @@ import { selectManagedSnapshot } from "./target";
  */
 
 import type { Dialect } from "../drivers/types";
-import { MigrationError, VibORMErrorCode } from "../errors";
+import {
+  MigrationError,
+  UnsupportedOperationError,
+  VibORMErrorCode,
+} from "../errors";
 import { hydrateSchemaNames } from "../schema/hydration";
 import { lightModels } from "../schema/json/light";
 import {
@@ -259,9 +263,34 @@ function autoViewStorage(
     source: sourceTable,
     columns,
     key: key.map(columnName),
+    sourceKey: key.map((field) => source["~"].getFieldName(field).sql!),
     grouped: aggregated !== undefined,
     reads: viewSourceReads(view),
   };
+}
+
+/**
+ * Refuses a view kept by triggers whose key is stored narrower than its
+ * source stores it: MySQL keys a string column in a `VARCHAR(191)`, where an
+ * unindexed one is `TEXT`, and a longer value the source holds would be
+ * refused by the view's table, failing the write that brought it.
+ */
+function refuseNarrowedKey(
+  view: string,
+  storage: AutoViewStorage,
+  tables: readonly TableDef[]
+): void {
+  const source = tables.find(({ name }) => name === storage.source);
+  for (const [at, column] of storage.key.entries()) {
+    const stored = storage.columns.find(({ name }) => name === column)?.type;
+    const held = storage.sourceKey[at]!;
+    const read = source?.columns.find(({ name }) => name === held)?.type;
+    if (read === undefined || stored === read) continue;
+    throw new UnsupportedOperationError(
+      `View '${view}' cannot be kept current by triggers: its key '${column}' would be stored as ${stored}, narrower than its source's ${read}, and a longer value written to '${storage.source}' would be refused. Index '${held}' on its source, which keys it there the same way.`,
+      { meta: { model: view, feature: "auto view" } }
+    );
+  }
 }
 
 /**
@@ -1044,6 +1073,7 @@ export function serializeResolvedModels(
 
   const finalized = tables.map((table) => migrationDriver.finalizeTable(table));
   for (const [view, storage] of autoViews) {
+    refuseNarrowedKey(view.name, storage, finalized);
     const cascades = migrationDriver.autoViewCascades(
       view.name,
       storage,

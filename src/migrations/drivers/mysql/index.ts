@@ -81,9 +81,11 @@ import { readExecutableStatements } from "../../statement-safety";
 import type { CatalogRead, CommandNamespaceResolver } from "../../target";
 import {
   autoViewObjects,
+  declaredViewSql,
   type LiveRelation,
   refuseRelationCollision,
   viewMarker,
+  viewRelationNames,
 } from "../../view";
 import type {
   AddColumnOperation,
@@ -450,7 +452,7 @@ export class MySQLMigrationDriver
         autoViewObjectName(view.name, "_u"),
         "AFTER UPDATE",
         storage.source,
-        `  IF NOT (${same(storage.reads)}) THEN\n${block(recompute("OLD"), "    ")}    IF NOT (${same(storage.key)}) THEN\n${block(recompute("NEW"), "      ")}    END IF;\n  END IF;\n`
+        `  IF NOT (${same(storage.reads)}) THEN\n${block(recompute("OLD"), "    ")}    IF NOT (${same(storage.sourceKey)}) THEN\n${block(recompute("NEW"), "      ")}    END IF;\n  END IF;\n`
       ),
       trigger(
         autoViewObjectName(view.name, "_d"),
@@ -486,9 +488,13 @@ export class MySQLMigrationDriver
 
   /**
    * Computed after the triggers, since each DDL statement commits on its own
-   * here: a row a trigger wrote between the two is written again with the
-   * same values (`ON DUPLICATE KEY UPDATE`), and InnoDB's locking read
-   * orders the fill with the writes beside it (measured on 8.4).
+   * here: a row a trigger wrote between the two is written again
+   * (`ON DUPLICATE KEY UPDATE`). The body reads its source with `FOR SHARE`,
+   * so a write still open when the filling starts is waited for and read as
+   * it commits: without it, under READ COMMITTED, the filling read the value
+   * before that write and wrote it over the row the write's trigger had
+   * computed (measured on 8.4). The lock reaches the source through the
+   * derived table, where it does not through a view.
    */
   protected override autoViewFill(
     view: ViewDef,
@@ -506,7 +512,8 @@ export class MySQLMigrationDriver
     )
       .map((name) => `${quote(name)} = ${quote("b")}.${quote(name)}`)
       .join(", ");
-    return `${super.autoViewFill(view, storage, context)} AS ${quote("b")} ON DUPLICATE KEY UPDATE ${updated}`;
+    const columns = this.autoViewColumns(storage);
+    return `INSERT INTO ${this.tableRef(view.name, context.destination)} (${columns}) SELECT ${columns} FROM (${declaredViewSql(view)} FOR SHARE) AS ${quote("b")} ON DUPLICATE KEY UPDATE ${updated}`;
   }
 
   /** A trigger is named in its database. */
@@ -570,7 +577,7 @@ export class MySQLMigrationDriver
     const names = new Set(
       snapshots.flatMap((snapshot) => [
         ...snapshot.tables.map((table) => table.name),
-        ...(snapshot.views ?? []).map((view) => view.name),
+        ...(snapshot.views ?? []).flatMap(viewRelationNames),
       ])
     );
     if (names.size === 0) return false;

@@ -452,7 +452,10 @@ is the view's key: its source's id, or its `by` fields):
   view reads changed;
 - on PostgreSQL, the function they call, `<view>_viborm()`. Two writes to
   one group wait for each other on a lock of that group for the transaction
-  (`pg_advisory_xact_lock`): without it, the second write would be refused;
+  (`pg_advisory_xact_lock`): without it, the second write would be refused.
+  It runs as its owner, the role that ran the migration (`SECURITY DEFINER`,
+  its search path closed), as a MySQL trigger runs as its definer: a role
+  that writes the source needs no right on the view's table;
 - on MySQL, a trigger before each delete of a parent whose `onDelete`
   cascade (or `setNull` of a column the view reads) reaches the source,
   `<view>_viborm_on_<parent>`: MySQL runs no trigger for the rows a cascade
@@ -462,6 +465,13 @@ is the view's key: its source's id, or its `by` fields):
   Each trigger reads its group's rows with `FOR SHARE`: under READ COMMITTED
   a trigger otherwise reads with the snapshot of the statement that fired
   it, and two writes to one group left the view a row short (measured).
+  A parent's trigger deletes the children itself, so a `deleteMany` of
+  parents filtered on those children (`where: { sales: { some: … } }`) is
+  refused by MySQL (error 1442: a trigger cannot change a table its
+  statement reads). Read the parents' keys first, then delete by key.
+  A `by` field of text no index of the source takes is refused: MySQL
+  keys the view's table on it in a `VARCHAR(191)`, narrower than the
+  source's `TEXT`. Index it on the source.
 
 The names past 63 characters are cut and end with a hash. A migration
 creates all of it, and computes the rows, in one operation. **While it
@@ -481,6 +491,11 @@ every migration.
 query: use it after a write the triggers did not see (a `TRUNCATE`, a bulk
 load that disables them). It is two statements; inside `$transaction` they
 are one. `concurrently` changes nothing.
+
+A name the view's body takes, `<view>_viborm_body`, that a relation
+VibORM did not create already holds is refused before any change. What a
+hand left of such a view (its table dropped, its triggers and body kept) is
+dropped by the next `push`, which then creates the view again.
 
 A replacement drops the triggers with the table. A migration replaces such
 a view when its query changes, and when it changes in any way, but an

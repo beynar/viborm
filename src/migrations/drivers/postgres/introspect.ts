@@ -859,8 +859,15 @@ export async function introspectPostgresSchema(
     const hash = row.stored ? readViewComment(row.definition) : undefined;
     if (hash !== undefined) autoTables.set(row.view_name, hash);
   }
+  // What is left of one whose table a hand dropped: its body's marked view.
+  const leftBehind = viewsResult.rows.some(
+    (row) =>
+      !row.stored &&
+      row.view_name.endsWith("_viborm_body") &&
+      readViewMarker(row.definition) !== undefined
+  );
   const autoKeepersResult =
-    autoTables.size === 0
+    autoTables.size === 0 && !leftBehind
       ? { rows: [] }
       : await read<{
           function_name: string;

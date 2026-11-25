@@ -41,6 +41,8 @@ interface PlannedTableDrop {
    * statements that drop what keeps it first (each skips what is gone).
    */
   readonly keepers?: readonly string[];
+  /** What is left of one whose table a hand dropped: its keepers alone. */
+  readonly tableless?: boolean;
 }
 
 /**
@@ -182,6 +184,8 @@ export async function planLiveNamespaceReset(
       dropViewOperation(view),
       { destination: "live" }
     );
+    if (view.auto?.tableless)
+      return { name, sql: "", keepers: statements, tableless: true };
     return {
       name,
       materialized: view.materialized === true,
@@ -229,7 +233,10 @@ export async function planLiveNamespaceReset(
     dropTables,
     dropEnums,
     clear: [
-      ...dropViews.flatMap((view) => [...(view.keepers ?? []), view.sql]),
+      ...dropViews.flatMap((view) => [
+        ...(view.keepers ?? []),
+        ...(view.tableless ? [] : [view.sql]),
+      ]),
       ...dropForeignKeys,
       ...dropTables.map((table) => table.sql),
       ...dropEnums,

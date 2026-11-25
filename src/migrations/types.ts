@@ -78,6 +78,11 @@ export interface AutoViewDef {
    * it, an introspected one never, as {@link ViewDef.sql}.
    */
   storage?: AutoViewStorage | undefined;
+  /**
+   * Introspected only: what is left of such a view whose table a hand
+   * dropped. Its drop drops its objects and no table.
+   */
+  tableless?: true | undefined;
 }
 
 /** One object a view declared `refresh: "auto"` needs beside its table. */
@@ -94,8 +99,10 @@ export interface AutoViewStorage {
   source: string;
   /** Its table's columns, in the order of its body's. */
   columns: ColumnDef[];
-  /** Its key, its table's primary key: its source's key, or its grouped columns. Each is the source's column of that name. */
+  /** Its key, its table's primary key: its source's key, or its grouped columns, by the view's column names. */
   key: string[];
+  /** The source's column of each member of {@link key}, in order: what a trigger reads of its row. */
+  sourceKey: string[];
   /** Whether its rows are groups of its source's rows. */
   grouped: boolean;
   /** The source's columns its body reads, sorted: an update that changes none of them leaves it as it is. */

@@ -64,6 +64,7 @@ import {
   type LiveRelation,
   refuseRelationCollision,
   viewMarker,
+  viewRelationNames,
 } from "../../view";
 import type { BoundMigrationDriver } from "..";
 import type {
@@ -468,7 +469,9 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
    * key's hash): without it, two writes to one group cross, the second
    * inserting the row the first already inserted, which refuses the user's
    * write (measured on PostgreSQL 18). A row of a view of rows is held by the
-   * source row's own lock.
+   * source row's own lock. The function runs as its owner (`SECURITY
+   * DEFINER`), as MySQL's triggers run as their definer: a role that writes
+   * the source needs no right on the view's table.
    */
   protected override autoViewKeepers(
     view: ViewDef,
@@ -480,6 +483,11 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     const source = this.qualify(storage.source);
     const row = (ref: string, columns: readonly string[]) =>
       `ROW(${columns.map((column) => `${ref}.${quote(column)}`).join(", ")})`;
+    // What the view reads of a row, compared as text: a type without
+    // equality (`json`) refuses a row comparison, and two texts that differ
+    // where the values are equal only compute a row again.
+    const text = (ref: string) =>
+      `ROW(${storage.reads.map((column) => `CAST(${ref}.${quote(column)} AS text)`).join(", ")})`;
     // The view's own lock space: two int4 keys, apart from the one bigint
     // key a migration command locks by.
     const space = Number.parseInt(view.hash.slice(0, 7), 16);
@@ -487,7 +495,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
       [
         ...(storage.grouped
           ? [
-              `PERFORM pg_advisory_xact_lock(${space}, hashtext(CAST(${row(ref, storage.key)} AS text)))`,
+              `PERFORM pg_advisory_xact_lock(${space}, hashtext(CAST(${row(ref, storage.sourceKey)} AS text)))`,
             ]
           : []),
         ...this.autoViewRecompute(view, storage, ref, context),
@@ -498,12 +506,15 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     const trigger = (suffix: string, event: string) =>
       `CREATE TRIGGER ${quote(autoViewObjectName(view.name, suffix))} AFTER ${event} ON ${source} FOR EACH ROW${
         suffix === "_u"
-          ? ` WHEN (${row("OLD", storage.reads)} IS DISTINCT FROM ${row("NEW", storage.reads)})`
+          ? ` WHEN (${text("OLD")} IS DISTINCT FROM ${text("NEW")})`
           : ""
       } EXECUTE FUNCTION ${fn}()`;
     return [
       [
-        `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $viborm$`,
+        // As its owner, the migration's role: a writer of the source needs no
+        // right on the view's table or on its body. Every name in it is
+        // qualified, and its search path holds nothing a caller can shadow.
+        `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $viborm$`,
         `BEGIN -- ${marker}`,
         "  IF TG_OP <> 'INSERT' THEN",
         recompute("OLD"),
@@ -511,7 +522,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
         "  IF TG_OP = 'INSERT' THEN",
         recompute("NEW"),
         "  ELSIF TG_OP = 'UPDATE' THEN",
-        `    IF ${row("NEW", storage.key)} IS DISTINCT FROM ${row("OLD", storage.key)} THEN`,
+        `    IF ${row("NEW", storage.sourceKey)} IS DISTINCT FROM ${row("OLD", storage.sourceKey)} THEN`,
         recompute("NEW").replaceAll(/^ {6}/gm, "        "),
         "    END IF;",
         "  END IF;",
@@ -846,7 +857,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
         ...new Set(
           snapshots.flatMap((snapshot) => [
             ...snapshot.tables.map((table) => table.name),
-            ...(snapshot.views ?? []).map((view) => view.name),
+            ...(snapshot.views ?? []).flatMap(viewRelationNames),
           ])
         ),
       ];

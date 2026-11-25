@@ -63,6 +63,7 @@ import {
   type LiveRelation,
   refuseRelationCollision,
   viewMarker,
+  viewRelationNames,
 } from "../../view";
 import type {
   AddColumnOperation,
@@ -461,7 +462,7 @@ export class SQLite3MigrationDriver extends SqlMigrationDriver {
           storage,
           "NEW",
           context,
-          ` AND (${differ(storage.key)})`
+          ` AND (${differ(storage.sourceKey)})`
         ),
       ]),
       trigger(
@@ -565,7 +566,7 @@ export class SQLite3MigrationDriver extends SqlMigrationDriver {
     const names = new Set(
       snapshots.flatMap((snapshot) => [
         ...snapshot.tables.map((table) => table.name),
-        ...(snapshot.views ?? []).map((view) => view.name),
+        ...(snapshot.views ?? []).flatMap(viewRelationNames),
       ])
     );
     if (names.size === 0 && program.length === 0) return false;
