@@ -153,7 +153,14 @@ const MODEL_KEYS = [
 ];
 const INDEX_KEYS = ["fields", "name", "unique", "type", "where"];
 const COMPOUND_KEYS = ["fields", "name"];
-const VIEW_KEYS = ["source", "query", "table", "materialized", "indexes"];
+const VIEW_KEYS = [
+  "source",
+  "query",
+  "table",
+  "materialized",
+  "refresh",
+  "indexes",
+];
 const NATIVE_KEYS = ["db", "type"];
 const GENERATE_KEYS = ["kind", "prefix", "length", "implicit", "generate"];
 const JUNCTION_KEYS = [
@@ -577,6 +584,15 @@ function readViewNode(
     if (text !== undefined) view.table = text;
   }
   if (readTrue(node, "materialized", path, issues)) view.materialized = true;
+  const refresh = member(node, "refresh", path, issues);
+  if (refresh === "auto" && view.materialized) view.refresh = "auto";
+  else if (refresh !== undefined)
+    addIssue(
+      issues,
+      pointer(path, "refresh"),
+      "J004",
+      '`refresh` must be "auto", beside `materialized: true`'
+    );
   const indexes = readIndexes(node, path, issues);
   if (indexes !== undefined) view.indexes = indexes;
   return view;

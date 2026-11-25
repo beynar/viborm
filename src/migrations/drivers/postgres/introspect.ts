@@ -32,7 +32,13 @@ import type {
   UniqueConstraintDef,
   ViewDef,
 } from "../../types";
-import { readViewMarker } from "../../view";
+import {
+  type LiveAutoKeeper,
+  readAutoViews,
+  readKeeperMarker,
+  readViewComment,
+  readViewMarker,
+} from "../../view";
 import { groupBy, groupByNested, mapReferentialAction } from "../utils";
 import { throwIfCatalogRefusal } from "./catalog-refusal";
 
@@ -396,9 +402,12 @@ WHERE rel_namespace.nspname = $1
 `;
 /**
  * The views and, as JSON text, the relations of the namespace each one's rule
- * depends on: what a drop under RESTRICT must come after.
+ * depends on: what a drop under RESTRICT must come after. Then, `stored`, each
+ * table whose comment may be a view's marker, its comment as its definition:
+ * a table that holds a view kept by triggers (`.materialized({ refresh:
+ * "auto" })`), read in the same statement.
  */
-const VIEWS_QUERY = `SELECT v.view_name, v.materialized, v.definition, coalesce((
+const VIEWS_QUERY = `SELECT v.view_name, v.materialized, v.definition, false AS stored, coalesce((
   SELECT json_agg(DISTINCT read_rel.relname::text)
   FROM pg_catalog.pg_rewrite rw
   JOIN pg_catalog.pg_depend dep
@@ -412,7 +421,26 @@ const VIEWS_QUERY = `SELECT v.view_name, v.materialized, v.definition, coalesce(
     AND read_namespace.nspname = $1
 )::text, '[]') AS depends_on
 FROM (${VIEWS_SOURCE}) v
-ORDER BY v.view_name;
+UNION ALL
+SELECT c.relname::text, false, pg_catalog.obj_description(c.oid, 'pg_class'), true, '[]'
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relkind = 'r'
+  AND pg_catalog.obj_description(c.oid, 'pg_class') LIKE 'viborm_view_%'
+ORDER BY 1;
+`;
+
+/**
+ * The namespace's functions whose body carries a view's marker, each with
+ * every trigger that calls it: what keeps a view kept by triggers current.
+ */
+const AUTO_KEEPERS_QUERY = `SELECT p.proname::text AS function_name, p.prosrc || coalesce(' ' || pg_catalog.obj_description(p.oid, 'pg_proc'), '') AS source, t.tgname::text AS trigger_name, c.relname::text AS table_name
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+LEFT JOIN pg_catalog.pg_trigger t ON t.tgfoid = p.oid AND NOT t.tgisinternal
+LEFT JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+WHERE n.nspname = $1 AND (p.prosrc LIKE '%viborm_view_%' OR pg_catalog.obj_description(p.oid, 'pg_proc') LIKE 'viborm_view_%')
+ORDER BY p.proname, t.tgname;
 `;
 
 // =============================================================================
@@ -824,6 +852,29 @@ export async function introspectPostgresSchema(
   );
   const enumsResult = await read<PgEnum>("enums", ENUMS_QUERY);
   const viewsResult = await read<PgView>("views", VIEWS_QUERY);
+  // A table that holds a view kept by triggers is the view, not a table;
+  // what keeps it is read only where one is.
+  const autoTables = new Map<string, string>();
+  for (const row of viewsResult.rows) {
+    const hash = row.stored ? readViewComment(row.definition) : undefined;
+    if (hash !== undefined) autoTables.set(row.view_name, hash);
+  }
+  // What is left of one whose table a hand dropped: its body's marked view.
+  const leftBehind = viewsResult.rows.some(
+    (row) =>
+      !row.stored &&
+      row.view_name.endsWith("_viborm_body") &&
+      readViewMarker(row.definition) !== undefined
+  );
+  const autoKeepersResult =
+    autoTables.size === 0 && !leftBehind
+      ? { rows: [] }
+      : await read<{
+          function_name: string;
+          source: string | null;
+          trigger_name: string | null;
+          table_name: string | null;
+        }>("triggers of views", AUTO_KEEPERS_QUERY);
 
   assertNoCrossSchemaForeignKeys(crossSchemaForeignKeysResult.rows, scope);
 
@@ -853,6 +904,7 @@ export async function introspectPostgresSchema(
 
   for (const table of tablesResult.rows) {
     const tableName = table.table_name;
+    if (autoTables.has(tableName)) continue;
 
     const selected =
       scope.tables === undefined || scope.tables.includes(tableName);
@@ -981,6 +1033,7 @@ export async function introspectPostgresSchema(
   // holds its indexes, read as a table's are.
   const views: ViewDef[] = [];
   for (const row of viewsResult.rows) {
+    if (row.stored) continue;
     const hash = readViewMarker(row.definition);
     if (hash === undefined) continue;
     const reads: unknown = JSON.parse(row.depends_on);
@@ -1002,6 +1055,41 @@ export async function introspectPostgresSchema(
       ...(indexes.length > 0 ? { indexes } : {}),
     });
   }
+
+  const keepers: LiveAutoKeeper[] = [];
+  for (const row of autoKeepersResult.rows) {
+    const hash = readKeeperMarker(row.source);
+    if (hash === undefined) continue;
+    if (
+      !keepers.some(
+        ({ name, kind }) => kind === "function" && name === row.function_name
+      )
+    )
+      keepers.push({ kind: "function", name: row.function_name, hash });
+    if (row.trigger_name !== null && row.table_name !== null)
+      keepers.push({
+        kind: "trigger",
+        name: row.trigger_name,
+        table: row.table_name,
+        hash,
+      });
+  }
+  views.push(
+    ...readAutoViews(
+      [...autoTables].map(([name, hash]) => ({
+        name,
+        hash,
+        indexes: readIndexes(
+          name,
+          indexesByTable.get(name),
+          scope.tables === undefined || scope.tables.includes(name)
+        ),
+      })),
+      keepers,
+      views
+    )
+  );
+  views.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
   return {
     tables,

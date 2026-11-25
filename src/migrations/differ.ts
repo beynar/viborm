@@ -35,6 +35,7 @@ import type {
   UniqueConstraintDef,
 } from "./types";
 import { sortOperations } from "./utils";
+import { dropViewOperation, sameAutoViewObjects } from "./view";
 
 // =============================================================================
 // PARTIAL-INDEX PREDICATE CANONICALIZATION (Decision 7.4)
@@ -774,10 +775,16 @@ export async function diff(
     (desired.views ?? []).map((view) => [view.name, view])
   );
   // A view that keeps its hash keeps its rows; a materialized one has its
-  // indexes compared as a table's are.
-  const keptViews = [...desiredViews.keys()].filter(
-    (name) => currentViews.get(name)?.hash === desiredViews.get(name)!.hash
-  );
+  // indexes compared as a table's are. A view kept by triggers keeps them
+  // only with each of its keepers, as a hand can drop one.
+  const keptViews = [...desiredViews.keys()].filter((name) => {
+    const desiredView = desiredViews.get(name)!;
+    const currentView = currentViews.get(name);
+    return (
+      currentView?.hash === desiredView.hash &&
+      sameAutoViewObjects(currentView, desiredView)
+    );
+  });
 
   const canonicalPredicates = await canonicalizeChangedPredicates(
     new Map<string, IndexHolder>([
@@ -982,12 +989,7 @@ export async function diff(
   // again. What the program does under a view that keeps its hash is
   // `withViewReplacements`, once the program is resolved.
   for (const [name, view] of currentViews) {
-    if (desiredViews.get(name)?.hash !== view.hash)
-      operations.push({
-        type: "dropView",
-        viewName: name,
-        ...(view.materialized ? { materialized: true } : {}),
-      });
+    if (!keptViews.includes(name)) operations.push(dropViewOperation(view));
   }
   for (const [name, view] of desiredViews) {
     if (!keptViews.includes(name))

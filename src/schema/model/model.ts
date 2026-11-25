@@ -9,6 +9,7 @@ import type { Scalar } from "../scalars/base";
 import type { HydratedSchemaNames, SchemaNames } from "../scalars/common";
 import {
   type DeclaredViewState,
+  type MaterializedOptions,
   type MaterializedViewState,
   viewFacts,
 } from "../view/facts";
@@ -532,8 +533,11 @@ export class Model<State extends ModelState> {
   /**
    * A view whose rows the database stores: on PostgreSQL a materialized view,
    * which `.index()` may index and `$refresh()` recomputes. Elsewhere it is an
-   * ordinary view. Only a view is materialized: the `this` type refuses a
-   * table, and the call refuses one a cast lets through.
+   * ordinary view. With `refresh: "auto"`, a table on every database, kept
+   * current by triggers on its source at each write (SurrealDB keeps every
+   * view so), for a view of one table's own fields. Only a view is
+   * materialized: the `this` type refuses a table, and the call refuses one
+   * a cast lets through.
    *
    * Generic over `this`, and marked by an intersection rather than a mapped
    * state: every signature of `Model` is compared whenever two model types
@@ -541,13 +545,18 @@ export class Model<State extends ModelState> {
    * instantiations (+0.8 %) on the packed 50-model extended fixture.
    */
   materialized<S extends State & DeclaredViewState>(
-    this: Model<S>
+    this: Model<S>,
+    options?: MaterializedOptions
   ): Model<S & MaterializedViewState> {
     const view = viewFacts(this);
     if (view === undefined) throw new Error("Only a view is materialized");
     return new Model({
       ...this.#state,
-      view: { ...view, materialized: true },
+      view: {
+        ...view,
+        materialized: true,
+        ...(options?.refresh === "auto" ? { refresh: "auto" } : {}),
+      },
     }) as never;
   }
 

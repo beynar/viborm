@@ -292,6 +292,13 @@ function scanStatements(
   let previousWord: string | undefined;
   /** The word governing the identifier position the cursor stands in. */
   let governing: string | undefined;
+  /**
+   * The CASE … END depth inside an open PostgreSQL `BEGIN ATOMIC` body (a
+   * SQL function's, parsed when it is created): its `;` end its own
+   * statements, and its `END` closes it, so both stay in the one statement
+   * that creates the function.
+   */
+  let atomic = 0;
 
   while (index < sql.length) {
     const char = sql.charAt(index);
@@ -348,7 +355,7 @@ function scanStatements(
       }
     }
     if (char === ";") {
-      if (words.length > 0) {
+      if (words.length > 0 && atomic === 0) {
         statements.push(words);
         words = [];
       }
@@ -380,6 +387,12 @@ function scanStatements(
         text,
         calls: callsArguments(sql, index, governing, dialect),
       });
+      if (dialect === "postgresql") {
+        if (atomic === 0 && text === "ATOMIC" && previousWord === "BEGIN")
+          atomic = 1;
+        else if (atomic > 0 && text === "CASE") atomic += 1;
+        else if (atomic > 0 && text === "END") atomic -= 1;
+      }
       previousWord = text;
       preceding = "word";
       continue;

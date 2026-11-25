@@ -401,9 +401,118 @@ await db.salesByDay.$refresh({ concurrently: true });
 - The [cache](/docs/extensions/cache) is not cleared by a refresh. A cached
   read of the view lives until its TTL, or until you invalidate it.
 
-Nothing refreshes a view for you: no trigger, no schedule, no incremental
+Nothing refreshes such a view for you: no schedule, no incremental
 refresh. Call `$refresh()` after the writes that matter, or from a scheduled
-job.
+job, or let triggers keep it current (below).
+
+### Kept current by triggers
+
+`.materialized({ refresh: "auto" })` stores the view's rows in a table, and
+triggers on its source keep them current: each insert, update and delete
+computes again the row or the group it touched, in the same transaction.
+A read of the view is a read of that table, on every database.
+
+```ts
+const salesByShop = s
+  .view(() => sale, {
+    where: { status: "paid" },
+    by: ["shopId"],
+    _count: true,
+    _sum: { amount: true },
+  })
+  .materialized({ refresh: "auto" });
+
+await db.sale.create({ data: { id: "s1", shopId: "a", status: "paid", amount: 5 } });
+await db.salesByShop.findUnique({ where: { shopId: "a" } }); // { shopId: "a", count: 1, sumAmount: 5 }
+```
+
+It reads one table and its own fields, so that a write to that table is all
+that can change it. Each refusal names the view, at `viborm check` (`W005`)
+and before a migration changes anything:
+
+| In a view kept by triggers | |
+| --- | --- |
+| scalars of its source, its `where` on its own fields with plain values, `by` and `_count`, `_sum`, `_avg`, `_min`, `_max` | ✅ |
+| a relation, `_count` or `_aggregate` in `select`, a relation filter in `where` | refused: a write to the other table would not reach it |
+| `take`, `skip`, `orderBy`, `cursor`, `distinct`, `having`, a time step in `by` | refused: a write recomputes one row or one group |
+| a view as its source | refused: a view takes no write |
+| a view of rows that does not select its source's key | refused: a trigger finds the row a write touched by that key |
+| a nullable field in `by` | refused: a group of `NULL` has no key |
+
+A sum of doubles and the least or greatest text are kept, unlike on
+SurrealDB: a trigger computes a group again with the query `groupBy` runs.
+
+What the migration creates, beside the table that holds the rows (its key
+is the view's key: its source's id, or its `by` fields):
+
+- an ordinary view named `<view>_viborm_body`, holding the view's query: the
+  triggers, the first filling and `$refresh` read it;
+- three triggers on the source, `<view>_viborm_i`, `_u` and `_d`, after each
+  insert, update and delete; an update fires them only where a column the
+  view reads changed;
+- on PostgreSQL (14 or later), the function they call, `<view>_viborm()`,
+  and the one that computes a row or a group again, `<view>_viborm_k`, a
+  SQL function parsed when it is created (`BEGIN ATOMIC`): its comparisons
+  are resolved as the migration resolves them, so a key of an extension's
+  type (`citext`) compares as the view groups it. It runs as its owner, the
+  role that ran the migration (`SECURITY DEFINER`), as a MySQL trigger runs
+  as its definer: a role that writes the source needs no right on the
+  view's table. Two writes to one group wait for each other on a lock of
+  that group for the transaction (`pg_advisory_xact_lock`): without it, the
+  second write would be refused. Dropping the view's table by hand takes
+  `CASCADE` there, which that function depends on;
+- on MySQL, a trigger before each delete of a parent whose `onDelete`
+  cascade (or `setNull` of a column the view reads) reaches the source,
+  `<view>_viborm_on_<parent>`: MySQL runs no trigger for the rows a cascade
+  changes, so this trigger deletes them itself first. A cascade that comes
+  back to a table it left (a self-reference) is refused, as is an
+  `onUpdate: "cascade"` or `"setNull"` that changes a column the view reads.
+  Each trigger reads its group's rows with `FOR SHARE`: under READ COMMITTED
+  a trigger otherwise reads with the snapshot of the statement that fired
+  it, and two writes to one group left the view a row short (measured).
+  A parent's trigger deletes the children itself, so a `deleteMany` of
+  parents filtered on those children (`where: { sales: { some: … } }`) is
+  refused by MySQL (error 1442: a trigger cannot change a table its
+  statement reads). Read the parents' keys first, then delete by key.
+  A `by` field of text no index of the source takes is refused: MySQL
+  keys the view's table on it in a `VARCHAR(191)`, narrower than the
+  source's `TEXT`. Index it on the source.
+
+The names past 63 characters are cut and end with a hash. A migration
+creates all of it, and computes the rows, in one operation. **While it
+computes them, writes to the source wait**: on PostgreSQL and the SQLite
+family until the migration's transaction ends, on MySQL until the filling
+statement ends. On a large table, run that migration when writes can wait.
+
+The cost is on the writes: each write to the source reads the rows of its
+group (a view of groups) or its row, and rewrites the view's row. A write
+to a group of many rows reads them all; an `updateMany` of N rows of one
+group reads it N times. Index the `by` fields on the source: `viborm check`
+warns (`W006`) when no index of the source begins with them, since each
+write would then read the whole table. Its foreign keys are indexed by
+every migration.
+
+`$refresh()` deletes the view's rows and computes them again from its
+query: use it after a write the triggers did not see (a `TRUNCATE`, a bulk
+load that disables them). It is two statements; inside `$transaction` they
+are one. `concurrently` changes nothing.
+
+A name the view's body takes, `<view>_viborm_body`, that a relation
+VibORM did not create already holds is refused before any change. What a
+hand left of such a view (its table dropped, its triggers and body kept) is
+dropped by the next `push`, which then creates the view again.
+
+A replacement drops the triggers with the table. A migration replaces such
+a view when its query changes, and when it changes in any way, but an
+index's creation or drop, a table its triggers fire on or change (its
+source, and on MySQL a parent of a cascade and its children): a trigger
+names their columns. A trigger dropped by hand is seen by the next `push`,
+which replaces the view. On SurrealDB, `refresh: "auto"` is the view it
+already is: the database keeps every view current.
+
+The user that runs migrations needs the right to create triggers (MySQL's
+`TRIGGER` privilege; with binary logging on, some hosts also ask for
+`log_bin_trust_function_creators`).
 
 ## Migrations
 
@@ -510,14 +619,14 @@ facts.
 
 ## Databases
 
-| Database | Views | Materialized |
-| --- | --- | --- |
-| PostgreSQL | ✅ JSON columns are `json` | ✅ |
-| MySQL | ✅ JSON columns are `JSON` | an ordinary view |
-| SQLite | ✅ JSON columns are text | an ordinary view |
-| libSQL, D1, Durable Objects | The SQL is SQLite's. Not run with views in VibORM's test suite yet; D1 takes them through `migrate`, since it refuses a live `push` | an ordinary view |
-| SurrealDB | ✅ the source's own fields and its totals, see [below](#surrealdb) | every view is kept current by the database |
-| Snowflake | A schema holding a view is refused | |
+| Database | Views | Materialized | Kept by triggers |
+| --- | --- | --- | --- |
+| PostgreSQL | ✅ JSON columns are `json` | ✅ | ✅ |
+| MySQL | ✅ JSON columns are `JSON` | an ordinary view | ✅ cascades done by triggers on the parents |
+| SQLite | ✅ JSON columns are text | an ordinary view | ✅ |
+| libSQL, D1, Durable Objects | The SQL is SQLite's. Not run with views in VibORM's test suite yet; D1 takes them through `migrate`, since it refuses a live `push` | an ordinary view | ✅ (D1 through `migrate`) |
+| SurrealDB | ✅ the source's own fields and its totals, see [below](#surrealdb) | every view is kept current by the database | the same view |
+| Snowflake | A schema holding a view is refused | | |
 
 ### SurrealDB
 

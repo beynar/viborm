@@ -113,6 +113,8 @@ export interface PgView {
   /** A materialized view (`relkind = 'm'`). */
   materialized: boolean;
   definition: string | null;
+  /** A table, whose comment is its `definition`: one holding a view kept by triggers. */
+  stored: boolean;
   /** JSON text: the names of the namespace's relations its rule depends on. */
   depends_on: string;
 }

@@ -95,6 +95,7 @@ export function testViewDefinition(
     dependsOn: [...definition.dependsOn],
     materialized:
       viewFacts(view)?.materialized === true && driver.materializesViews(),
+    auto: false,
     sql: definition.body({
       table: (name) =>
         namespace === undefined

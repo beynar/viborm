@@ -117,6 +117,15 @@ export async function readCatalog(
         name: table.name,
         reason: "it is VibORM's migration control table",
       });
+  // A table holding a view kept by triggers is that view, never a model.
+  for (const view of snapshot.views ?? [])
+    if (view.auto)
+      skipped.push({
+        kind: "view",
+        name: view.name,
+        reason:
+          "it is a view kept by triggers, and a document declares tables only",
+      });
 
   const identityColumns = new Set<string>();
   if (dialect === "postgresql") {

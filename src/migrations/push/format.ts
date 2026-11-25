@@ -37,10 +37,14 @@ export function formatOperation(op: DiffOperation): string {
       return `- Drop primary key "${op.constraintName}" from "${op.tableName}"`;
     case "createView":
       // The costly one: readers of a replaced materialized view wait on it.
+      if (op.view.auto)
+        return `+ Create view "${op.view.name}" kept by triggers on "${op.view.auto.storage?.source ?? op.view.dependsOn[0]}" (its rows are computed in the migration, and writes to its source wait until they are)`;
       return op.view.materialized
         ? `+ Create materialized view "${op.view.name}" (computed by its CREATE, which runs the whole query; its readers wait until the migration commits)`
         : `+ Create view "${op.view.name}"`;
     case "dropView":
+      if (op.auto)
+        return `- Drop view "${op.viewName}" kept by triggers, and its triggers`;
       return `- Drop ${op.materialized ? "materialized " : ""}view "${op.viewName}"`;
     case "createEnum":
       return `+ Create enum "${op.enumDef.name}" with values [${op.enumDef.values.join(", ")}]`;

@@ -28,7 +28,7 @@ import { childrenBeforeParents, type TableReference } from "./drop-order";
 import { introspectSchema } from "./push/planner";
 import type { ForeignKeyDef, SchemaSnapshot } from "./types";
 import { createQueryExecutor } from "./utils";
-import { orderViews } from "./view";
+import { dropViewOperation, orderViews } from "./view";
 
 /** One table or view this reset drops, and the statement that drops it. */
 interface PlannedTableDrop {
@@ -36,6 +36,13 @@ interface PlannedTableDrop {
   readonly sql: string;
   /** A materialized view, which its probes read as its own kind. */
   readonly materialized?: boolean;
+  /**
+   * A view kept by triggers: a table, which its probes read as one, and the
+   * statements that drop what keeps it first (each skips what is gone).
+   */
+  readonly keepers?: readonly string[];
+  /** What is left of one whose table a hand dropped: its keepers alone. */
+  readonly tableless?: boolean;
 }
 
 /**
@@ -166,25 +173,26 @@ export async function planLiveNamespaceReset(
   // The views VibORM marked go first, each before what it reads. A view
   // without the marker is not in the snapshot, and RESTRICT keeps it.
   const views = snapshot.views ?? [];
-  const materialized = new Set(
-    views.flatMap((view) => (view.materialized ? [view.name] : []))
-  );
+  const byName = new Map(views.map((view) => [view.name, view]));
   const dropViews: PlannedTableDrop[] = orderViews(
-    new Set(views.map((view) => view.name)),
+    new Set(byName.keys()),
     views,
     true
-  ).map((name) => ({
-    name,
-    materialized: materialized.has(name),
-    sql: migrationDriver.generateDDL(
-      {
-        type: "dropView",
-        viewName: name,
-        ...(materialized.has(name) ? { materialized: true } : {}),
-      },
+  ).map((name) => {
+    const view = byName.get(name)!;
+    const statements = migrationDriver.compileStatements(
+      dropViewOperation(view),
       { destination: "live" }
-    ),
-  }));
+    );
+    if (view.auto?.tableless)
+      return { name, sql: "", keepers: statements, tableless: true };
+    return {
+      name,
+      materialized: view.materialized === true,
+      sql: statements.at(-1)!,
+      ...(view.auto ? { keepers: statements.slice(0, -1) } : {}),
+    };
+  });
 
   // Drop every foreign key the estate owns, explicitly, before any table
   // drop. This is what replaces `CASCADE` and `FOREIGN_KEY_CHECKS = 0`:
@@ -225,7 +233,10 @@ export async function planLiveNamespaceReset(
     dropTables,
     dropEnums,
     clear: [
-      ...dropViews.map((view) => view.sql),
+      ...dropViews.flatMap((view) => [
+        ...(view.keepers ?? []),
+        ...(view.tableless ? [] : [view.sql]),
+      ]),
       ...dropForeignKeys,
       ...dropTables.map((table) => table.sql),
       ...dropEnums,

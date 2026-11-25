@@ -43,10 +43,11 @@ import type { AnyDriver } from "@drivers/driver";
 import { quantized } from "@drivers/surrealdb/quantized";
 import type { SurrealQueries } from "@drivers/surrealdb/queries";
 import { UnsupportedOperationError } from "@errors";
-import type {
-  PreparedPredicate,
-  Queries,
-} from "@query-engine/raptor3/shared/query";
+import {
+  type KeptViewReasons,
+  refuseUnkept,
+} from "@query-engine/raptor3/kept-view";
+import type { Queries } from "@query-engine/raptor3/shared/query";
 import { engineBackend } from "@query-engine/raptor3/shared/query-backend";
 import {
   type Arguments,
@@ -85,6 +86,15 @@ const RECORD =
 const EXTREMES =
   "SurrealDB keeps a view's least and greatest values current for numbers (math::min, math::max) and dateTimes (time::min, time::max) only";
 
+/** Why a view here cannot hold what a view kept by its source's writes cannot. */
+const REASONS: KeptViewReasons = {
+  stale: STALE,
+  unordered: UNORDERED,
+  distinct: "a view on SurrealDB holds one row per row of its source",
+  unfiltered: UNFILTERED,
+  noStep: NO_STEP,
+};
+
 /** What a refusal says an aggregate of a value does. */
 const VERBS: Readonly<Record<Exclude<ViewAggregate, "_count">, string>> = {
   _sum: "sums",
@@ -99,63 +109,6 @@ function refuse(clause: string, view: string, reason: string): never {
     `View '${view}' cannot be created from a query that ${clause}: ${reason}.`,
     { meta: { model: view, feature: clause, dialect: "surrealql" } }
   );
-}
-
-/** What a view's query may not say at its root here, read off its admitted form. */
-function refuseRoot(view: string, query: Arguments): void {
-  if (query.cursor !== undefined)
-    refuse("pages from a cursor", view, "a paging anchor is not a row set");
-  if (query.take !== undefined) refuse("takes a window", view, UNORDERED);
-  if (query.skip !== undefined) refuse("skips rows", view, UNORDERED);
-  if (query.orderBy !== undefined) refuse("orders its rows", view, UNORDERED);
-  if (query.distinct !== undefined)
-    refuse(
-      "keeps one row per distinct value",
-      view,
-      "a view on SurrealDB holds one row per row of its source"
-    );
-}
-
-/**
- * Refuses a filter that is not the source's own fields compared with plain
- * values: a relation (or any read of another table) would go stale, and a
- * caller's SQL fragment has no literal.
- */
-function refuseFilter(view: string, predicate: PreparedPredicate): void {
-  switch (predicate.kind) {
-    case "and":
-    case "or":
-      for (const inner of predicate.predicates) refuseFilter(view, inner);
-      return;
-    case "not":
-      refuseFilter(view, predicate.predicate);
-      return;
-    case "always":
-      return;
-    case "operation": {
-      const operands = [
-        ...(predicate.operand ? [predicate.operand] : []),
-        ...(predicate.operands ?? []),
-      ];
-      if (
-        predicate.value instanceof Sql ||
-        operands.some(
-          (operand) =>
-            operand.kind === "sql" ||
-            operand.kind === "parameter" ||
-            (operand.kind === "value" && operand.value instanceof Sql)
-        )
-      )
-        refuse(
-          "filters with an SQL fragment",
-          view,
-          "a view's query holds plain values, which its migration writes as literals"
-        );
-      return;
-    }
-    default:
-      refuse("filters through a relation", view, STALE);
-  }
 }
 
 /**
@@ -374,8 +327,7 @@ export function surrealViewWriter(
 ): ViewBodyWriter {
   return {
     write(context, view) {
-      const { source, query, columns, documents, aggregated } =
-        viewFacts(view)!;
+      const { source, query, columns, aggregated } = viewFacts(view)!;
       const schema = new EngineSchema(context.schema, context.resolved);
       const name = nameOf(view);
       const queries =
@@ -402,20 +354,18 @@ export function surrealViewWriter(
           cause instanceof Error ? cause.message : String(cause)
         );
       }
-      refuseRoot(name, admitted);
-      if (admitted.having !== undefined)
-        refuse("keeps the groups a having holds", name, UNFILTERED);
-      // A relation, `_count` and `_aggregate` are documents read of other rows.
-      const [document] = documents;
-      if (document !== undefined)
-        refuse(`selects '${document}' through a relation`, name, STALE);
+      const predicate =
+        admitted.where === undefined
+          ? undefined
+          : queries.prepareSelector(source, admitted.where).predicate;
+      refuseUnkept(view, admitted, predicate, REASONS, (clause, reason) =>
+        refuse(clause, name, reason)
+      );
       const low = queries.lowering;
       const keys = queries.keyOrder(view);
       const grouped: Sql[] = [];
       const fields = aggregated
         ? Object.entries(aggregated.origins).map(([column, origin]) => {
-            if (origin.step !== undefined)
-              refuse("groups by a time step", name, NO_STEP);
             const alias = sql.raw(identifier(column));
             if (origin.aggregate !== undefined)
               return sql`${aggregateOf(name, source, low, origin)} AS ${alias}`;
@@ -450,11 +400,6 @@ export function surrealViewWriter(
               .filter((field) => !keys.includes(field))
               .map((field) => low.physical(source, field)),
           ];
-      const predicate =
-        admitted.where === undefined
-          ? undefined
-          : queries.prepareSelector(source, admitted.where).predicate;
-      if (predicate !== undefined) refuseFilter(name, predicate);
       // The database reads a view's filter of a deleted row too, every field
       // of it NONE: a function refusing NONE there fails the delete (measured).
       // The filter holds of a row that is there.

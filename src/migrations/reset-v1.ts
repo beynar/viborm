@@ -662,7 +662,15 @@ async function executeResetClear(
     }
     await confirmResetStep(pinned, command, graph, attemptId, drop.sql);
   };
-  for (const view of livePlan.dropViews) await dropProven(view, "view");
+  for (const view of livePlan.dropViews) {
+    // A view kept by triggers: what keeps it, then its table.
+    for (const sql of view.keepers ?? []) {
+      await runClearStatement(sql);
+      await confirmResetStep(pinned, command, graph, attemptId, sql);
+    }
+    if (!view.tableless)
+      await dropProven(view, view.keepers ? "table" : "view");
+  }
   for (const sql of livePlan.dropForeignKeys) {
     await runClearStatement(sql);
     await confirmResetStep(pinned, command, graph, attemptId, sql);

@@ -21,6 +21,10 @@ import { hasIdPrefix } from "@validation/primitives/id-formats";
 import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { errorCause } from "../../../errors/diagnostic-safety";
+import {
+  autoViewBodyName,
+  autoViewObjectName,
+} from "../../../schema/view/auto-names";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
 import { type LowLockContext, tableRewrites } from "../../compile";
 import {
@@ -47,15 +51,24 @@ import {
   readExecutableStatements,
 } from "../../statement-safety";
 import type {
+  AutoViewObject,
+  AutoViewStorage,
   ColumnDef,
   DiffOperation,
   EnumDependentCheck,
   IndexDef,
   SchemaSnapshot,
   TableDef,
+  ViewDef,
 } from "../../types";
 import { derivedMigrationName } from "../../utils";
-import { type LiveRelation, refuseRelationCollision } from "../../view";
+import {
+  autoViewObjects,
+  type LiveRelation,
+  refuseRelationCollision,
+  viewMarker,
+  viewRelationNames,
+} from "../../view";
 import type { BoundMigrationDriver } from "..";
 import type {
   AddColumnOperation,
@@ -423,6 +436,168 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
   override materializesViews(): boolean {
     return true;
   }
+
+  /**
+   * Its triggers call one function, which carries the marker, and that one
+   * calls the function that computes a row or a group again (`_k`).
+   */
+  override autoViewObjects(
+    view: string,
+    storage: AutoViewStorage
+  ): AutoViewObject[] {
+    return autoViewObjects(view, storage, [
+      { kind: "function", name: autoViewObjectName(view, "") },
+      { kind: "function", name: autoViewObjectName(view, "_k") },
+    ]);
+  }
+
+  /**
+   * The marker is the table's comment (`COMMENT ON TABLE`), which a dump and
+   * a restore keep with it.
+   */
+  protected override autoViewTable(
+    table: TableDef,
+    marker: string,
+    context: DDLContext
+  ): string[] {
+    return [
+      ...this.generateCreateTable({ type: "createTable", table }, context),
+      `COMMENT ON TABLE ${this.qualify(table.name)} IS ${this.escapeValue(marker)}`,
+    ];
+  }
+
+  /**
+   * Two functions and three row triggers on the source.
+   *
+   * `<view>_viborm_k(old key…, new key…, has old, has new)`, a SQL function
+   * parsed when it is created (`BEGIN ATOMIC`, PostgreSQL 14), computes again
+   * the row or the group of the old key, then of the new one where there is
+   * one and it moved: it deletes the view's row of that key and inserts its
+   * body's. Its comparisons are resolved then, on the migration's search
+   * path, so a key of an extension's type compares as the view's body groups
+   * it (`citext`), and no caller's search path stands in for them. Its
+   * arguments are positional (`$1`), which no column of the view shadows.
+   * Only its owner may call it (`REVOKE … FROM PUBLIC`).
+   *
+   * `<view>_viborm()`, the plpgsql function the triggers call after each
+   * insert, update and delete, carries the marker. It runs as its owner, the
+   * migration's role (`SECURITY DEFINER`), as a MySQL trigger runs as its
+   * definer: a role that writes the source needs no right on the view's
+   * table nor on `_k`. Everything it names at run time is `pg_catalog`'s or
+   * qualified, which no schema a caller puts first can shadow. A group is
+   * computed under a lock of its key for the transaction
+   * (`pg_advisory_xact_lock` of the view and the key's hash), the two of an
+   * update taken in the order of their hashes: without it, two writes to one
+   * group cross, the second inserting the row the first already inserted,
+   * which refuses the user's write (measured on PostgreSQL 18). A row of a
+   * view of rows is held by the source row's own lock.
+   *
+   * An update fires it where the row's final image of the columns the view
+   * reads changed (`*=`, the record image comparison, operator bound when the
+   * trigger is created): a `BEFORE UPDATE` trigger of the source may change
+   * one the statement did not set, which `UPDATE OF` would miss; a value
+   * comparison would need an equality `json` lacks, and a text rounds a
+   * double. An update that changes none takes no lock, which two writers of
+   * columns the view does not read would otherwise deadlock on.
+   */
+  protected override autoViewKeepers(
+    view: ViewDef,
+    storage: AutoViewStorage,
+    context: DDLContext
+  ): string[] {
+    const quote = (name: string) => this.escapeIdentifier(name);
+    const fn = this.qualify(autoViewObjectName(view.name, ""));
+    const recompute = this.qualify(autoViewObjectName(view.name, "_k"));
+    const source = this.qualify(storage.source);
+    const table = this.qualify(view.name);
+    const body = this.qualify(autoViewBodyName(view.name));
+    const columns = this.autoViewColumns(storage);
+    const width = storage.key.length;
+    const types = storage.key.map((column) =>
+      this.formatColumnType(
+        storage.columns.find(({ name }) => name === column)!,
+        context
+      )
+    );
+    const signature = [...types, ...types, "boolean", "boolean"].join(", ");
+    // `$1…` the old key, `$<width + 1>…` the new one, then whether each is:
+    // positional, so no column of the view shadows them.
+    const at = (offset: number) =>
+      storage.key
+        .map((column, index) => `${quote(column)} = $${offset + index + 1}`)
+        .join(" AND ");
+    const positions = (offset: number) =>
+      storage.key.map((_, index) => `$${offset + index + 1}`).join(", ");
+    const hasOld = `$${2 * width + 1}`;
+    const hasNew = `$${2 * width + 2}`;
+    const moved = `(NOT ${hasOld} OR ROW(${positions(width)}) IS DISTINCT FROM ROW(${positions(0)}))`;
+    const key = (ref: string) =>
+      storage.sourceKey.map((column) => `${ref}.${quote(column)}`).join(", ");
+    const hash = (ref: string) =>
+      `pg_catalog.hashtext(CAST(ROW(${key(ref)}) AS pg_catalog.text))`;
+    const isNot = (op: string) => `TG_OP OPERATOR(pg_catalog.<>) '${op}'`;
+    // The view's own lock space: two int4 keys, apart from the one bigint
+    // key a migration command locks by.
+    const space = Number.parseInt(view.hash.slice(0, 7), 16);
+    const marker = viewMarker(view.hash);
+    // A record, not a row constructor: two constructors compare field by
+    // field, with each field's own operator.
+    const image = (ref: string) =>
+      `CAST(ROW(${storage.reads.map((column) => `${ref}.${quote(column)}`).join(", ")}) AS record)`;
+    const trigger = (suffix: string, event: string, when = "") =>
+      `CREATE TRIGGER ${quote(autoViewObjectName(view.name, suffix))} AFTER ${event} ON ${source} FOR EACH ROW${when} EXECUTE FUNCTION ${fn}()`;
+    return [
+      [
+        `CREATE FUNCTION ${recompute}(${signature}) RETURNS void LANGUAGE sql`,
+        "BEGIN ATOMIC",
+        `  DELETE FROM ${table} WHERE ${hasOld} AND ${at(0)};`,
+        `  INSERT INTO ${table} (${columns}) SELECT ${columns} FROM ${body} WHERE ${hasOld} AND ${at(0)};`,
+        `  DELETE FROM ${table} WHERE ${hasNew} AND ${moved} AND ${at(width)};`,
+        `  INSERT INTO ${table} (${columns}) SELECT ${columns} FROM ${body} WHERE ${hasNew} AND ${moved} AND ${at(width)};`,
+        "END",
+      ].join("\n"),
+      `REVOKE ALL ON FUNCTION ${recompute}(${signature}) FROM PUBLIC`,
+      `COMMENT ON FUNCTION ${recompute}(${signature}) IS ${this.escapeValue(marker)}`,
+      [
+        `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $viborm$`,
+        "DECLARE",
+        "  o integer;",
+        "  n integer;",
+        `BEGIN -- ${marker}`,
+        ...(storage.grouped
+          ? [
+              `  IF ${isNot("INSERT")} THEN o := ${hash("OLD")}; END IF;`,
+              `  IF ${isNot("DELETE")} THEN n := ${hash("NEW")}; END IF;`,
+              `  PERFORM pg_catalog.pg_advisory_xact_lock(${space}, LEAST(o, n));`,
+              `  IF GREATEST(o, n) OPERATOR(pg_catalog.<>) LEAST(o, n) THEN PERFORM pg_catalog.pg_advisory_xact_lock(${space}, GREATEST(o, n)); END IF;`,
+            ]
+          : []),
+        `  PERFORM ${recompute}(${key("OLD")}, ${key("NEW")}, ${isNot("INSERT")}, ${isNot("DELETE")});`,
+        "  RETURN NULL;",
+        "END $viborm$",
+      ].join("\n"),
+      `REVOKE ALL ON FUNCTION ${fn}() FROM PUBLIC`,
+      trigger("_i", "INSERT"),
+      trigger(
+        "_u",
+        "UPDATE",
+        ` WHEN (NOT (${image("OLD")} *= ${image("NEW")}))`
+      ),
+      trigger("_d", "DELETE"),
+    ];
+  }
+
+  /** A trigger is named on its table; a function by its name alone, which is its view's. */
+  protected override dropAutoViewObject(
+    object: AutoViewObject,
+    context: DDLContext
+  ): string {
+    if (object.kind === "trigger")
+      return `DROP TRIGGER IF EXISTS ${this.escapeIdentifier(object.name)} ON ${this.qualify(object.table!)}`;
+    if (object.kind === "function")
+      return `DROP FUNCTION IF EXISTS ${this.qualify(object.name)}`;
+    return super.dropAutoViewObject(object, context);
+  }
   readonly driverName = "postgresql";
 
   readonly capabilities: MigrationCapabilities = {
@@ -734,7 +909,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
         ...new Set(
           snapshots.flatMap((snapshot) => [
             ...snapshot.tables.map((table) => table.name),
-            ...(snapshot.views ?? []).map((view) => view.name),
+            ...(snapshot.views ?? []).flatMap(viewRelationNames),
           ])
         ),
       ];
@@ -743,8 +918,9 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
           name: string;
           kind: string;
           definition: string | null;
+          comment: string | null;
         }>(
-          `SELECT relation.relname AS name, relation.relkind AS kind, CASE WHEN relation.relkind IN ('v','m') THEN pg_catalog.pg_get_viewdef(relation.oid) END AS definition FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname=$1 AND relation.relkind IN ('r','p','f','v','m') AND relation.relname=ANY($2::text[])`,
+          `SELECT relation.relname AS name, relation.relkind AS kind, CASE WHEN relation.relkind IN ('v','m') THEN pg_catalog.pg_get_viewdef(relation.oid) END AS definition, pg_catalog.obj_description(relation.oid, 'pg_class') AS comment FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname=$1 AND relation.relkind IN ('r','p','f','v','m') AND relation.relname=ANY($2::text[])`,
           [this.requireEstateNamespace(), arrayLiteralText(declaredNames)]
         );
         refuseRelationCollision(
@@ -760,6 +936,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
                     ? "materialized view"
                     : "table",
               definition: row.definition,
+              comment: row.comment ?? undefined,
             })
           )
         );

@@ -10,11 +10,15 @@
 import { Command } from "commander";
 import type { AnyDriver } from "../../drivers/driver";
 import { getMigrationDriver } from "../../migrations/drivers";
-import type { ViewWriter } from "../../migrations/drivers/base";
+import type {
+  MigrationDriver,
+  ViewWriter,
+} from "../../migrations/drivers/base";
 import { mysqlMigrationDriver } from "../../migrations/drivers/mysql";
 import { postgresMigrationDriver } from "../../migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "../../migrations/drivers/sqlite";
 import type { Dialect } from "../../migrations/drivers/types";
+import { serializeModels } from "../../migrations/serializer";
 import {
   auditStorage,
   type StorageColumnAudit,
@@ -109,8 +113,38 @@ function withViewQueries(
       });
     }
   }
+  // What a view kept by triggers needs of the schema's other tables (MySQL's
+  // cascades) is read off the whole schema, as a migration serializes it.
+  const cascades = errors.length === 0 && AUTO_CASCADES[driver.dialect];
+  if (
+    cascades &&
+    Object.values(models).some((model) => viewFacts(model)?.refresh === "auto")
+  )
+    try {
+      serializeModels(models, { migrationDriver: cascades() });
+    } catch (cause) {
+      const meta = (cause as { meta?: { feature?: string; model?: string } })
+        .meta;
+      if (meta?.feature !== "auto view") throw cause;
+      errors.push({
+        code: "W005",
+        message: (cause as Error).message,
+        severity: "error",
+        model:
+          Object.keys(models).find(
+            (key) => models[key]!["~"].names.sql === meta.model
+          ) ??
+          meta.model ??
+          "",
+      });
+    }
   return { ...result, errors, valid: errors.length === 0 };
 }
+
+/** The dialects whose cascades a view kept by triggers must follow itself. */
+const AUTO_CASCADES: Partial<Record<Dialect, () => MigrationDriver>> = {
+  mysql: () => mysqlMigrationDriver,
+};
 
 async function runCheck(options: CheckCliOptions): Promise<void> {
   const load = { config: options.config, skipValidation: true };

@@ -118,6 +118,9 @@ const SOURCES = [
   "src/drivers/surrealdb/read-backend.ts",
   "src/migrations/drivers/surrealql/index.ts",
   "src/migrations/drivers/surrealql/view.ts",
+  // The rules every view its source's writes keep current shares (views
+  // kept by triggers elsewhere state them with their own reasons).
+  "src/query-engine/raptor3/kept-view.ts",
 ];
 const REFUSAL = /\brefuse(?:Until)?\(\s*(`[^`]*`|"[^"]*")/g;
 const INTERPOLATION = /\$\{(?:[^{}]|\{[^{}]*\})*\}/g;

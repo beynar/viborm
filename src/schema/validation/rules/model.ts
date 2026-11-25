@@ -9,7 +9,7 @@ import { isGeneratorDefault } from "../../scalars/common";
 import { viewFacts } from "../../view/facts";
 import type { Schema, SchemaValidationIssue } from "../types";
 import { getScalars } from "./model-members";
-import { viewIsItsRead } from "./view";
+import { autoViewIndexed, viewIsItsRead } from "./view";
 
 /**
  * A string field's literal string default under its own validator
@@ -631,4 +631,5 @@ export const modelRules = [
   decimalListsAreNotKeyMembers,
   geoPointRolesArePortable,
   viewIsItsRead,
+  autoViewIndexed,
 ];

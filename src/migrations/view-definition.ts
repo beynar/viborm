@@ -23,9 +23,10 @@
  * unique index, which only fresh rows are known to satisfy.
  */
 
+import { sql } from "@sql";
 import { inlineLiterals } from "../adapters/inline-literals";
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { viewBody } from "../query-engine/raptor3/view-body";
+import { type ViewBodyKey, viewBody } from "../query-engine/raptor3/view-body";
 import { fieldRefPayload, isFieldRef } from "../schema/field-ref";
 import { jsonNullKindOf } from "../schema/json-null";
 import { type AnyModel, Model } from "../schema/model";
@@ -40,6 +41,7 @@ import { createResolvedSchemaRegistry } from "../validation/builder";
 import { isRecord } from "../validation/value-guards";
 import type {
   MigrationDriver,
+  SqlViewWriter,
   ViewWriteContext,
   ViewWriter,
   WrittenView,
@@ -60,6 +62,18 @@ export interface ViewDefinition {
    * ordinary sees it as the same view.
    */
   readonly materialized: boolean;
+  /**
+   * The view is declared `.materialized({ refresh: "auto" })` and the
+   * driver keeps such a view by triggers: a table its source's writes keep
+   * current. Part of the identity only then; never with {@link materialized}.
+   */
+  readonly auto: boolean;
+  /**
+   * Where the driver's triggers read a key's rows themselves
+   * (`keyedAutoViewBodies`, MySQL): the body of the row or group of the
+   * trigger row `OLD` and of `NEW`, the key's tests in its own filter.
+   */
+  readonly keyed?: { readonly OLD: string; readonly NEW: string };
 }
 
 /** What the serializer holds when it asks for a view's definition. */
@@ -74,6 +88,8 @@ export interface ViewDefinitionContext {
 
 /** Raised by a release that must write every view body again. */
 const VIEW_REVISION = 1;
+/** Raised by a release that must write every `refresh: "auto"` view's triggers again. */
+const AUTO_REVISION = 1;
 
 /** What every view of one schema is defined over, built once per resolved index. */
 interface SchemaFacts {
@@ -222,12 +238,14 @@ function crossedRelations(
 export function writeView(
   writer: ViewWriter,
   context: ViewWriteContext,
-  view: AnyModel
+  view: AnyModel,
+  keyed?: (adapter: SqlViewWriter["adapter"]) => ViewBodyKey
 ): WrittenView {
   if ("write" in writer) return writer.write(context, view);
   const body = viewBody(
     { ...context, adapter: writer.adapter, columns: writer.columns },
-    view
+    view,
+    keyed?.(writer.adapter)
   );
   return {
     sql: inlineLiterals(writer.dialect, body.statement),
@@ -302,8 +320,13 @@ export function viewDefinition(
     relations,
     crossed
   );
+  const auto =
+    facts.refresh === "auto" && migrationDriver.keepsViewsByTriggers();
   const materialized =
-    facts.materialized === true && migrationDriver.materializesViews();
+    !auto && facts.materialized === true && migrationDriver.materializesViews();
+  // A stored view's keys are unique on its stored rows.
+  const keys = () =>
+    getModelKeyCatalog(view).addressableKeys.map((key) => key.fields);
   const identity = JSON.stringify(
     {
       revision: VIEW_REVISION,
@@ -317,22 +340,90 @@ export function viewDefinition(
       // materialized view holds its keys too, each of which is a unique
       // index on its stored rows: one its source gains would be built on the
       // rows of the last refresh, which the source's new constraint says
-      // nothing of. Creating the view again computes them first.
-      ...(materialized
-        ? {
-            materialized,
-            keys: getModelKeyCatalog(view).addressableKeys.map(
-              (key) => key.fields
-            ),
-          }
-        : {}),
+      // nothing of. Creating the view again computes them first. A view
+      // kept by triggers holds them for the same reason, and the revision
+      // of the triggers that keep it.
+      ...(auto
+        ? { auto: AUTO_REVISION, keys: keys() }
+        : materialized
+          ? { materialized, keys: keys() }
+          : {}),
     },
     relationValue
   );
+  // The key's own body, per trigger row, where the triggers read it so.
+  const keyedBody = (ref: "OLD" | "NEW") => {
+    const { source, aggregated } = facts;
+    const fields = aggregated
+      ? aggregated.by
+      : (getModelKeyCatalog(source).addressableKeys.find(
+          (key) => key.kind === "primary"
+        )?.fields ?? []);
+    return writeView(
+      migrationDriver.viewWriter()!,
+      {
+        schema: models,
+        resolved: { index: relations, registry: schema.registry },
+      },
+      view,
+      (adapter) => ({
+        fields,
+        value: (field) =>
+          sql`${sql.raw(ref)}.${adapter.identifiers.escape(source["~"].getFieldName(field).sql!)}`,
+      })
+    ).sql;
+  };
   return {
     sql: body.sql,
     hash: domainHash(HASH_DOMAIN.view, utf8Bytes(identity)).slice(0, 40),
     dependsOn,
     materialized,
+    auto,
+    ...(auto && migrationDriver.keyedAutoViewBodies()
+      ? { keyed: { OLD: keyedBody("OLD"), NEW: keyedBody("NEW") } }
+      : {}),
   };
+}
+
+/**
+ * The fields of the source a filter names, read off its identity value: each
+ * key that is a scalar of the source, and each field a reference names
+ * (`$field`), however deep. A literal that spells one adds a field: the
+ * set holds every field the filter reads, and may hold more.
+ */
+function filterFields(
+  scalars: Readonly<Record<string, unknown>>,
+  value: unknown,
+  into: Set<string>
+): void {
+  if (Array.isArray(value)) {
+    for (const member of value) filterFields(scalars, member, into);
+    return;
+  }
+  if (!isRecord(value)) return;
+  for (const [key, member] of Object.entries(value)) {
+    if (key === "$field" && typeof member === "string") into.add(member);
+    else if (key in scalars) into.add(key);
+    filterFields(scalars, member, into);
+  }
+}
+
+/**
+ * The columns of its source a view of one table reads, sorted: each it
+ * selects, groups by or aggregates, and each its filter names. A write that
+ * changes none of them changes none of its rows.
+ */
+export function viewSourceReads(view: AnyModel): string[] {
+  const { source, query, columns, aggregated } = viewFacts(view)!;
+  const scalars = source["~"].state.scalars;
+  const fields = new Set<string>();
+  for (const column of columns) {
+    const field = aggregated ? aggregated.origins[column]?.field : column;
+    if (field !== undefined) fields.add(field);
+  }
+  filterFields(scalars, identityValue(query.where), fields);
+  return [...fields]
+    .filter((field) => field in scalars)
+    .map((field) => source["~"].getFieldName(field).sql)
+    .sort();
 }

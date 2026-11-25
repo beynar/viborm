@@ -248,7 +248,11 @@ function buildView(
     model = call(pointer(path, "table"), () => model.map(table));
   }
   if (document.materialized === true) {
-    model = call(pointer(path, "materialized"), () => model.materialized());
+    const options =
+      document.refresh === "auto" ? { refresh: "auto" as const } : undefined;
+    model = call(pointer(path, "materialized"), () =>
+      model.materialized(options)
+    );
   }
   return buildIndexes(model, document.indexes, path);
 }

@@ -257,15 +257,26 @@ export function fingerprintSnapshot(
     .sort(byName);
   // A view is its name and hash, and a materialized one its kind and indexes
   // (which no hash holds); present only where one is, so a schema without a
-  // view, or without a materialized one, keeps its fingerprint.
+  // view, or without a materialized one, keeps its fingerprint. A view kept
+  // by triggers adds its indexes and the objects that keep it, which a hand
+  // can drop.
   const views = [...(snapshot.views ?? [])]
     .map((view) => ({
       name: view.name,
       hash: view.hash,
-      ...(view.materialized
+      ...(view.materialized || view.auto
         ? {
-            materialized: true,
+            ...(view.materialized ? { materialized: true } : {}),
             indexes: (view.indexes ?? []).map(indexProjection).sort(byName),
+          }
+        : {}),
+      ...(view.auto
+        ? {
+            auto: view.auto.objects.map(({ kind, name, table }) => ({
+              kind,
+              name,
+              ...(table === undefined ? {} : { table }),
+            })),
           }
         : {}),
     }))
