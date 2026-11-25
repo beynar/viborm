@@ -357,6 +357,18 @@ describe("model-level .omit() outranks an aggregate", () => {
     expect(messages(result)).toContain("vaultPin");
   });
 
+  test("an order returns no value: groupBy and a relation sort by it", () => {
+    const grouped = parse(secretiveSchemas.secretive.args.groupBy, {
+      by: ["label"],
+      orderBy: { _max: { vaultPin: "desc" } },
+    });
+    expect(grouped.issues).toBeUndefined();
+    const parents = parse(secretiveSchemas.keeper.args.findMany, {
+      orderBy: { vaults: { _max: { vaultPin: "desc" } } },
+    });
+    expect(parents.issues).toBeUndefined();
+  });
+
   test("what returns no value keeps it: _count, where", () => {
     const result = parse(secretiveSchemas.secretive.args.aggregate, {
       where: { vaultPin: { gt: 3 } },

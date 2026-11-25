@@ -92,13 +92,14 @@ type ModelStateOf<M extends AnyModel> = M["~"]["state"];
  * aggregate (`_avg`, `_sum`, `_min`, `_max`) and no `by` names it: each would
  * return the value, or a value computed from it, that `select` refuses.
  * `_count`, `where`, `having` and `orderBy` keep it, as `where` and `orderBy`
- * of a find do: none returns the value.
+ * of a find do: none returns the value. So only the projections subtract it;
+ * the eligible keys below are shared with the order members and keep it.
  */
 type ProjectableKeys<M extends AnyModel, K> = Exclude<K, ModelOmittedKeys<M>>;
 
-type AggregateScalarKeys<M extends AnyModel> = ProjectableKeys<
-  M,
-  Exclude<NonPointScalarKeys<ModelStateOf<M>["scalars"]>, ListScalarKeys<M>>
+type AggregateScalarKeys<M extends AnyModel> = Exclude<
+  NonPointScalarKeys<ModelStateOf<M>["scalars"]>,
+  ListScalarKeys<M>
 >;
 
 export type CountScalarKeys<M extends AnyModel> =
@@ -106,17 +107,17 @@ export type CountScalarKeys<M extends AnyModel> =
   | ScalarKeys<ModelStateOf<M>["scalars"]>;
 
 type ListAggregateEntries<M extends AnyModel> = V.FromKeys<
-  ProjectableKeys<M, ListScalarKeys<M>>[],
+  ListScalarKeys<M>[],
   AggregateValueRefusalSchema
 >["entries"];
 
 type PointAggregateEntries<M extends AnyModel> = V.FromKeys<
-  ProjectableKeys<M, PointScalarKeys<ModelStateOf<M>["scalars"]>>[],
+  PointScalarKeys<ModelStateOf<M>["scalars"]>[],
   AggregateValueRefusalSchema
 >["entries"];
 
 type AggregateValueSchema<M extends AnyModel, K extends string> = V.Object<
-  V.FromKeys<K[], OptionalBoolean>["entries"] &
+  V.FromKeys<ProjectableKeys<M, K>[], OptionalBoolean>["entries"] &
     ListAggregateEntries<M> &
     PointAggregateEntries<M>
 >;
@@ -128,15 +129,9 @@ export type AggregateScalarSchemas<M extends AnyModel> = {
   /** Count can include _all and any scalar */
   count: V.FromKeys<CountScalarKeys<M>[], OptionalBoolean>;
   /** Avg only works on numeric scalars */
-  avg: AggregateValueSchema<
-    M,
-    ProjectableKeys<M, NumericScalarKeys<ModelStateOf<M>["scalars"]>>
-  >;
+  avg: AggregateValueSchema<M, NumericScalarKeys<ModelStateOf<M>["scalars"]>>;
   /** Sum only works on numeric scalars */
-  sum: AggregateValueSchema<
-    M,
-    ProjectableKeys<M, NumericScalarKeys<ModelStateOf<M>["scalars"]>>
-  >;
+  sum: AggregateValueSchema<M, NumericScalarKeys<ModelStateOf<M>["scalars"]>>;
   /** Min works on scalar columns, not list containers */
   min: AggregateValueSchema<M, AggregateScalarKeys<M>>;
   /** Max works on scalar columns, not list containers */
