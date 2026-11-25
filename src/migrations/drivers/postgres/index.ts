@@ -467,26 +467,35 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
   }
 
   /**
-   * Two functions and three row triggers on the source. `<view>_viborm_k`,
-   * a SQL function whose body is parsed when it is created (`BEGIN ATOMIC`,
-   * PostgreSQL 14), computes the row or the group of one key again: it
-   * deletes the view's row of that key and inserts its body's. Its operators
-   * are resolved then, on the migration's search path, so a key of an
-   * extension's type compares as the view's body groups it (`citext`), and
-   * nothing a caller's search path holds can stand in for them. It runs as
-   * its owner (`SECURITY DEFINER`), as a MySQL trigger runs as its definer:
-   * a role that writes the source needs no right on the view's table. A group
-   * is computed under a lock of its key for the transaction
-   * (`pg_advisory_xact_lock` of the view and the key's hash): without it,
-   * two writes to one group cross, the second inserting the row the first
-   * already inserted, which refuses the user's write (measured on PostgreSQL
-   * 18). A row of a view of rows is held by the source row's own lock.
+   * Two functions and three row triggers on the source.
+   *
+   * `<view>_viborm_k(old key…, new key…, has old, has new)`, a SQL function
+   * parsed when it is created (`BEGIN ATOMIC`, PostgreSQL 14), computes again
+   * the row or the group of the old key, then of the new one where there is
+   * one and it moved: it deletes the view's row of that key and inserts its
+   * body's. Its comparisons are resolved then, on the migration's search
+   * path, so a key of an extension's type compares as the view's body groups
+   * it (`citext`), and no caller's search path stands in for them. Its
+   * arguments are positional (`$1`), which no column of the view shadows.
+   * Only its owner may call it (`REVOKE … FROM PUBLIC`).
+   *
    * `<view>_viborm()`, the plpgsql function the triggers call after each
-   * insert, update and delete, carries the marker and calls it for `OLD`,
-   * then for `NEW` where the key moved or the row is new; it runs as the
-   * writer. An update fires them only where it sets a column the view reads
-   * (`UPDATE OF`): a comparison of the values would need an equality that
-   * `json` lacks, or a text that rounds a double.
+   * insert, update and delete, carries the marker. It runs as its owner, the
+   * migration's role (`SECURITY DEFINER`), as a MySQL trigger runs as its
+   * definer: a role that writes the source needs no right on the view's
+   * table nor on `_k`. Everything it names at run time is `pg_catalog`'s or
+   * qualified, which no schema a caller puts first can shadow. A group is
+   * computed under a lock of its key for the transaction
+   * (`pg_advisory_xact_lock` of the view and the key's hash), the two of an
+   * update taken in the order of their hashes: without it, two writes to one
+   * group cross, the second inserting the row the first already inserted,
+   * which refuses the user's write (measured on PostgreSQL 18). A row of a
+   * view of rows is held by the source row's own lock.
+   *
+   * Every update fires it: a `BEFORE UPDATE` trigger of the source may change
+   * a column the statement did not set (`UPDATE OF` follows the statement's),
+   * and a comparison of the values would need an equality `json` lacks or a
+   * text that rounds a double.
    */
   protected override autoViewKeepers(
     view: ViewDef,
@@ -500,61 +509,69 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     const table = this.qualify(view.name);
     const body = this.qualify(autoViewBodyName(view.name));
     const columns = this.autoViewColumns(storage);
-    const parameters = storage.key.map((_, at) => `k${at}`);
+    const width = storage.key.length;
     const types = storage.key.map((column) =>
       this.formatColumnType(
         storage.columns.find(({ name }) => name === column)!,
         context
       )
     );
-    const match = storage.key
-      .map((column, at) => `${quote(column)} = ${parameters[at]}`)
-      .join(" AND ");
+    const signature = [...types, ...types, "boolean", "boolean"].join(", ");
+    // `$1…` the old key, `$<width + 1>…` the new one, then whether each is:
+    // positional, so no column of the view shadows them.
+    const at = (offset: number) =>
+      storage.key
+        .map((column, index) => `${quote(column)} = $${offset + index + 1}`)
+        .join(" AND ");
+    const positions = (offset: number) =>
+      storage.key.map((_, index) => `$${offset + index + 1}`).join(", ");
+    const hasOld = `$${2 * width + 1}`;
+    const hasNew = `$${2 * width + 2}`;
+    const moved = `(NOT ${hasOld} OR ROW(${positions(width)}) IS DISTINCT FROM ROW(${positions(0)}))`;
+    const key = (ref: string) =>
+      storage.sourceKey.map((column) => `${ref}.${quote(column)}`).join(", ");
+    const hash = (ref: string) =>
+      `pg_catalog.hashtext(CAST(ROW(${key(ref)}) AS pg_catalog.text))`;
+    const isNot = (op: string) => `TG_OP OPERATOR(pg_catalog.<>) '${op}'`;
     // The view's own lock space: two int4 keys, apart from the one bigint
     // key a migration command locks by.
     const space = Number.parseInt(view.hash.slice(0, 7), 16);
-    // The group's lock is taken by the trigger function, which needs no
-    // right for it; every function and type it names there is pg_catalog's.
-    const call = (ref: "OLD" | "NEW") =>
-      `${
-        storage.grouped
-          ? `PERFORM pg_catalog.pg_advisory_xact_lock(${space}, pg_catalog.hashtext(CAST(${row(ref)} AS pg_catalog.text))); `
-          : ""
-      }PERFORM ${recompute}(${storage.sourceKey
-        .map((column) => `${ref}.${quote(column)}`)
-        .join(", ")});`;
-    const row = (ref: string) =>
-      `ROW(${storage.sourceKey.map((column) => `${ref}.${quote(column)}`).join(", ")})`;
     const marker = viewMarker(view.hash);
     const trigger = (suffix: string, event: string) =>
       `CREATE TRIGGER ${quote(autoViewObjectName(view.name, suffix))} AFTER ${event} ON ${source} FOR EACH ROW EXECUTE FUNCTION ${fn}()`;
     return [
       [
-        `CREATE FUNCTION ${recompute}(${parameters.map((name, at) => `${name} ${types[at]}`).join(", ")}) RETURNS void LANGUAGE sql SECURITY DEFINER`,
+        `CREATE FUNCTION ${recompute}(${signature}) RETURNS void LANGUAGE sql`,
         "BEGIN ATOMIC",
-        `  DELETE FROM ${table} WHERE ${match};`,
-        `  INSERT INTO ${table} (${columns}) SELECT ${columns} FROM ${body} WHERE ${match};`,
+        `  DELETE FROM ${table} WHERE ${hasOld} AND ${at(0)};`,
+        `  INSERT INTO ${table} (${columns}) SELECT ${columns} FROM ${body} WHERE ${hasOld} AND ${at(0)};`,
+        `  DELETE FROM ${table} WHERE ${hasNew} AND ${moved} AND ${at(width)};`,
+        `  INSERT INTO ${table} (${columns}) SELECT ${columns} FROM ${body} WHERE ${hasNew} AND ${moved} AND ${at(width)};`,
         "END",
       ].join("\n"),
-      `COMMENT ON FUNCTION ${recompute} IS ${this.escapeValue(marker)}`,
+      `REVOKE ALL ON FUNCTION ${recompute}(${signature}) FROM PUBLIC`,
+      `COMMENT ON FUNCTION ${recompute}(${signature}) IS ${this.escapeValue(marker)}`,
       [
-        `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $viborm$`,
+        `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $viborm$`,
+        "DECLARE",
+        "  o integer;",
+        "  n integer;",
         `BEGIN -- ${marker}`,
-        "  IF TG_OP <> 'INSERT' THEN",
-        `    ${call("OLD")}`,
-        "  END IF;",
-        "  IF TG_OP = 'INSERT' THEN",
-        `    ${call("NEW")}`,
-        "  ELSIF TG_OP = 'UPDATE' THEN",
-        `    IF ${row("NEW")} IS DISTINCT FROM ${row("OLD")} THEN`,
-        `      ${call("NEW")}`,
-        "    END IF;",
-        "  END IF;",
+        ...(storage.grouped
+          ? [
+              `  IF ${isNot("INSERT")} THEN o := ${hash("OLD")}; END IF;`,
+              `  IF ${isNot("DELETE")} THEN n := ${hash("NEW")}; END IF;`,
+              `  PERFORM pg_catalog.pg_advisory_xact_lock(${space}, LEAST(o, n));`,
+              `  IF GREATEST(o, n) OPERATOR(pg_catalog.<>) LEAST(o, n) THEN PERFORM pg_catalog.pg_advisory_xact_lock(${space}, GREATEST(o, n)); END IF;`,
+            ]
+          : []),
+        `  PERFORM ${recompute}(${key("OLD")}, ${key("NEW")}, ${isNot("INSERT")}, ${isNot("DELETE")});`,
         "  RETURN NULL;",
         "END $viborm$",
       ].join("\n"),
+      `REVOKE ALL ON FUNCTION ${fn}() FROM PUBLIC`,
       trigger("_i", "INSERT"),
-      trigger("_u", `UPDATE OF ${storage.reads.map(quote).join(", ")}`),
+      trigger("_u", "UPDATE"),
       trigger("_d", "DELETE"),
     ];
   }

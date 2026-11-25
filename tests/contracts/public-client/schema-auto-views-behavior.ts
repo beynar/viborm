@@ -71,6 +71,8 @@ function schema<const Views extends boolean>(views: Views, note = false) {
     customerId: s.string().nullable(),
     status: s.string(),
     amount: s.int().nullable(),
+    // A column no view reads.
+    memo: s.string().nullable(),
     shop: s
       .toOne(() => shop)
       .fields("shopId")
@@ -485,9 +487,52 @@ export function runAutoViewsBehavior(provider: AutoViewsProvider): void {
             sumAmount: 12,
             maxAmount: 7,
           });
+          // The function that writes the view's rows is its owner's alone.
+          await expect(
+            client.$transaction(async (tx) => {
+              await tx.$executeRawUnsafe(`SET LOCAL ROLE ${role}`);
+              await tx.$executeRawUnsafe(
+                `SELECT "av_by_shop_viborm_k"('a', 'a', true, true)`
+              );
+            })
+          ).rejects.toThrow();
         } finally {
           await client.$executeRawUnsafe(`DROP OWNED BY ${role}`);
           await client.$executeRawUnsafe(`DROP ROLE ${role}`);
+        }
+      }
+    );
+
+    test.runIf(dialect === "postgresql")(
+      "a column a BEFORE UPDATE trigger of the source changes moves the view, though the statement did not set it",
+      async () => {
+        const driver = await seeded();
+        const client = viewsClient(driver);
+        await syncLiveSchema(client as never);
+        await client.$executeRawUnsafe(
+          `CREATE FUNCTION av_settle() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."memo" = 'settled' THEN NEW."status" := 'paid'; END IF; RETURN NEW; END $$`
+        );
+        await client.$executeRawUnsafe(
+          `CREATE TRIGGER av_settle BEFORE UPDATE ON "av_sales" FOR EACH ROW EXECUTE FUNCTION av_settle()`
+        );
+        try {
+          // The statement sets a column no view reads; the trigger sets one.
+          await client.sale.update({
+            where: { id: "4" },
+            data: { memo: "settled" },
+          });
+          await expectCurrent(client);
+          expect(await groups(client)).toContainEqual({
+            shopId: "b",
+            count: 3,
+            sumAmount: 20,
+            maxAmount: 10,
+          });
+        } finally {
+          await client.$executeRawUnsafe(
+            `DROP TRIGGER av_settle ON "av_sales"`
+          );
+          await client.$executeRawUnsafe("DROP FUNCTION av_settle()");
         }
       }
     );

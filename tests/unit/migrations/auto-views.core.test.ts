@@ -256,23 +256,31 @@ describe("review of the first round (Devin, 2026-11-25)", () => {
     expect(fill).toMatch(LOCKED_FILL);
   });
 
-  it("computes a PostgreSQL group in a function parsed at its creation, run as its owner, and compares no value on update", () => {
+  it("computes a PostgreSQL group in a function parsed at its creation that only its owner calls, from a trigger function run as its owner, at every update", () => {
     const [def] = snapshotOf(BY_SHOP, postgresMigrationDriver).views!;
     const ddl = postgresMigrationDriver
       .compileStatements({ type: "createView", view: def! }, ddlContext("live"))
       .join("\n");
-    // Its operators resolved as the migration's search path resolves them
-    // (an extension's `citext` included), none at a caller's.
+    // Its comparisons resolved as the migration's search path resolves them
+    // (an extension's `citext` included), its arguments positional, so a
+    // column of the view named as one does not shadow it.
     expect(ddl).toContain(
-      'CREATE FUNCTION "by_shop_viborm_k"(k0 text) RETURNS void LANGUAGE sql SECURITY DEFINER\nBEGIN ATOMIC'
+      'CREATE FUNCTION "by_shop_viborm_k"(text, text, boolean, boolean) RETURNS void LANGUAGE sql\nBEGIN ATOMIC'
     );
-    expect(ddl).toContain('  DELETE FROM "by_shop" WHERE "shopId" = k0;');
-    expect(ddl).toContain('PERFORM "by_shop_viborm_k"(OLD."shopId");');
-    // No guard of the values: `json` has no equality, and a text rounds.
     expect(ddl).toContain(
-      'AFTER UPDATE OF "amount", "shopId", "status" ON "sales" FOR EACH ROW EXECUTE'
+      '  DELETE FROM "by_shop" WHERE $4 AND (NOT $3 OR ROW($2) IS DISTINCT FROM ROW($1)) AND "shopId" = $2;'
     );
-    expect(ddl).not.toContain("SECURITY DEFINER AS $viborm$");
+    expect(ddl).toContain(
+      'REVOKE ALL ON FUNCTION "by_shop_viborm_k"(text, text, boolean, boolean) FROM PUBLIC'
+    );
+    expect(ddl).toContain("LANGUAGE plpgsql SECURITY DEFINER AS $viborm$");
+    expect(ddl).toContain(
+      `PERFORM "by_shop_viborm_k"(OLD."shopId", NEW."shopId", TG_OP OPERATOR(pg_catalog.<>) 'INSERT', TG_OP OPERATOR(pg_catalog.<>) 'DELETE');`
+    );
+    // A BEFORE UPDATE trigger may change a column the statement did not set.
+    expect(ddl).toContain(
+      'AFTER UPDATE ON "sales" FOR EACH ROW EXECUTE FUNCTION'
+    );
   });
 
   it("creates nothing over a helper's name it did not mark: the body's view is a declared relation", () => {
