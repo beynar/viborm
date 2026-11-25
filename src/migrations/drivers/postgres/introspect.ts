@@ -32,7 +32,13 @@ import type {
   UniqueConstraintDef,
   ViewDef,
 } from "../../types";
-import { readViewMarker } from "../../view";
+import {
+  type LiveAutoKeeper,
+  readAutoViews,
+  readKeeperMarker,
+  readViewComment,
+  readViewMarker,
+} from "../../view";
 import { groupBy, groupByNested, mapReferentialAction } from "../utils";
 import { throwIfCatalogRefusal } from "./catalog-refusal";
 
@@ -413,6 +419,31 @@ const VIEWS_QUERY = `SELECT v.view_name, v.materialized, v.definition, coalesce(
 )::text, '[]') AS depends_on
 FROM (${VIEWS_SOURCE}) v
 ORDER BY v.view_name;
+`;
+
+/**
+ * The namespace's tables whose comment is a view's marker: each holds a view
+ * kept by triggers (`.materialized({ refresh: "auto" })`).
+ */
+const AUTO_TABLES_QUERY = `SELECT c.relname::text AS table_name, pg_catalog.obj_description(c.oid, 'pg_class') AS comment
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relkind = 'r'
+  AND pg_catalog.obj_description(c.oid, 'pg_class') LIKE 'viborm_view_%'
+ORDER BY c.relname;
+`;
+
+/**
+ * The namespace's functions whose body carries a view's marker, each with
+ * every trigger that calls it: what keeps a view kept by triggers current.
+ */
+const AUTO_KEEPERS_QUERY = `SELECT p.proname::text AS function_name, p.prosrc AS source, t.tgname::text AS trigger_name, c.relname::text AS table_name
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+LEFT JOIN pg_catalog.pg_trigger t ON t.tgfoid = p.oid AND NOT t.tgisinternal
+LEFT JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+WHERE n.nspname = $1 AND p.prosrc LIKE '%viborm_view_%'
+ORDER BY p.proname, t.tgname;
 `;
 
 // =============================================================================
@@ -824,6 +855,22 @@ export async function introspectPostgresSchema(
   );
   const enumsResult = await read<PgEnum>("enums", ENUMS_QUERY);
   const viewsResult = await read<PgView>("views", VIEWS_QUERY);
+  const autoTablesResult = await read<{
+    table_name: string;
+    comment: string | null;
+  }>("views kept by triggers", AUTO_TABLES_QUERY);
+  const autoKeepersResult = await read<{
+    function_name: string;
+    source: string | null;
+    trigger_name: string | null;
+    table_name: string | null;
+  }>("triggers of views", AUTO_KEEPERS_QUERY);
+  // A table that holds a view kept by triggers is the view, not a table.
+  const autoTables = new Map<string, string>();
+  for (const row of autoTablesResult.rows) {
+    const hash = readViewComment(row.comment);
+    if (hash !== undefined) autoTables.set(row.table_name, hash);
+  }
 
   assertNoCrossSchemaForeignKeys(crossSchemaForeignKeysResult.rows, scope);
 
@@ -853,6 +900,7 @@ export async function introspectPostgresSchema(
 
   for (const table of tablesResult.rows) {
     const tableName = table.table_name;
+    if (autoTables.has(tableName)) continue;
 
     const selected =
       scope.tables === undefined || scope.tables.includes(tableName);
@@ -1002,6 +1050,41 @@ export async function introspectPostgresSchema(
       ...(indexes.length > 0 ? { indexes } : {}),
     });
   }
+
+  const keepers: LiveAutoKeeper[] = [];
+  for (const row of autoKeepersResult.rows) {
+    const hash = readKeeperMarker(row.source);
+    if (hash === undefined) continue;
+    if (
+      !keepers.some(
+        ({ name, kind }) => kind === "function" && name === row.function_name
+      )
+    )
+      keepers.push({ kind: "function", name: row.function_name, hash });
+    if (row.trigger_name !== null && row.table_name !== null)
+      keepers.push({
+        kind: "trigger",
+        name: row.trigger_name,
+        table: row.table_name,
+        hash,
+      });
+  }
+  views.push(
+    ...readAutoViews(
+      [...autoTables].map(([name, hash]) => ({
+        name,
+        hash,
+        indexes: readIndexes(
+          name,
+          indexesByTable.get(name),
+          scope.tables === undefined || scope.tables.includes(name)
+        ),
+      })),
+      keepers,
+      views
+    )
+  );
+  views.sort((a, b) => (a.name < b.name ? -1 : Number(a.name > b.name)));
 
   return {
     tables,

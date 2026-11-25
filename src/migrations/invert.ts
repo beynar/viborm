@@ -253,6 +253,7 @@ function invertOperation(
           type: "dropView",
           viewName: op.view.name,
           ...(op.view.materialized ? { materialized: true } : {}),
+          ...(op.view.auto ? { auto: op.view.auto } : {}),
         },
       ];
 

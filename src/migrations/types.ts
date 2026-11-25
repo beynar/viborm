@@ -52,6 +52,79 @@ export interface ViewDef {
    * Never set without {@link materialized}; absent when there is none.
    */
   indexes?: IndexDef[] | undefined;
+  /**
+   * Declared `.materialized({ refresh: "auto" })` on a dialect whose
+   * triggers keep it: a table holding the view's rows, which triggers on its
+   * source keep current at each write. Absent on every other view.
+   */
+  auto?: AutoViewDef | undefined;
+}
+
+/**
+ * What keeps a view declared `refresh: "auto"` current, beside the table that
+ * holds its rows (named as the view, its marker beside it).
+ */
+export interface AutoViewDef {
+  /**
+   * Every object the view needs beside its table, each carrying the view's
+   * marker, sorted by kind then name: the triggers (on its source, and on
+   * MySQL on the parents whose cascades reach it), PostgreSQL's trigger
+   * function, and the ordinary view that holds its body. What introspection
+   * finds of them; one missing or changed replaces the view.
+   */
+  objects: AutoViewObject[];
+  /**
+   * How to create it, from the declared view: a stored snapshot always has
+   * it, an introspected one never, as {@link ViewDef.sql}.
+   */
+  storage?: AutoViewStorage | undefined;
+}
+
+/** One object a view declared `refresh: "auto"` needs beside its table. */
+export interface AutoViewObject {
+  kind: "function" | "trigger" | "view";
+  name: string;
+  /** The table a trigger fires on. */
+  table?: string | undefined;
+}
+
+/** How a view declared `refresh: "auto"` is stored and kept. */
+export interface AutoViewStorage {
+  /** The table whose writes it follows. */
+  source: string;
+  /** Its table's columns, in the order of its body's. */
+  columns: ColumnDef[];
+  /** Its key, its table's primary key: its source's key, or its grouped columns. Each is the source's column of that name. */
+  key: string[];
+  /** Whether its rows are groups of its source's rows. */
+  grouped: boolean;
+  /** The source's columns its body reads, sorted: an update that changes none of them leaves it as it is. */
+  reads: string[];
+  /**
+   * MySQL's cascades that reach its source, which fire no trigger there: a
+   * trigger before each delete of a parent does what each foreign key would.
+   */
+  cascades?: AutoViewCascade[] | undefined;
+  /**
+   * Where its triggers read a key's rows themselves (MySQL): the body of the
+   * row or group of `OLD`, and of `NEW`, the key's tests in its filter.
+   */
+  keyed?: { OLD: string; NEW: string } | undefined;
+}
+
+/** One parent's trigger, on MySQL, for the foreign keys of `refresh: "auto"` views' cascades. */
+export interface AutoViewCascade {
+  /** The parent table, whose row deletions it follows. */
+  table: string;
+  /** The trigger's name. */
+  trigger: string;
+  /** What a deletion of a parent row does to each child, in order. */
+  children: {
+    table: string;
+    columns: string[];
+    referencedColumns: string[];
+    action: "cascade" | "setNull";
+  }[];
 }
 
 export interface PolymorphicToOneSnapshotMember {
@@ -306,6 +379,8 @@ export type DiffOperation =
        * PostgreSQL drops each kind with its own statement.
        */
       materialized?: true | undefined;
+      /** A view declared `refresh: "auto"`: what the snapshot holding it says keeps it. */
+      auto?: AutoViewDef | undefined;
     }
   | { type: "createEnum"; enumDef: EnumDef }
   | {

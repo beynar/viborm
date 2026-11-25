@@ -1451,6 +1451,35 @@ created materialized view is computed by its `CREATE`, the view missing until
 it ends (`formatOperation`). `$refresh` is the client's (the adapter's
 `refresh`), never a migration.
 
+A view declared `.materialized({ refresh: "auto" })` is a table kept by
+triggers where the bound driver `keepsViewsByTriggers()` (every
+`SqlMigrationDriver`; SurrealDB keeps every view itself, so there it is the
+ordinary view of the same hash). Its identity adds `auto` (the triggers'
+revision, `AUTO_REVISION`) and its keys. `ViewDef.auto` holds `objects`
+(every keeper, sorted by kind then name: the three source triggers
+`<view>_viborm_i/_u/_d`, PostgreSQL's function `<view>_viborm`, MySQL's
+`<view>_viborm_on_<parent>` triggers, the body view `<view>_viborm_body`;
+names from `schema/view/auto-names.ts`, which the client's `$refresh` reads
+too) and, from the declaration only, `storage` (source, columns, key, the
+source columns it reads, MySQL's `cascades` and `keyed` bodies). The table's
+marker is its comment (PostgreSQL, MySQL) or a comment opening its column
+list (SQLite); a keeper's marker is in its body. Introspection reads a
+marked table as the view (`readAutoViews`), folds its body view in, and
+lists the keepers it finds; the differ keeps such a view only when its hash
+AND its objects match (`sameAutoViewObjects`), so a trigger dropped by hand
+replaces it. `withViewReplacements` replaces it around any table operation
+but an index's on a table its triggers fire on or change (`watchedTables`).
+Its creation is one operation: table, body view, keepers, then the filling
+(`INSERT … SELECT` from the body view; MySQL's `ON DUPLICATE KEY UPDATE`
+after the triggers, since its DDL commits). Its drop drops the keepers
+(`IF EXISTS`), then the table; a reset does the same (`keepers` of a
+`PlannedTableDrop`, probed as a table). The probes read the table, the body
+view and each trigger by its statement (`autoViewProbes`). The PostgreSQL
+catalog digest abstains on a namespace holding a marked table. MySQL's
+triggers read each key's rows with the key's tests in the body's own filter
+and `FOR SHARE` (`keyedAutoViewBodies`): a trigger reads with its firing
+statement's snapshot, which READ COMMITTED leaves stale (measured).
+
 Preflight (`refuseRelationCollision`, from each SQL driver's
 `preflightSchemaRequirements`) refuses before effects, V11009, a declared
 table whose name is a view, materialized or not, without the marker, and a

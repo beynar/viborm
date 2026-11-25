@@ -827,7 +827,29 @@ export const _indexes = () => {
   view.index(["balance"]);
   // @ts-expect-error - only a view is materialized
   author.materialized();
+  // Kept by triggers: the same view, `$refresh` included.
+  const kept = s
+    .view(() => author, { select: { id: true, name: true } })
+    .materialized({ refresh: "auto" });
+  kept.index(["name"]);
+  // @ts-expect-error - "auto" or nothing
+  view.materialized({ refresh: "manual" });
+  // @ts-expect-error - an option it does not take
+  view.materialized({ concurrently: true });
 };
+
+const kept = s
+  .view(() => post, { select: { id: true, title: true } })
+  .materialized({ refresh: "auto" });
+const keptClient = createClient({
+  schema: { author, post, publishedPost, kept },
+  driver: new PGliteDriver(),
+});
+type _keptRefresh = Expect<
+  Equal<ReturnType<(typeof keptClient.kept)["$refresh"]>, PromiseLike<void>>
+>;
+export const _keptReads = () =>
+  keptClient.kept.findUnique({ where: { id: "a" } });
 
 // =============================================================================
 // AGGREGATED VIEWS: ONE ROW PER GROUP, FLAT TYPED COLUMNS, KEYED BY `by`

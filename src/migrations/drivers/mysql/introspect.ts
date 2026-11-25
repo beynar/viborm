@@ -25,7 +25,14 @@ import type {
   UniqueConstraintDef,
   ViewDef,
 } from "../../types";
-import { readViewMarker } from "../../view";
+import {
+  type LiveAutoKeeper,
+  type LiveAutoTable,
+  readAutoViews,
+  readKeeperMarker,
+  readViewComment,
+  readViewMarker,
+} from "../../view";
 import {
   MYSQL_PRINTED_CHARACTERS,
   mysqlEnumType,
@@ -62,6 +69,25 @@ SELECT TABLE_NAME, VIEW_DEFINITION
 FROM information_schema.VIEWS
 WHERE TABLE_SCHEMA = ?
 ORDER BY TABLE_NAME
+`;
+
+/** The tables whose comment is a view's marker: each holds a view kept by triggers. */
+const AUTO_TABLES_QUERY = `
+SELECT TABLE_NAME, TABLE_COMMENT
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = ?
+  AND TABLE_TYPE = 'BASE TABLE'
+  AND TABLE_COMMENT LIKE 'viborm_view_%'
+ORDER BY TABLE_NAME
+`;
+
+/** The triggers whose body carries a view's marker: what keeps such a view current. */
+const AUTO_KEEPERS_QUERY = `
+SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_STATEMENT
+FROM information_schema.TRIGGERS
+WHERE TRIGGER_SCHEMA = ?
+  AND ACTION_STATEMENT LIKE '%viborm_view_%'
+ORDER BY TRIGGER_NAME
 `;
 
 const COLUMNS_QUERY = `
@@ -548,6 +574,15 @@ export async function introspect(
     [catalogNamespace, catalogNamespace]
   );
   const viewsResult = await executeRaw<MySQLView>(VIEWS_QUERY, scope);
+  const autoTablesResult = await executeRaw<{
+    TABLE_NAME: string;
+    TABLE_COMMENT: string | null;
+  }>(AUTO_TABLES_QUERY, scope);
+  const autoKeepersResult = await executeRaw<{
+    TRIGGER_NAME: string;
+    EVENT_OBJECT_TABLE: string;
+    ACTION_STATEMENT: string | null;
+  }>(AUTO_KEEPERS_QUERY, scope);
 
   admitContainedForeignKeys(
     foreignKeysResult.rows,
@@ -741,6 +776,37 @@ export async function introspect(
       ? []
       : [{ name: row.TABLE_NAME, hash, dependsOn: [] }];
   });
+  // A table whose comment is a view's marker holds a view kept by triggers,
+  // which is the view and not a table.
+  const autoTables: LiveAutoTable[] = [];
+  for (const row of autoTablesResult.rows) {
+    const hash = readViewComment(row.TABLE_COMMENT);
+    const at = tables.findIndex(({ name }) => name === row.TABLE_NAME);
+    if (hash === undefined || at < 0) continue;
+    autoTables.push({
+      name: row.TABLE_NAME,
+      hash,
+      indexes: tables[at]!.indexes,
+    });
+    tables.splice(at, 1);
+  }
+  if (autoTables.length > 0) {
+    const keepers = autoKeepersResult.rows.flatMap((row): LiveAutoKeeper[] => {
+      const hash = readKeeperMarker(row.ACTION_STATEMENT);
+      return hash === undefined
+        ? []
+        : [
+            {
+              kind: "trigger",
+              name: row.TRIGGER_NAME,
+              table: row.EVENT_OBJECT_TABLE,
+              hash,
+            },
+          ];
+    });
+    views.push(...readAutoViews(autoTables, keepers, views));
+    views.sort((a, b) => (a.name < b.name ? -1 : Number(a.name > b.name)));
+  }
 
   // MySQL doesn't have standalone enum types, but we track them for compatibility
   return {

@@ -42,10 +42,11 @@ import {
   resolvedEdges,
 } from "../schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "../schema/validation/validator";
-import { viewFacts } from "../schema/view/facts";
+import { heldField, viewFacts } from "../schema/view/facts";
 import type { MigrationDriver } from "./drivers";
 import { declaredRawIndex, RAW_INDEX_TEMPLATE_KEY } from "./raw-index";
 import type {
+  AutoViewStorage,
   ColumnDef,
   EnumDef,
   ForeignKeyDef,
@@ -60,7 +61,7 @@ import type {
   UniqueConstraintDef,
   ViewDef,
 } from "./types";
-import { viewDefinition } from "./view-definition";
+import { viewDefinition, viewSourceReads } from "./view-definition";
 
 // =============================================================================
 // SERIALIZER
@@ -201,6 +202,69 @@ function materializedViewIndexes(view: AnyModel, name: string): IndexDef[] {
 }
 
 /**
+ * How a view kept by triggers is stored: a table of its columns, keyed by
+ * its key (its source's primary key in a view of rows, its grouped columns
+ * in a view of groups), and what its triggers read of its source. A column
+ * that holds its source's values (a selected or grouped field, a least or a
+ * greatest value) is the source's column under the view's name, so a value
+ * is stored as its source stores it (an enum in its own type); any other
+ * (a count, a sum, an average) is its own scalar's. None takes a default.
+ */
+function autoViewStorage(
+  view: AnyModel,
+  name: string,
+  columnOf: (
+    model: AnyModel,
+    tableName: string,
+    fieldName: string,
+    scalar: Scalar
+  ) => ColumnDef
+): AutoViewStorage {
+  const facts = viewFacts(view)!;
+  const { source, aggregated } = facts;
+  const scalars: Record<string, Scalar> = view["~"].state.scalars;
+  const sourceScalars: Record<string, Scalar> = source["~"].state.scalars;
+  const sourceTable = source["~"].names.sql!;
+  const columnName = (field: string) => view["~"].getFieldName(field).sql!;
+  const columns = facts.columns
+    .filter((field) => scalars[field] !== undefined)
+    .map((field): ColumnDef => {
+      const scalar = scalars[field]!;
+      const held = heldField(facts, field);
+      const stored =
+        held === undefined
+          ? columnOf(view, name, field, scalar)
+          : columnOf(source, sourceTable, held, sourceScalars[held]!);
+      const column = columnName(field);
+      return {
+        ...stored,
+        name: column,
+        // A CHECK naming the source's column names one the view's table
+        // holds under another name (SQLite's enum).
+        type:
+          stored.name === column || !stored.type.includes("CHECK(")
+            ? stored.type
+            : columnOf(view, name, field, scalar).type,
+        nullable: scalar["~"].state.nullable,
+        default: undefined,
+        autoIncrement: false,
+      };
+    });
+  const key = aggregated
+    ? aggregated.by
+    : (getModelKeyCatalog(source).addressableKeys.find(
+        (candidate) => candidate.kind === "primary"
+      )?.fields ?? []);
+  return {
+    source: sourceTable,
+    columns,
+    key: key.map(columnName),
+    grouped: aggregated !== undefined,
+    reads: viewSourceReads(view),
+  };
+}
+
+/**
  * Serializes a collection of VibORM models into a SchemaSnapshot
  */
 export function serializeModels(
@@ -239,6 +303,112 @@ export function serializeResolvedModels(
   // A view holds no table, column, key or foreign key: its definition, and a
   // materialized view its indexes.
   const views: ViewDef[] = [];
+  // Each view kept by triggers, whose keepers are known once every table is.
+  const autoViews: [ViewDef, AutoViewStorage][] = [];
+
+  /**
+   * The column of `model`'s scalar `fieldName` in its table `tableName`: a
+   * table's, or the column a view kept by triggers stores the source's in.
+   */
+  const columnOf = (
+    model: AnyModel,
+    tableName: string,
+    fieldName: string,
+    scalar: Scalar
+  ): ColumnDef => {
+    const scalarState = scalar["~"].state;
+    // Use model's nameRegistry for column name resolution (supports field reuse)
+    const columnName = model["~"].getFieldName(fieldName).sql;
+
+    // Handle enum types (only for databases that support native enums)
+    let columnType: string;
+    // The LIST representation is decided before enum identity is spelled. A
+    // dialect with native arrays keeps both — `enumname[]` — while the others
+    // store the list in the same container every other list uses, where an
+    // element type has no expression at all: an inline `ENUM(...)` or a
+    // `TEXT CHECK(col IN ...)` describes ONE member, so spelling it for a
+    // list produces a column that refuses every value the field can hold.
+    const spellsEnumColumn =
+      scalarState.type === "enum" &&
+      (scalarState.array !== true ||
+        migrationDriver.capabilities.supportsNativeArrays);
+    if (spellsEnumColumn) {
+      const enumScalar = scalar as any;
+      const enumValues = enumScalar.enumValues as string[] | undefined;
+
+      if (migrationDriver.capabilities.supportsNativeEnums && enumValues) {
+        // Use explicit enum name if provided, otherwise auto-generate
+        const enumName =
+          scalarState.enumName && migrationDriver.dialect === "postgresql"
+            ? scalarState.enumName
+            : migrationDriver.getEnumColumnType(
+                tableName,
+                columnName,
+                enumValues
+              );
+
+        const previousEnum = enums.find((item) => item.name === enumName);
+        if (
+          previousEnum &&
+          JSON.stringify(previousEnum.values) !== JSON.stringify(enumValues)
+        )
+          throw new MigrationError(
+            `Enum type "${enumName}" is declared with incompatible values`,
+            VibORMErrorCode.MIGRATION_INVALID_STATE
+          );
+        if (!enumsSet.has(enumName)) {
+          enums.push({
+            name: enumName,
+            values: enumValues,
+          });
+          enumsSet.add(enumName);
+        }
+        columnType = scalarState.array ? `${enumName}[]` : enumName;
+      } else {
+        // Fall back to driver's default enum column type
+        columnType = migrationDriver.getEnumColumnType(
+          tableName,
+          columnName,
+          enumValues || []
+        );
+      }
+    } else {
+      // A foreign key's identifier domain is DERIVED from the key it
+      // references, so it is read against the model through the same
+      // resolved index this serialization is already built from.
+      columnType = migrationDriver.mapScalarType(
+        scalar,
+        scalarState,
+        idDomainOf(model, fieldName, index)
+      );
+    }
+
+    const columnDef: ColumnDef = {
+      name: columnName,
+      type: columnType,
+      nullable: scalarState.nullable,
+      default: migrationDriver.getDefaultExpression(scalar, scalarState),
+      autoIncrement: scalarState.autoGenerate?.kind === "increment",
+      // Carried by REFERENCE off the resolved scalar, never rebuilt: the
+      // frozen descriptor is the one source of truth, and the physical type
+      // above is derived from it. On SQLite that type is `INTEGER` or `TEXT`
+      // whatever the domain is, so without this the differ would see no
+      // change when the domain moved.
+      decimal: scalarState.decimal,
+      geoPointEncoding:
+        migrationDriver.dialect === "sqlite" && scalarState.type === "point"
+          ? "binary64"
+          : undefined,
+      dateTime:
+        migrationDriver.dialect === "sqlite" &&
+        scalarState.type === "datetime" &&
+        scalarState.array !== true
+          ? sqliteDateTimePhysicalForm(scalar["~"].nativeType)
+          : undefined,
+    };
+
+    return columnDef;
+  };
 
   for (const [modelName, model] of Object.entries(models)) {
     // Every migration path states its schema here, so this is the one refusal.
@@ -256,25 +426,44 @@ export function serializeResolvedModels(
         relations: index,
         migrationDriver,
       });
+      // A view kept by triggers is a table keyed by the view's key: its
+      // primary key is that key, and its other keys are unique indexes.
+      const storage = definition.auto
+        ? {
+            ...autoViewStorage(model, tableName, columnOf),
+            ...(definition.keyed ? { keyed: { ...definition.keyed } } : {}),
+          }
+        : undefined;
       // Through the driver's own pass over a table's indexes, so a view's
       // index is named and typed as a table's would be.
-      const indexes = definition.materialized
-        ? migrationDriver.finalizeTable({
-            name: tableName,
-            columns: [],
-            indexes: materializedViewIndexes(model, tableName),
-            foreignKeys: [],
-            uniqueConstraints: [],
-          }).indexes
-        : [];
-      views.push({
+      // Its columns go through it too, as a table's do: MySQL keys a string
+      // column it indexes in a VARCHAR.
+      const stored =
+        definition.materialized || storage
+          ? migrationDriver.finalizeTable({
+              name: tableName,
+              columns: storage?.columns ?? [],
+              primaryKey: storage ? { columns: storage.key } : undefined,
+              indexes: materializedViewIndexes(model, tableName).filter(
+                (index) =>
+                  index.columns.join("\u0000") !== storage?.key.join("\u0000")
+              ),
+              foreignKeys: [],
+              uniqueConstraints: [],
+            })
+          : undefined;
+      const indexes = stored?.indexes ?? [];
+      if (storage && stored) storage.columns = stored.columns;
+      const def: ViewDef = {
         name: tableName,
         hash: definition.hash,
         sql: definition.sql,
         dependsOn: [...definition.dependsOn],
         ...(definition.materialized ? { materialized: true } : {}),
         ...(indexes.length > 0 ? { indexes } : {}),
-      });
+      };
+      views.push(def);
+      if (storage) autoViews.push([def, storage]);
       continue;
     }
 
@@ -294,96 +483,8 @@ export function serializeResolvedModels(
       modelState.scalars
     )) {
       const scalarState = scalar["~"].state;
-      // Use model's nameRegistry for column name resolution (supports field reuse)
-      const columnName = model["~"].getFieldName(fieldName).sql;
-
-      // Handle enum types (only for databases that support native enums)
-      let columnType: string;
-      // The LIST representation is decided before enum identity is spelled. A
-      // dialect with native arrays keeps both — `enumname[]` — while the others
-      // store the list in the same container every other list uses, where an
-      // element type has no expression at all: an inline `ENUM(...)` or a
-      // `TEXT CHECK(col IN ...)` describes ONE member, so spelling it for a
-      // list produces a column that refuses every value the field can hold.
-      const spellsEnumColumn =
-        scalarState.type === "enum" &&
-        (scalarState.array !== true ||
-          migrationDriver.capabilities.supportsNativeArrays);
-      if (spellsEnumColumn) {
-        const enumScalar = scalar as any;
-        const enumValues = enumScalar.enumValues as string[] | undefined;
-
-        if (migrationDriver.capabilities.supportsNativeEnums && enumValues) {
-          // Use explicit enum name if provided, otherwise auto-generate
-          const enumName =
-            scalarState.enumName && migrationDriver.dialect === "postgresql"
-              ? scalarState.enumName
-              : migrationDriver.getEnumColumnType(
-                  tableName,
-                  columnName,
-                  enumValues
-                );
-
-          const previousEnum = enums.find((item) => item.name === enumName);
-          if (
-            previousEnum &&
-            JSON.stringify(previousEnum.values) !== JSON.stringify(enumValues)
-          )
-            throw new MigrationError(
-              `Enum type "${enumName}" is declared with incompatible values`,
-              VibORMErrorCode.MIGRATION_INVALID_STATE
-            );
-          if (!enumsSet.has(enumName)) {
-            enums.push({
-              name: enumName,
-              values: enumValues,
-            });
-            enumsSet.add(enumName);
-          }
-          columnType = scalarState.array ? `${enumName}[]` : enumName;
-        } else {
-          // Fall back to driver's default enum column type
-          columnType = migrationDriver.getEnumColumnType(
-            tableName,
-            columnName,
-            enumValues || []
-          );
-        }
-      } else {
-        // A foreign key's identifier domain is DERIVED from the key it
-        // references, so it is read against the model through the same
-        // resolved index this serialization is already built from.
-        columnType = migrationDriver.mapScalarType(
-          scalar,
-          scalarState,
-          idDomainOf(model, fieldName, index)
-        );
-      }
-
-      const columnDef: ColumnDef = {
-        name: columnName,
-        type: columnType,
-        nullable: scalarState.nullable,
-        default: migrationDriver.getDefaultExpression(scalar, scalarState),
-        autoIncrement: scalarState.autoGenerate?.kind === "increment",
-        // Carried by REFERENCE off the resolved scalar, never rebuilt: the
-        // frozen descriptor is the one source of truth, and the physical type
-        // above is derived from it. On SQLite that type is `INTEGER` or `TEXT`
-        // whatever the domain is, so without this the differ would see no
-        // change when the domain moved.
-        decimal: scalarState.decimal,
-        geoPointEncoding:
-          migrationDriver.dialect === "sqlite" && scalarState.type === "point"
-            ? "binary64"
-            : undefined,
-        dateTime:
-          migrationDriver.dialect === "sqlite" &&
-          scalarState.type === "datetime" &&
-          scalarState.array !== true
-            ? sqliteDateTimePhysicalForm(scalar["~"].nativeType)
-            : undefined,
-      };
-
+      const columnDef = columnOf(model, tableName, fieldName, scalar);
+      const columnName = columnDef.name;
       columns.push(columnDef);
 
       // Track primary key columns
@@ -941,8 +1042,21 @@ export function serializeResolvedModels(
     tables.push(migrationDriver.markJunction?.(def) ?? def);
   }
 
+  const finalized = tables.map((table) => migrationDriver.finalizeTable(table));
+  for (const [view, storage] of autoViews) {
+    const cascades = migrationDriver.autoViewCascades(
+      view.name,
+      storage,
+      finalized
+    );
+    const kept = cascades?.length ? { ...storage, cascades } : storage;
+    view.auto = {
+      objects: migrationDriver.autoViewObjects(view.name, kept),
+      storage: kept,
+    };
+  }
   const snapshot: SchemaSnapshot = {
-    tables: tables.map((table) => migrationDriver.finalizeTable(table)),
+    tables: finalized,
     enums: enums.length > 0 ? enums : undefined,
     ...(polymorphicStorage.length > 0 ? { polymorphicStorage } : {}),
     // Absent without a view, so such a snapshot keeps its bytes and hash.

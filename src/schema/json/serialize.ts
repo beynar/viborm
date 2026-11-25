@@ -211,6 +211,7 @@ function serializeView(
   };
   if (state.tableName !== undefined) document.table = state.tableName;
   if (facts.materialized) document.materialized = true;
+  if (facts.refresh === "auto") document.refresh = "auto";
   const indexes = serializeIndexes(state.indexes, path, issues);
   if (indexes.length > 0) document.indexes = indexes;
   const chained = [

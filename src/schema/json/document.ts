@@ -73,6 +73,8 @@ export interface ViewDocument {
   table?: string;
   /** `.materialized()`: present only as `true`. */
   materialized?: true;
+  /** `.materialized({ refresh: "auto" })`: present only as `"auto"`, beside `materialized`. */
+  refresh?: "auto";
   /**
    * `.index(fields, options)` calls in declaration order, as a model writes
    * them: a materialized view's, on its scalar columns (W002).

@@ -378,6 +378,7 @@ and its indexes.
 | `query` | what `findMany` takes on the source |
 | `table` | `.map(viewName)` |
 | `materialized` | `.materialized()`, written only as `true` |
+| `refresh` | `.materialized({ refresh: "auto" })`, written only as `"auto"`, beside `materialized` |
 | `indexes` | `.index(fields, options)` calls, as a model writes them: a materialized view's, on its scalar columns |
 
 A view's columns, key and relations are not written. `s.view` derives them

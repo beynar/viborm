@@ -364,6 +364,41 @@ describe("a materialized view in a schema document", () => {
     expect(validateSchema(parsed).errors).toEqual([]);
   });
 
+  it('writes refresh: "auto" beside materialized, reads it back, and refuses it alone or of another value', () => {
+    const auto = s
+      .view(() => user, { select: { id: true, name: true } })
+      .materialized({ refresh: "auto" });
+    const AUTO = {
+      source: "user",
+      query: { select: { id: true, name: true } },
+      materialized: true,
+      refresh: "auto",
+    } as const;
+    expect(serializeSchema({ user, post, digest: auto }).views).toEqual({
+      digest: AUTO,
+    });
+    const parsed = parseSchema(JSON.stringify(withDigest(AUTO)));
+    expect(viewFacts(parsed.digest!)?.refresh).toBe("auto");
+    expect(serializeSchema(parsed)).toEqual(withDigest(AUTO));
+    expect(
+      refused(() =>
+        parseSchema({
+          version: 1,
+          models: DOCUMENT.models,
+          views: {
+            alone: { source: "user", query: {}, refresh: "auto" },
+            other: {
+              source: "user",
+              query: {},
+              materialized: true,
+              refresh: "manual",
+            },
+          },
+        } as never)
+      )
+    ).toEqual(["[J004] /views/alone/refresh", "[J004] /views/other/refresh"]);
+  });
+
   it("a view that is not materialized writes neither", () => {
     expect(
       serializeSchema(

@@ -30,7 +30,14 @@ import type {
   UniqueConstraintDef,
   ViewDef,
 } from "../../types";
-import { readViewMarker } from "../../view";
+import {
+  type LiveAutoKeeper,
+  type LiveAutoTable,
+  readAutoViews,
+  readKeeperMarker,
+  readViewMarker,
+  viewMarker,
+} from "../../view";
 import { mapReferentialAction } from "../utils";
 import type {
   SqliteColumn,
@@ -530,6 +537,63 @@ export async function introspect(
     });
   }
 
+  // A table whose statement opens with a view's marker holds a view kept by
+  // triggers, which is the view and not a table; its keepers are the
+  // triggers whose statement carries the same marker.
+  const autoTables: LiveAutoTable[] = [];
+  const sqlByTable = new Map(
+    relationsResult.rows.map((row) => [row.name, row.sql])
+  );
+  for (let at = tables.length - 1; at >= 0; at--) {
+    const table = tables[at]!;
+    const hash = readAutoTableMarker(sqlByTable.get(table.name));
+    if (hash === undefined) continue;
+    autoTables.unshift({ name: table.name, hash, indexes: table.indexes });
+    tables.splice(at, 1);
+  }
+  if (autoTables.length > 0) {
+    const triggers = await executeRaw<{
+      name: string;
+      tbl_name: string;
+      sql: string | null;
+    }>(
+      "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger' ORDER BY name"
+    );
+    const keepers: LiveAutoKeeper[] = [];
+    for (const row of triggers.rows) {
+      const hash = readKeeperMarker(row.sql);
+      if (hash !== undefined)
+        keepers.push({
+          kind: "trigger",
+          name: row.name,
+          table: row.tbl_name,
+          hash,
+        });
+    }
+    views.push(...readAutoViews(autoTables, keepers, views));
+    views.sort((a, b) => (a.name < b.name ? -1 : Number(a.name > b.name)));
+  }
+
   // SQLite doesn't have native enum types
   return { tables, enums: [], ...(views.length > 0 ? { views } : {}) };
 }
+
+/**
+ * The hash a table's statement names in the marker it opens its column list
+ * with (`CREATE TABLE "v" (/* viborm_view_<hash> *\/ …`), where a view kept by
+ * triggers carries it.
+ */
+function readAutoTableMarker(
+  text: string | null | undefined
+): string | undefined {
+  return text?.match(AUTO_TABLE_MARKER)?.[1];
+}
+
+/** A table's marker as the comment it is, where it holds a view kept by triggers. */
+export function autoTableComment(
+  text: string | null | undefined
+): string | undefined {
+  const hash = readAutoTableMarker(text);
+  return hash === undefined ? undefined : viewMarker(hash);
+}
+const AUTO_TABLE_MARKER = /^[^(]*\(\/\* viborm_view_([0-9a-f]{40}) \*\//;

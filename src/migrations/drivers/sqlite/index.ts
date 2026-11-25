@@ -36,6 +36,7 @@ import {
   skipSqlNonStructuralRegion,
 } from "../../../adapters/databases/sqlite/storage/sql-lexing";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
+import { autoViewObjectName } from "../../../schema/view/auto-names";
 import {
   decimalConversionRequired,
   describeDecimalDomain,
@@ -51,12 +52,18 @@ import {
 } from "../../raw-index";
 import { readExecutableStatements } from "../../statement-safety";
 import type {
+  AutoViewStorage,
   ColumnDef,
   DiffOperation,
   SchemaSnapshot,
   TableDef,
+  ViewDef,
 } from "../../types";
-import { type LiveRelation, refuseRelationCollision } from "../../view";
+import {
+  type LiveRelation,
+  refuseRelationCollision,
+  viewMarker,
+} from "../../view";
 import type {
   AddColumnOperation,
   AddForeignKeyOperation,
@@ -83,7 +90,7 @@ import type {
 import { SqlMigrationDriver } from "../sql";
 import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
-import { introspect, sqliteTableHazards } from "./introspect";
+import { autoTableComment, introspect, sqliteTableHazards } from "./introspect";
 
 const COMPUTED_DEFAULT_PREFIX = /^(?:CURRENT_(?:TIME|DATE|TIMESTAMP)|\()/i;
 
@@ -417,6 +424,54 @@ export class SQLite3MigrationDriver extends SqlMigrationDriver {
   }
   readonly driverName: string = "sqlite3";
 
+  /**
+   * Three triggers on the source, each its statements then the marker in a
+   * comment before its `END` (kept by the catalog, measured on SQLite 3.51).
+   * SQLite has no `IF`: the statements for `NEW` after an update carry the
+   * test that the key moved. An update fires them only where a column the
+   * view reads changed. A cascade fires them (measured, a self-reference
+   * included), and there is one writer at a time, so nothing crosses.
+   */
+  protected override autoViewKeepers(
+    view: ViewDef,
+    storage: AutoViewStorage,
+    context: DDLContext
+  ): string[] {
+    const quote = (name: string) => this.escapeIdentifier(name);
+    const source = this.tableRef(storage.source, context.destination);
+    const differ = (columns: readonly string[]) =>
+      columns
+        .map((column) => `OLD.${quote(column)} IS NOT NEW.${quote(column)}`)
+        .join(" OR ");
+    const marker = `/* ${viewMarker(view.hash)} */`;
+    const trigger = (suffix: string, event: string, statements: string[]) =>
+      `CREATE TRIGGER ${quote(autoViewObjectName(view.name, suffix))} AFTER ${event} ON ${source}${
+        suffix === "_u" ? ` WHEN ${differ(storage.reads)}` : ""
+      } BEGIN\n${statements.map((statement) => `  ${statement};\n`).join("")}  ${marker}\nEND`;
+    return [
+      trigger(
+        "_i",
+        "INSERT",
+        this.autoViewRecompute(view, storage, "NEW", context)
+      ),
+      trigger("_u", `UPDATE OF ${storage.reads.map(quote).join(", ")}`, [
+        ...this.autoViewRecompute(view, storage, "OLD", context),
+        ...this.autoViewRecompute(
+          view,
+          storage,
+          "NEW",
+          context,
+          ` AND (${differ(storage.key)})`
+        ),
+      ]),
+      trigger(
+        "_d",
+        "DELETE",
+        this.autoViewRecompute(view, storage, "OLD", context)
+      ),
+    ];
+  }
+
   override finalizeTable(table: TableDef): TableDef {
     const increments = table.columns.filter((column) => column.autoIncrement);
     if (
@@ -522,7 +577,14 @@ export class SQLite3MigrationDriver extends SqlMigrationDriver {
       snapshots,
       objects.rows.flatMap((row): LiveRelation[] =>
         names.has(row.name) && (row.type === "table" || row.type === "view")
-          ? [{ name: row.name, kind: row.type, definition: row.sql }]
+          ? [
+              {
+                name: row.name,
+                kind: row.type,
+                definition: row.sql,
+                comment: autoTableComment(row.sql),
+              },
+            ]
           : []
       )
     );

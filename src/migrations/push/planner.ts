@@ -362,9 +362,17 @@ function withDeclaredViews(
   return {
     ...current,
     views: current.views.map((view) => {
-      const { sql, dependsOn } =
-        declared.get(`${view.name}\0${view.hash}`) ?? view;
-      return { ...view, sql, dependsOn };
+      const kept = declared.get(`${view.name}\0${view.hash}`);
+      const { sql, dependsOn } = kept ?? view;
+      // A view kept by triggers keeps the objects the database holds, and
+      // takes how it is stored from its declaration.
+      const storage = kept?.auto?.storage;
+      return {
+        ...view,
+        sql,
+        dependsOn,
+        ...(view.auto && storage ? { auto: { ...view.auto, storage } } : {}),
+      };
     }),
   };
 }

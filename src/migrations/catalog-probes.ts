@@ -8,7 +8,7 @@ import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { BoundMigrationDriver, MigrationDriver } from "./drivers";
 import { RAW_INDEX_MARKER_PREFIX, rawIndexMarker } from "./raw-index";
-import type { DiffOperation, IndexDef } from "./types";
+import type { AutoViewObject, DiffOperation, IndexDef } from "./types";
 import type { MigrationParameterV1 } from "./v1-types";
 
 export interface CatalogProbe {
@@ -142,6 +142,44 @@ export function viewExistsProbe(
   };
 }
 
+/** Whether a trigger of that name exists (on `table`, where PostgreSQL names it so). */
+export function triggerExistsProbe(
+  driver: MigrationDriver,
+  table: string,
+  triggerName: string,
+  exists: boolean,
+  lifetime: CatalogProbeLifetime = "live-command"
+): CatalogProbe {
+  const id = `trigger:${exists ? "exists" : "absent"}:${table}.${triggerName}`;
+  if (driver.dialect === "postgresql")
+    return {
+      id,
+      sql: "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2 AND t.tgname = $3)",
+      parameters: [
+        stringParam(boundCatalogNamespace(driver)),
+        stringParam(table),
+        stringParam(triggerName),
+      ],
+      equals: exists,
+    };
+  if (driver.dialect === "mysql")
+    return {
+      id,
+      sql: "SELECT EXISTS (SELECT 1 FROM information_schema.triggers WHERE trigger_schema = ? AND trigger_name = ?)",
+      parameters: [
+        mysqlNamespaceParam(driver, lifetime),
+        stringParam(triggerName),
+      ],
+      equals: exists,
+    };
+  return {
+    id,
+    sql: "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?)",
+    parameters: [stringParam(triggerName)],
+    equals: exists,
+  };
+}
+
 export function columnExistsProbe(
   driver: MigrationDriver,
   tableName: string,
@@ -267,6 +305,67 @@ function commentedRawIndex(
 
 const CREATE_INDEX_HEADER =
   /^\s*CREATE\s+(?:UNIQUE\s+|SPATIAL\s+|FULLTEXT\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")+"|`(?:[^`]|``)+`|[\w$]+)\s+ON\b/i;
+
+/** The trigger a `CREATE TRIGGER` or `DROP TRIGGER` statement names, unquoted. */
+const TRIGGER_HEADER =
+  /^(?:CREATE|DROP) TRIGGER (?:IF EXISTS )?(?:(?:"(?:[^"]|"")+"|`(?:[^`]|``)+`)\.)?("(?:[^"]|"")+"|`(?:[^`]|``)+`)/;
+
+/**
+ * The probes of one statement of a view kept by triggers, created or
+ * dropped: its table's, its body view's, each trigger's, and each index its
+ * creation carries. Its function, its marker and its rows have none: they
+ * stand with the table on a transactional dialect, and MySQL's filling is
+ * written again whole by its next run.
+ */
+function autoViewProbes(
+  driver: MigrationDriver,
+  view: string,
+  objects: readonly AutoViewObject[],
+  indexes: readonly IndexDef[],
+  statement: string,
+  creating: boolean
+): { pre: CatalogProbe; post: CatalogProbe } | null {
+  const text = statement.trimStart();
+  // A creation's drops are of what a hand left: none is proven.
+  if (creating && text.startsWith("DROP ")) return null;
+  const pair = (probe: (exists: boolean) => CatalogProbe) => ({
+    pre: probe(!creating),
+    post: probe(creating),
+  });
+  if (text.startsWith("CREATE TABLE ") || text.startsWith("DROP TABLE "))
+    return pair((exists) =>
+      tableExistsProbe(driver, view, exists, "stored-artifact")
+    );
+  const trigger = TRIGGER_HEADER.exec(text)?.[1];
+  if (trigger !== undefined) {
+    const name = trigger
+      .slice(1, -1)
+      .replaceAll(trigger[0]! + trigger[0], trigger[0]!);
+    const object = objects.find(
+      (candidate) => candidate.kind === "trigger" && candidate.name === name
+    );
+    return object
+      ? pair((exists) =>
+          triggerExistsProbe(
+            driver,
+            object.table!,
+            name,
+            exists,
+            "stored-artifact"
+          )
+        )
+      : null;
+  }
+  const body = objects.find((object) => object.kind === "view");
+  if (
+    body &&
+    (text.startsWith("CREATE VIEW ") || text.startsWith("DROP VIEW "))
+  )
+    return pair((exists) =>
+      viewExistsProbe(driver, body.name, exists, "stored-artifact")
+    );
+  return creating ? createdIndexProbes(driver, view, indexes, statement) : null;
+}
 
 /** A view's own creation, materialized or not, as the SQL drivers write it. */
 const VIEW_CREATION = /^CREATE (?:MATERIALIZED )?VIEW /;
@@ -471,6 +570,15 @@ export function probeForGeneratedStatement(
         ),
       };
     case "createView":
+      if (operation.view.auto)
+        return autoViewProbes(
+          driver,
+          operation.view.name,
+          operation.view.auto.objects,
+          operation.view.indexes ?? [],
+          statement,
+          true
+        );
       // A materialized view's creation is followed by its indexes.
       if (!VIEW_CREATION.test(text))
         return createdIndexProbes(
@@ -496,6 +604,15 @@ export function probeForGeneratedStatement(
         ),
       };
     case "dropView":
+      if (operation.auto)
+        return autoViewProbes(
+          driver,
+          operation.viewName,
+          operation.auto.objects,
+          [],
+          statement,
+          false
+        );
       return {
         pre: viewExistsProbe(
           driver,

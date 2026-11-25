@@ -13,7 +13,11 @@ import type { IdDomain } from "@validation/primitives/id-codec";
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { type Sql, sql } from "@sql";
 import type { AnyDriver } from "../../../drivers/driver";
-import { MigrationError, VibORMErrorCode } from "../../../errors";
+import {
+  MigrationError,
+  UnsupportedOperationError,
+  VibORMErrorCode,
+} from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
 import {
   decimalConversionConstraintName,
@@ -26,11 +30,15 @@ import {
   mysqlDecimalStorageKind,
 } from "../../decimal";
 import type {
+  AutoViewCascade,
+  AutoViewObject,
+  AutoViewStorage,
   ColumnDef,
   DiffOperation,
   ForeignKeyDef,
   SchemaSnapshot,
   TableDef,
+  ViewDef,
 } from "../../types";
 
 // Regex patterns for spatial type detection
@@ -62,6 +70,7 @@ function classifyDecimalListDescriptorChange(
 }
 
 import { mysqlStringLiteral } from "../../../adapters/databases/mysql/string-literal";
+import { autoViewObjectName } from "../../../schema/view/auto-names";
 import {
   RAW_INDEX_MARKER_PREFIX,
   rawIndexMarker,
@@ -70,7 +79,12 @@ import {
 } from "../../raw-index";
 import { readExecutableStatements } from "../../statement-safety";
 import type { CatalogRead, CommandNamespaceResolver } from "../../target";
-import { type LiveRelation, refuseRelationCollision } from "../../view";
+import {
+  autoViewObjects,
+  type LiveRelation,
+  refuseRelationCollision,
+  viewMarker,
+} from "../../view";
 import type {
   AddColumnOperation,
   AddForeignKeyOperation,
@@ -214,6 +228,10 @@ function isMySQLExactIntegerType(type: string): boolean {
   const base = type.trim().toUpperCase().split(BASE_TYPE_PATTERN, 1)[0];
   return base === "INT" || base === "INTEGER" || base === "BIGINT";
 }
+/** A keyed body's exact test of a string key against the trigger row. */
+const KEYED_TEXT_TEST =
+  /BINARY (`(?:[^`]|``)+`\.`(?:[^`]|``)+`) = \((?:OLD|NEW)\.(`(?:[^`]|``)+`)\)/g;
+
 export class MySQLMigrationDriver
   extends SqlMigrationDriver
   implements CommandNamespaceResolver
@@ -229,6 +247,277 @@ export class MySQLMigrationDriver
     };
   }
   readonly driverName = "mysql";
+
+  /** Its triggers, and a trigger on each parent whose cascade reaches its source. */
+  override autoViewObjects(
+    view: string,
+    storage: AutoViewStorage
+  ): AutoViewObject[] {
+    return autoViewObjects(
+      view,
+      storage,
+      (storage.cascades ?? []).map(({ table, trigger }) => ({
+        kind: "trigger",
+        name: trigger,
+        table,
+      }))
+    );
+  }
+
+  /**
+   * A cascade fires no trigger on MySQL (measured on 8.4: a view kept current
+   * by triggers kept the rows of a deleted parent's children). So each
+   * foreign key whose deletion reaches the source does its action itself, in
+   * a trigger before each delete of its parent: a cascade deletes the
+   * children and a `setNull` of the source's column the view reads sets it,
+   * which fires their triggers, and the native key then finds nothing to
+   * do (measured: a cascade, a `setNull`, two levels). The parent of a
+   * cascade is reached in turn. A cascade that comes back to a table it left
+   * (a self-reference) is refused: MySQL refuses a trigger that changes a
+   * table its statement is changing (error 1442). So is an `onUpdate` that
+   * changes a column of the source the view reads: it fires no trigger
+   * either, and is rare (the default is `noAction`).
+   */
+  override autoViewCascades(
+    view: string,
+    storage: AutoViewStorage,
+    tables: readonly TableDef[]
+  ): AutoViewCascade[] {
+    const refuse = (reason: string): never => {
+      throw new UnsupportedOperationError(
+        `View '${view}' cannot be kept current by triggers on MySQL: ${reason}.`,
+        { meta: { model: view, feature: "auto view", dialect: "mysql" } }
+      );
+    };
+    const reads = new Set(storage.reads);
+    const keys = (table: string) =>
+      tables.find(({ name }) => name === table)?.foreignKeys ?? [];
+    for (const key of keys(storage.source)) {
+      const read = key.columns.find((column) => reads.has(column));
+      if (
+        read !== undefined &&
+        (key.onUpdate === "cascade" || key.onUpdate === "setNull")
+      )
+        refuse(
+          `the foreign key '${key.name}' of '${storage.source}' changes its column '${read}', which the view reads, on an update of '${key.referencedTable}' (onUpdate "${key.onUpdate}"), and that fires no trigger there; declare onUpdate "noAction" or "restrict"`
+        );
+    }
+    const parents = new Map<string, AutoViewCascade>();
+    const reached = new Set([storage.source]);
+    for (const child of reached)
+      for (const key of keys(child)) {
+        const action = key.onDelete;
+        const emulated =
+          action === "cascade" ||
+          (action === "setNull" &&
+            child === storage.source &&
+            key.columns.some((column) => reads.has(column)));
+        if (!emulated) continue;
+        const parent = key.referencedTable;
+        let cascade = parents.get(parent);
+        if (cascade === undefined) {
+          cascade = {
+            table: parent,
+            trigger: autoViewObjectName(view, `_on_${parent}`),
+            children: [],
+          };
+          parents.set(parent, cascade);
+        }
+        cascade.children.push({
+          table: child,
+          columns: key.columns,
+          referencedColumns: key.referencedColumns,
+          action: action === "cascade" ? "cascade" : "setNull",
+        });
+        reached.add(parent);
+      }
+    // A trigger that changes a table its own chain is changing: a cycle of
+    // the parents' triggers, a self-reference the shortest.
+    const visit = (table: string, path: readonly string[]): void => {
+      for (const { table: child } of parents.get(table)?.children ?? []) {
+        if (path.includes(child))
+          refuse(
+            `deleting a row of '${table}' cascades to '${child}', which the same delete reaches first, and MySQL refuses a trigger that changes a table its statement changes (error 1442)`
+          );
+        visit(child, [...path, child]);
+      }
+    };
+    for (const parent of parents.keys()) visit(parent, [parent]);
+    return [...parents.values()].sort((a, b) =>
+      a.table < b.table ? -1 : Number(a.table > b.table)
+    );
+  }
+
+  override keyedAutoViewBodies(): boolean {
+    return true;
+  }
+
+  /**
+   * The row or group of the trigger row `ref`, computed again from the
+   * source itself (`keyedAutoViewBodies`): its body written for that key,
+   * read with `FOR SHARE`. A trigger reads with the snapshot of the
+   * statement that fired it, which under READ COMMITTED misses a row another
+   * writer to the group committed while this one waited for its lock; a
+   * locking read reads the rows as committed (measured on 8.4: without it,
+   * two writers to one group left the view a row short).
+   */
+  protected override autoViewRecompute(
+    view: ViewDef,
+    storage: AutoViewStorage,
+    ref: "OLD" | "NEW",
+    context: DDLContext,
+    guard = ""
+  ): string[] {
+    const [remove, insert] = super.autoViewRecompute(
+      view,
+      storage,
+      ref,
+      context,
+      guard
+    );
+    const keyed = storage.keyed?.[ref];
+    if (keyed === undefined) return [remove!, insert!];
+    // A string key's test is `BINARY col = (NEW.col)`, which no index
+    // serves (each write read the whole source: measured on 8.4); beside it
+    // the same test under the column's collation, which the key's index
+    // answers and the byte test implies, as `exactTextEq` pairs them.
+    const body = keyed.replaceAll(
+      KEYED_TEXT_TEST,
+      (_test, column: string, field: string) =>
+        `(${column} = ${ref}.${field} AND BINARY ${column} = ${ref}.${field})`
+    );
+    const table = this.tableRef(view.name, context.destination);
+    return [
+      remove!,
+      `INSERT INTO ${table} (${this.autoViewColumns(storage)}) ${body} FOR SHARE`,
+    ];
+  }
+
+  /** The marker is the table's comment (`COMMENT=`). */
+  protected override autoViewTable(
+    table: TableDef,
+    marker: string,
+    context: DDLContext
+  ): string[] {
+    const [create, ...rest] = this.generateCreateTable(
+      { type: "createTable", table },
+      context
+    );
+    return [`${create} COMMENT=${this.escapeValue(marker)}`, ...rest];
+  }
+
+  /**
+   * Three triggers on the source, each `BEGIN`, the marker in a comment,
+   * then its statements; an update computes the view again only where a
+   * column it reads changed (`<=>`, which holds NULL equal to NULL), and the
+   * row or group of `NEW` only where the key moved. Then a trigger on each
+   * parent of a cascade (`autoViewCascades`). `DELETE` then `INSERT … SELECT`
+   * is right under REPEATABLE READ and READ COMMITTED alike: InnoDB reads the
+   * source of an `INSERT … SELECT` with locks, and the `DELETE` waits for the
+   * other writer's (measured on 8.4).
+   */
+  protected override autoViewKeepers(
+    view: ViewDef,
+    storage: AutoViewStorage,
+    context: DDLContext
+  ): string[] {
+    const quote = (name: string) => this.escapeIdentifier(name);
+    const at = (name: string) => this.tableRef(name, context.destination);
+    const marker = `/* ${viewMarker(view.hash)} */`;
+    const same = (columns: readonly string[]) =>
+      columns
+        .map((column) => `NEW.${quote(column)} <=> OLD.${quote(column)}`)
+        .join(" AND ");
+    const block = (statements: readonly string[], indent: string) =>
+      statements.map((statement) => `${indent}${statement};\n`).join("");
+    const trigger = (
+      name: string,
+      timing: string,
+      table: string,
+      statements: string
+    ) =>
+      `CREATE TRIGGER ${at(name)} ${timing} ON ${at(table)} FOR EACH ROW BEGIN\n  ${marker}\n${statements}END`;
+    const recompute = (ref: "OLD" | "NEW") =>
+      this.autoViewRecompute(view, storage, ref, context);
+    return [
+      trigger(
+        autoViewObjectName(view.name, "_i"),
+        "AFTER INSERT",
+        storage.source,
+        block(recompute("NEW"), "  ")
+      ),
+      trigger(
+        autoViewObjectName(view.name, "_u"),
+        "AFTER UPDATE",
+        storage.source,
+        `  IF NOT (${same(storage.reads)}) THEN\n${block(recompute("OLD"), "    ")}    IF NOT (${same(storage.key)}) THEN\n${block(recompute("NEW"), "      ")}    END IF;\n  END IF;\n`
+      ),
+      trigger(
+        autoViewObjectName(view.name, "_d"),
+        "AFTER DELETE",
+        storage.source,
+        block(recompute("OLD"), "  ")
+      ),
+      ...(storage.cascades ?? []).map(({ table, trigger: name, children }) =>
+        trigger(
+          name,
+          "BEFORE DELETE",
+          table,
+          block(
+            children.map(
+              ({ table: child, columns, referencedColumns, action }) => {
+                const match = columns
+                  .map(
+                    (column, index) =>
+                      `${quote(column)} = OLD.${quote(referencedColumns[index]!)}`
+                  )
+                  .join(" AND ");
+                return action === "cascade"
+                  ? `DELETE FROM ${at(child)} WHERE ${match}`
+                  : `UPDATE ${at(child)} SET ${columns.map((column) => `${quote(column)} = NULL`).join(", ")} WHERE ${match}`;
+              }
+            ),
+            "  "
+          )
+        )
+      ),
+    ];
+  }
+
+  /**
+   * Computed after the triggers, since each DDL statement commits on its own
+   * here: a row a trigger wrote between the two is written again with the
+   * same values (`ON DUPLICATE KEY UPDATE`), and InnoDB's locking read
+   * orders the fill with the writes beside it (measured on 8.4).
+   */
+  protected override autoViewFill(
+    view: ViewDef,
+    storage: AutoViewStorage,
+    context: DDLContext
+  ): string {
+    const quote = (name: string) => this.escapeIdentifier(name);
+    const values = storage.columns.filter(
+      (column) => !storage.key.includes(column.name)
+    );
+    const updated = (
+      values.length > 0
+        ? values.map(({ name }) => name)
+        : storage.key.slice(0, 1)
+    )
+      .map((name) => `${quote(name)} = ${quote("b")}.${quote(name)}`)
+      .join(", ");
+    return `${super.autoViewFill(view, storage, context)} AS ${quote("b")} ON DUPLICATE KEY UPDATE ${updated}`;
+  }
+
+  /** A trigger is named in its database. */
+  protected override dropAutoViewObject(
+    object: AutoViewObject,
+    context: DDLContext
+  ): string {
+    return object.kind === "trigger"
+      ? `DROP TRIGGER IF EXISTS ${this.tableRef(object.name, context.destination)}`
+      : super.dropAutoViewObject(object, context);
+  }
 
   readonly capabilities: MigrationCapabilities = {
     supportsNativeEnums: true, // MySQL has inline ENUM type
@@ -290,8 +579,9 @@ export class MySQLMigrationDriver
       TABLE_NAME: string;
       TABLE_TYPE: string;
       VIEW_DEFINITION: string | null;
+      TABLE_COMMENT: string | null;
     }>(
-      "SELECT t.TABLE_NAME, t.TABLE_TYPE, v.VIEW_DEFINITION FROM information_schema.TABLES t LEFT JOIN information_schema.VIEWS v ON v.TABLE_SCHEMA = t.TABLE_SCHEMA AND v.TABLE_NAME = t.TABLE_NAME WHERE t.TABLE_SCHEMA = ?",
+      "SELECT t.TABLE_NAME, t.TABLE_TYPE, v.VIEW_DEFINITION, t.TABLE_COMMENT FROM information_schema.TABLES t LEFT JOIN information_schema.VIEWS v ON v.TABLE_SCHEMA = t.TABLE_SCHEMA AND v.TABLE_NAME = t.TABLE_NAME WHERE t.TABLE_SCHEMA = ?",
       [namespace]
     );
     refuseRelationCollision(
@@ -304,6 +594,7 @@ export class MySQLMigrationDriver
                 name: row.TABLE_NAME,
                 kind: row.TABLE_TYPE === "VIEW" ? "view" : "table",
                 definition: row.VIEW_DEFINITION,
+                comment: row.TABLE_COMMENT ?? undefined,
               },
             ]
           : []

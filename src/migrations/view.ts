@@ -15,10 +15,22 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
+import {
+  autoViewBodyName,
+  autoViewObjectName,
+} from "../schema/view/auto-names";
 import { childrenBeforeParents, type TableReference } from "./drop-order";
-import type { DiffOperation, SchemaSnapshot, ViewDef } from "./types";
+import type {
+  AutoViewObject,
+  AutoViewStorage,
+  DiffOperation,
+  IndexDef,
+  SchemaSnapshot,
+  ViewDef,
+} from "./types";
 
 const VIEW_HASH = /^[0-9a-f]{40}$/;
+const byName = (a: string, b: string): number => (a < b ? -1 : Number(a > b));
 const MARKER_PREFIX = "viborm_view_";
 
 /**
@@ -42,6 +54,147 @@ export function viewMarker(hash: string): string {
   return `${MARKER_PREFIX}${hash}`;
 }
 
+/**
+ * The objects a `refresh: "auto"` view needs on a dialect whose triggers are
+ * named apart from a function, beside `extra`: its three triggers on its
+ * source and the view that holds its body, sorted by kind then name.
+ */
+export function autoViewObjects(
+  view: string,
+  storage: AutoViewStorage,
+  extra: readonly AutoViewObject[] = []
+): AutoViewObject[] {
+  const triggers = ["_d", "_i", "_u"].map(
+    (suffix): AutoViewObject => ({
+      kind: "trigger",
+      name: autoViewObjectName(view, suffix),
+      table: storage.source,
+    })
+  );
+  return sortAutoViewObjects([
+    ...extra,
+    ...triggers,
+    { kind: "view", name: autoViewBodyName(view) },
+  ]);
+}
+
+/** Objects sorted by kind then name, the order a snapshot and its introspection hold them in. */
+export function sortAutoViewObjects(
+  objects: readonly AutoViewObject[]
+): AutoViewObject[] {
+  const order = (object: AutoViewObject) =>
+    `${object.kind}\u0000${object.name}`;
+  return [...objects].sort((a, b) => byName(order(a), order(b)));
+}
+
+/** Whether two snapshots hold one view's keepers alike: one missing or moved replaces the view. */
+export function sameAutoViewObjects(
+  current: ViewDef | undefined,
+  desired: ViewDef
+): boolean {
+  const key = (view: ViewDef | undefined) =>
+    JSON.stringify(
+      view?.auto?.objects.map(({ kind, name, table }) => [kind, name, table])
+    );
+  return key(current) === key(desired);
+}
+
+/** A table of the live namespace whose marker says it holds a view kept by triggers. */
+export interface LiveAutoTable {
+  readonly name: string;
+  readonly hash: string;
+  /** Its indexes beside its primary key, read as a table's. */
+  readonly indexes: readonly IndexDef[];
+}
+
+/** A trigger or a function of the live namespace that carries a marker. */
+export interface LiveAutoKeeper extends AutoViewObject {
+  readonly kind: "function" | "trigger";
+  /** The hash its marker names. */
+  readonly hash: string;
+}
+
+/** The hash a keeper's text names in its marker, wherever it stands in it. */
+export function readKeeperMarker(
+  text: string | null | undefined
+): string | undefined {
+  return text?.match(KEEPER_MARKER)?.[1];
+}
+const KEEPER_MARKER = new RegExp(`${MARKER_PREFIX}([0-9a-f]{40})`);
+
+/**
+ * The views kept by triggers of a live namespace, each a marked table with
+ * the objects that carry its marker under the names its view gives them
+ * (two views of one declaration share a hash, never a name), its body's
+ * view taken out of `views`. One missing is missing from its objects, which
+ * the declared view then does not match.
+ */
+export function readAutoViews(
+  tables: readonly LiveAutoTable[],
+  keepers: readonly LiveAutoKeeper[],
+  views: ViewDef[]
+): ViewDef[] {
+  return tables.map(({ name, hash, indexes }) => {
+    const objects: AutoViewObject[] = [];
+    const names = new Set(
+      ["", "_i", "_u", "_d"].map((suffix) => autoViewObjectName(name, suffix))
+    );
+    for (const keeper of keepers)
+      if (
+        keeper.hash === hash &&
+        (names.has(keeper.name) ||
+          (keeper.table !== undefined &&
+            keeper.name === autoViewObjectName(name, `_on_${keeper.table}`)))
+      )
+        objects.push({
+          kind: keeper.kind,
+          name: keeper.name,
+          ...(keeper.table === undefined ? {} : { table: keeper.table }),
+        });
+    const at = views.findIndex(
+      (view) => view.name === autoViewBodyName(name) && view.hash === hash
+    );
+    const [body] = at < 0 ? [] : views.splice(at, 1);
+    if (body) objects.push({ kind: "view", name: body.name });
+    return {
+      name,
+      hash,
+      dependsOn: body?.dependsOn ?? [],
+      ...(indexes.length > 0 ? { indexes: [...indexes] } : {}),
+      auto: { objects: sortAutoViewObjects(objects) },
+    };
+  });
+}
+
+/** The drop of `view`, as the snapshot that holds it says it is stored. */
+export function dropViewOperation(view: ViewDef): DropViewOperation {
+  return {
+    type: "dropView",
+    viewName: view.name,
+    ...(view.materialized ? { materialized: true } : {}),
+    ...(view.auto ? { auto: view.auto } : {}),
+  };
+}
+
+/**
+ * The tables whose change a view kept by triggers does not survive, beside
+ * what its body reads: each table a trigger of it fires on (its source, and
+ * on MySQL each parent of a cascade) and each child such a trigger changes.
+ * Its triggers name their columns, and none of them follows a change: a
+ * plpgsql body is checked when it runs, MySQL keeps a trigger's text as
+ * written, and SQLite drops a table's triggers when it rebuilds it.
+ */
+function watchedTables(view: ViewDef | undefined): string[] {
+  const auto = view?.auto;
+  if (auto === undefined) return [];
+  return [
+    ...auto.objects.flatMap(({ table }) => (table ? [table] : [])),
+    ...(auto.storage?.cascades ?? []).flatMap(({ children }) =>
+      children.map(({ table }) => table)
+    ),
+  ];
+}
+
 /** A view's body, to create it with: a view read from the database has none. */
 export function declaredViewSql(view: ViewDef): string {
   if (view.sql === undefined)
@@ -53,15 +206,23 @@ export function declaredViewSql(view: ViewDef): string {
   return view.sql;
 }
 
+/** How to create a view kept by triggers: a view read from the database has none. */
+export function declaredAutoViewStorage(view: ViewDef): AutoViewStorage {
+  const storage = view.auto?.storage;
+  if (storage === undefined) declaredViewSql({ ...view, sql: undefined });
+  return storage!;
+}
+
 /**
  * What follows `CREATE VIEW <name> AS`: the body wrapped so that the marker
  * is its last token. `quote` is the dialect's identifier quoting.
  */
 export function wrappedViewBody(
   view: ViewDef,
-  quote: (name: string) => string
+  quote: (name: string) => string,
+  columns = "*"
 ): string {
-  return `SELECT * FROM (${declaredViewSql(view)}) AS ${quote(viewMarker(view.hash))}`;
+  return `SELECT ${columns} FROM (${declaredViewSql(view)}) AS ${quote(viewMarker(view.hash))}`;
 }
 
 /**
@@ -184,8 +345,6 @@ function changedTables(
   return names;
 }
 
-const byName = (a: string, b: string): number => (a < b ? -1 : Number(a > b));
-
 /**
  * The views of `views` named in `names`, each before every one it reads when
  * `dependentsFirst` (the order their drops need), after them otherwise (the
@@ -244,12 +403,12 @@ export function withViewReplacements(
   const declared = new Map(
     (desired.views ?? []).map((view) => [view.name, view])
   );
-  const changed = changedTables(
-    operations.filter((operation) => !isViewOperation(operation)),
-    current,
-    rebuilds,
-    links
+  const tableOperations = operations.filter(
+    (operation) => !isViewOperation(operation)
   );
+  const changed = changedTables(tableOperations, current, rebuilds, links);
+  // What a view kept by triggers does not survive: any change but an index's.
+  const rebuilt = changedTables(tableOperations, current, true, links);
   const live = current.views ?? [];
   for (let grew = true; grew; ) {
     grew = false;
@@ -257,13 +416,15 @@ export function withViewReplacements(
       if (dropped.has(view.name)) continue;
       const kept = declared.get(view.name);
       const reads = [...view.dependsOn, ...(kept?.dependsOn ?? [])];
-      if (!reads.some((name) => changed.has(name) || dropped.has(name)))
+      const watched = [...watchedTables(view), ...watchedTables(kept)];
+      if (
+        !(
+          reads.some((name) => changed.has(name) || dropped.has(name)) ||
+          watched.some((name) => rebuilt.has(name))
+        )
+      )
         continue;
-      dropped.set(view.name, {
-        type: "dropView",
-        viewName: view.name,
-        ...(view.materialized ? { materialized: true } : {}),
-      });
+      dropped.set(view.name, dropViewOperation(view));
       if (kept) created.set(kept.name, kept);
       grew = true;
     }
@@ -298,7 +459,11 @@ export interface LiveRelation {
   readonly kind: "table" | "view" | "materialized view";
   /** A view's definition as its catalog prints it, materialized or not. */
   readonly definition?: string | null | undefined;
-  /** A view table's comment, where SurrealDB keeps the marker. */
+  /**
+   * A view table's comment, where SurrealDB keeps the marker, and a table's
+   * where it holds a view kept by triggers (SQLite's marker opening its
+   * column list, as the comment it is).
+   */
   readonly comment?: string | undefined;
 }
 
@@ -334,10 +499,14 @@ export function refuseRelationCollision(
         VibORMErrorCode.MIGRATION_INVALID_STATE,
         { meta: { table: relation.name, feature: "view" } }
       );
+    // A table whose comment is a marker holds a view kept by triggers.
+    const foreignTable =
+      relation.kind === "table" &&
+      readViewComment(relation.comment) === undefined;
     if (
       views.has(relation.name) &&
       !tables.has(relation.name) &&
-      (relation.kind === "table" || foreignView)
+      (foreignTable || foreignView)
     )
       throw new MigrationError(
         `${database} relation "${relation.name}" is a ${relation.kind === "table" ? "table" : `${relation.kind} ${relation.definition ? "VibORM did not create" : "whose definition this user cannot read, so nothing says VibORM created it (MySQL shows a view's definition to its definer and to a user granted SHOW VIEW)"}`}, but this schema declares a view of that name. Synchronization refuses before effects and preserves it: drop or rename it yourself, or give the view another name.`,

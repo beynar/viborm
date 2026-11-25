@@ -56,8 +56,9 @@ import {
 } from "@query-engine/transaction-operation";
 import { type AnyModel, getTableName } from "@schema/model";
 import { getModelKeyCatalog } from "@schema/model/keys";
+import { autoViewBodyName } from "@schema/view/auto-names";
 import { viewFacts } from "@schema/view/facts";
-import { isSql, Sql } from "@sql";
+import { isSql, Sql, sql } from "@sql";
 
 /** The four raw methods, spelled exactly as a caller types them. */
 export type RawMethodName =
@@ -129,7 +130,8 @@ async function sendRefresh(
   options: unknown
 ): Promise<void> {
   const name = model["~"].names.ts;
-  if (!viewFacts(model)?.materialized)
+  const facts = viewFacts(model);
+  if (!facts?.materialized)
     throw new UnsupportedOperationError(
       `'${name}' is not a materialized view ($refresh).`
     );
@@ -140,10 +142,25 @@ async function sendRefresh(
     throw new UnsupportedOperationError(
       `'${name}' has no key to be refreshed concurrently by ($refresh).`
     );
-  const statement = (
-    engine.driver.adapter as Pick<DatabaseAdapter, "refresh">
-  ).refresh?.(getTableName(model), concurrently);
-  if (statement) await createRawSurface({ engine }).$executeRaw(statement);
+  const { dialect } = engine.driver;
+  const adapter = engine.driver.adapter as unknown as DatabaseAdapter;
+  const table = getTableName(model);
+  const raw = createRawSurface({ engine });
+  // A view kept by triggers (not on SurrealDB, which keeps every view) is
+  // computed whole again from the view that holds its body, whose columns
+  // are its table's in order: after a write its triggers did not see (a
+  // TRUNCATE, a load that skips them).
+  if (facts.refresh === "auto" && dialect !== "surrealql") {
+    const { identifiers } = adapter;
+    const stored = identifiers.table(table);
+    await raw.$executeRaw(sql`DELETE FROM ${stored}`);
+    await raw.$executeRaw(
+      sql`INSERT INTO ${stored} SELECT * FROM ${identifiers.table(autoViewBodyName(table))}`
+    );
+    return;
+  }
+  const statement = adapter.refresh?.(table, concurrently);
+  if (statement) await raw.$executeRaw(statement);
 }
 
 /**

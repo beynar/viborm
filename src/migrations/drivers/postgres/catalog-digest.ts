@@ -36,6 +36,9 @@
  *   one this statement can project as written (`RAW_MARKER`): a marked raw
  *   index projects its marker, which is `fingerprintSnapshot`'s projection
  *   of it, and skips the method and structure refusals (not validity);
+ * - a table whose comment starts as a view's marker does: it may hold a view
+ *   kept by triggers (`.materialized({ refresh: "auto" })`), whose triggers
+ *   and function the introspection reads apart;
  * - an index whose deparsed definition mentions NULLS NOT DISTINCT: one
  *   statement cannot name `indnullsnotdistinct`, absent before PostgreSQL 15,
  *   but through a whole-row read, which PlanetScale's Neki refuses.
@@ -348,6 +351,7 @@ SELECT CASE WHEN
   AND NOT EXISTS (SELECT 1 FROM fk WHERE $4::text[] IS NOT NULL AND ${managedOrControl("fk.table_name")} <> ${managedOrControl("fk.foreign_table_name")})
   AND NOT EXISTS (SELECT 1 FROM columns c WHERE NOT c.selected AND c.kept AND ${elementType("c.type")} IN (SELECT name FROM enums))
   AND NOT EXISTS (SELECT 1 FROM xfk WHERE $4::text[] IS NULL OR (owning_schema::text = $1::text AND owning_table::text = ANY ($4::text[])) OR (referenced_schema::text = $1::text AND referenced_table::text = ANY ($4::text[])))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND c.relkind = 'r' AND pg_catalog.obj_description(c.oid, 'pg_class') LIKE 'viborm_view_%')
   AND NOT projection.json ~ ${re(BEYOND_ORDER)}
 THEN encode(sha256(convert_to('${HASH_DOMAIN.snapshot}', 'UTF8') || decode('00', 'hex') || convert_to(projection.json, 'UTF8')), 'hex') END AS digest
 FROM projection`;

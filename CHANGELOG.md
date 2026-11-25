@@ -7,6 +7,24 @@ Versioning.
 
 ### Added
 
+- **Views kept current by triggers: `.materialized({ refresh: "auto" })`.**
+  The view's rows are stored in a table, and triggers on its source compute
+  again the row or the group each insert, update or delete touched, in the
+  same transaction, on PostgreSQL, MySQL and the SQLite family (SQLite, D1,
+  libSQL, Durable Objects). On SurrealDB it is the view it already is. For a
+  view of one table's own fields: a relation, an order, a window, a
+  `distinct`, a `having`, a time step, a view as source, a view of rows
+  without its source's key and a nullable `by` field are refused (`W005`);
+  on MySQL, where a cascade runs no trigger, a trigger on each parent does
+  the cascade itself, and a self-referencing cascade or an `onUpdate` that
+  changes a column the view reads is refused. A migration creates the table,
+  its triggers and its rows in one operation, writes to the source waiting
+  meanwhile; it replaces the view when its query changes or a table its
+  triggers name changes, and when a trigger was dropped by hand.
+  `$refresh()` computes the rows again from the query. `viborm check` warns
+  (`W006`) when no index of the source begins with the `by` fields. See
+  [Kept current by triggers](https://viborm.dev/docs/schema/views#kept-current-by-triggers).
+
 - **Database views declared in the schema: `s.view(() => model, query)`.** A
   view is what `findMany(query)` reads on a model, or on another view. `push`
   and `migrate` create it, replace it and drop it; the client reads it like a

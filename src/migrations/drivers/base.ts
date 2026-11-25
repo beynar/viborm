@@ -28,6 +28,9 @@ import {
   type NativeRenameOperation,
 } from "../native-rename";
 import type {
+  AutoViewCascade,
+  AutoViewObject,
+  AutoViewStorage,
   DiffOperation,
   EnumDependentCheck,
   IndexDef,
@@ -313,6 +316,51 @@ export abstract class MigrationDriver {
    */
   materializesViews(): boolean {
     return false;
+  }
+
+  /**
+   * Whether a view declared `.materialized({ refresh: "auto" })` is a table
+   * here, which triggers on its source keep current at each write (every SQL
+   * dialect VibORM creates views on). Elsewhere it is what `.materialized()`
+   * makes it: SurrealDB keeps every view current itself.
+   */
+  keepsViewsByTriggers(): boolean {
+    return false;
+  }
+
+  /**
+   * Whether a `refresh: "auto"` view's triggers read a key's rows with the
+   * key's tests in the body's own filter, under a lock (MySQL), rather than
+   * from the view that holds its body: a trigger there reads with the
+   * snapshot of the statement that fired it, which under READ COMMITTED
+   * misses a row another writer committed meanwhile, and a lock reaches a
+   * view's grouped rows only through its table (measured on 8.4).
+   */
+  keyedAutoViewBodies(): boolean {
+    return false;
+  }
+
+  /**
+   * The objects beside its table that keep a `refresh: "auto"` view named
+   * `view` current here, sorted by kind then name: what a snapshot records
+   * and introspection finds of it.
+   */
+  autoViewObjects(_view: string, _storage: AutoViewStorage): AutoViewObject[] {
+    return [];
+  }
+
+  /**
+   * What a `refresh: "auto"` view named `view` needs where a cascade fires no
+   * trigger (MySQL): a trigger before each delete of a parent whose cascade
+   * reaches the view's source, refusing what such triggers cannot do. None
+   * where a cascade fires the triggers of the rows it changes.
+   */
+  autoViewCascades(
+    _view: string,
+    _storage: AutoViewStorage,
+    _tables: readonly TableDef[]
+  ): AutoViewCascade[] | undefined {
+    return;
   }
 
   // ===========================================================================

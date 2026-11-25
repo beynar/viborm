@@ -68,6 +68,12 @@ export interface ViewFacts {
    * is an ordinary one.
    */
   readonly materialized?: true;
+  /**
+   * Declared `.materialized({ refresh: "auto" })`: a table the database keeps
+   * current from its source's writes, by triggers (SurrealDB keeps every view
+   * so), on every database.
+   */
+  readonly refresh?: "auto";
   /** Present when the query groups the source's rows (`by`): see {@link AggregatedViewFacts}. */
   readonly aggregated?: AggregatedViewFacts;
 }
@@ -75,6 +81,15 @@ export interface ViewFacts {
 /** The state of a view, at the type level: what `.materialized()` is called on. */
 export interface DeclaredViewState {
   readonly view: object;
+}
+
+/** What `.materialized()` takes. */
+export interface MaterializedOptions {
+  /**
+   * `"auto"`: the view is a table its source's triggers keep current at each
+   * write, rather than rows `$refresh()` computes again.
+   */
+  readonly refresh?: "auto";
 }
 
 /** What `.materialized()` adds to a view's state, at the type level. */

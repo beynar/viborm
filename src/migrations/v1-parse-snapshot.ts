@@ -21,6 +21,10 @@ import {
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import { rawIndexFields, rawIndexHash } from "./raw-index";
 import type {
+  AutoViewCascade,
+  AutoViewDef,
+  AutoViewObject,
+  AutoViewStorage,
   ColumnDef,
   EnumDef,
   ForeignKeyDef,
@@ -45,7 +49,7 @@ import {
   parseStringArray,
   refuse,
 } from "./v1-parse-shared";
-import { isViewHash } from "./view";
+import { isViewHash, sortAutoViewObjects } from "./view";
 
 const SNAPSHOT_KEYS = [
   "enums",
@@ -102,6 +106,7 @@ const FOREIGN_KEY_KEYS = [
 const UNIQUE_CONSTRAINT_KEYS = ["columns", "name"] as const;
 const ENUM_KEYS = ["name", "values"] as const;
 const VIEW_KEYS = [
+  "auto",
   "dependsOn",
   "hash",
   "indexes",
@@ -109,6 +114,27 @@ const VIEW_KEYS = [
   "name",
   "sql",
 ] as const;
+const AUTO_VIEW_KEYS = ["objects", "storage"] as const;
+const AUTO_OBJECT_KEYS = ["kind", "name", "table"] as const;
+const AUTO_OBJECT_KINDS = ["function", "trigger", "view"] as const;
+const AUTO_STORAGE_KEYS = [
+  "cascades",
+  "columns",
+  "grouped",
+  "key",
+  "keyed",
+  "reads",
+  "source",
+] as const;
+const AUTO_KEYED_KEYS = ["NEW", "OLD"] as const;
+const AUTO_CASCADE_KEYS = ["children", "table", "trigger"] as const;
+const AUTO_CHILD_KEYS = [
+  "action",
+  "columns",
+  "referencedColumns",
+  "table",
+] as const;
+const AUTO_ACTIONS = ["cascade", "setNull"] as const;
 const VIEW_REQUIRED_KEYS = ["dependsOn", "hash", "name", "sql"] as const;
 const RELATION_STORAGE_KEYS = [
   "idColumn",
@@ -447,6 +473,127 @@ function ascending(names: readonly string[]): boolean {
   return names.every((name, index) => index === 0 || names[index - 1]! < name);
 }
 
+/** What keeps a view kept by triggers, as the serializer writes it: every member, its objects sorted. */
+function parseAutoView(value: unknown, label: string): AutoViewDef {
+  const record = exactObject(value, AUTO_VIEW_KEYS, AUTO_VIEW_KEYS, label);
+  if (!Array.isArray(record.objects) || record.objects.length === 0)
+    refuse(`${label}.objects must be a non-empty array`);
+  const objects = parseItems(
+    record.objects,
+    `${label}.objects`,
+    (item, itemLabel): AutoViewObject => {
+      const object = exactObject(
+        item,
+        AUTO_OBJECT_KEYS,
+        ["kind", "name"],
+        itemLabel
+      );
+      return {
+        kind: parseMember(
+          object.kind,
+          AUTO_OBJECT_KINDS,
+          `${itemLabel}.kind is not a kind of object`
+        ),
+        name: parseRequiredString(object.name, `${itemLabel}.name`),
+        ...("table" in object
+          ? { table: parseRequiredString(object.table, `${itemLabel}.table`) }
+          : {}),
+      };
+    }
+  );
+  if (JSON.stringify(sortAutoViewObjects(objects)) !== JSON.stringify(objects))
+    refuse(`${label}.objects must be sorted by kind, then name`);
+  const storage = exactObject(
+    record.storage,
+    AUTO_STORAGE_KEYS,
+    ["columns", "grouped", "key", "reads", "source"],
+    `${label}.storage`
+  );
+  if (!Array.isArray(storage.columns) || storage.columns.length === 0)
+    refuse(`${label}.storage.columns must be a non-empty array`);
+  if (typeof storage.grouped !== "boolean")
+    refuse(`${label}.storage.grouped must be boolean`);
+  const reads = parseIdentifierArray(storage.reads, `${label}.storage.reads`);
+  if (!ascending(reads))
+    refuse(`${label}.storage.reads must be sorted, each name once`);
+  const parsed: AutoViewStorage = {
+    source: parseRequiredString(storage.source, `${label}.storage.source`),
+    columns: parseItems(
+      storage.columns,
+      `${label}.storage.columns`,
+      parseColumn
+    ),
+    key: parseIdentifierArray(storage.key, `${label}.storage.key`),
+    grouped: storage.grouped,
+    reads,
+  };
+  if ("keyed" in storage) {
+    const keyed = exactObject(
+      storage.keyed,
+      AUTO_KEYED_KEYS,
+      AUTO_KEYED_KEYS,
+      `${label}.storage.keyed`
+    );
+    parsed.keyed = {
+      OLD: parseRequiredString(keyed.OLD, `${label}.storage.keyed.OLD`),
+      NEW: parseRequiredString(keyed.NEW, `${label}.storage.keyed.NEW`),
+    };
+  }
+  if ("cascades" in storage) {
+    if (!Array.isArray(storage.cascades) || storage.cascades.length === 0)
+      refuse(
+        `${label}.storage.cascades must be a non-empty array when present`
+      );
+    parsed.cascades = parseItems(
+      storage.cascades,
+      `${label}.storage.cascades`,
+      (item, itemLabel): AutoViewCascade => {
+        const cascade = exactObject(
+          item,
+          AUTO_CASCADE_KEYS,
+          AUTO_CASCADE_KEYS,
+          itemLabel
+        );
+        if (!Array.isArray(cascade.children) || cascade.children.length === 0)
+          refuse(`${itemLabel}.children must be a non-empty array`);
+        return {
+          table: parseRequiredString(cascade.table, `${itemLabel}.table`),
+          trigger: parseRequiredString(cascade.trigger, `${itemLabel}.trigger`),
+          children: parseItems(
+            cascade.children,
+            `${itemLabel}.children`,
+            (child, childLabel) => {
+              const entry = exactObject(
+                child,
+                AUTO_CHILD_KEYS,
+                AUTO_CHILD_KEYS,
+                childLabel
+              );
+              return {
+                table: parseRequiredString(entry.table, `${childLabel}.table`),
+                columns: parseIdentifierArray(
+                  entry.columns,
+                  `${childLabel}.columns`
+                ),
+                referencedColumns: parseIdentifierArray(
+                  entry.referencedColumns,
+                  `${childLabel}.referencedColumns`
+                ),
+                action: parseMember(
+                  entry.action,
+                  AUTO_ACTIONS,
+                  `${childLabel}.action is not a cascade's`
+                ),
+              };
+            }
+          ),
+        };
+      }
+    );
+  }
+  return { objects, storage: parsed };
+}
+
 function parseView(value: unknown, label: string): ViewDef {
   const record = exactObject(value, VIEW_KEYS, VIEW_REQUIRED_KEYS, label);
   if (!isViewHash(record.hash))
@@ -470,8 +617,13 @@ function parseView(value: unknown, label: string): ViewDef {
       refuse(`${label}.materialized must be true when present`);
     view.materialized = true;
   }
+  if ("auto" in record) {
+    if (view.materialized)
+      refuse(`${label} is materialized or kept by triggers, not both`);
+    view.auto = parseAutoView(record.auto, `${label}.auto`);
+  }
   if ("indexes" in record) {
-    if (!view.materialized)
+    if (!(view.materialized || view.auto))
       refuse(`${label}.indexes belong to a materialized view`);
     if (!Array.isArray(record.indexes) || record.indexes.length === 0)
       refuse(`${label}.indexes must be a non-empty array when present`);

@@ -2,6 +2,7 @@
 
 import { MAX_SCHEMA_IDENTIFIER_BYTES } from "../../identifier";
 import type { Model } from "../../model";
+import type { AnyRelation } from "../../relation";
 import type { Scalar } from "../../scalars/base";
 import { viewFacts } from "../../view/facts";
 import type {
@@ -144,4 +145,56 @@ export function viewIsItsRead(
     severity: "error",
     model,
   }));
+}
+
+/**
+ * W006, advice only: a view kept by triggers (`refresh: "auto"`) computes a
+ * group again at each write to its source, reading the source's rows of
+ * that group; where no index of the source begins with the grouped fields
+ * (its key, a unique, a declared total index or a foreign key's, which
+ * migrations index), each write reads the whole table.
+ */
+export function autoViewIndexed(
+  _schema: Schema,
+  model: string,
+  view: Model<any>,
+  _ctx: ValidationContext
+): SchemaValidationIssue[] {
+  const facts = viewFacts(view);
+  if (facts?.refresh !== "auto" || facts.aggregated === undefined) return [];
+  const { by } = facts.aggregated;
+  const state = facts.source["~"].state;
+  const scalars: Record<string, Scalar> = state.scalars;
+  const keys = (record: Record<string, { entries?: object }> | undefined) =>
+    Object.values(record ?? {}).map((key) => Object.keys(key.entries ?? {}));
+  const relations: Record<string, AnyRelation> = state.relations;
+  const leading: (readonly string[])[] = [
+    Object.keys(scalars).filter((field) => scalars[field]!["~"].state.isId),
+    ...Object.keys(scalars)
+      .filter((field) => scalars[field]!["~"].state.isUnique)
+      .map((field) => [field]),
+    ...keys(state.compoundId),
+    ...keys(state.compoundUniques),
+    ...state.indexes
+      .filter((index) => !index.options.where)
+      .map((index) => index.fields),
+    ...Object.values(relations).map(
+      (relation) => relation["~"].state.foreignKey?.fields ?? []
+    ),
+  ];
+  const covered = leading.some(
+    (fields) =>
+      fields.length >= by.length &&
+      by.every((field) => fields.slice(0, by.length).includes(field))
+  );
+  if (covered) return [];
+  return [
+    {
+      code: "W006",
+      message: `View '${model}' is kept by triggers and groups its source by ${by.map((field) => `'${field}'`).join(", ")}, which no index of its source begins with: each write to the source reads all its rows`,
+      repair: `Index them on the source: .index(${JSON.stringify(by)})`,
+      severity: "warning",
+      model,
+    },
+  ];
 }

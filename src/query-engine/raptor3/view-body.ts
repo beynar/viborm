@@ -18,10 +18,13 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { FeatureNotSupportedError, UnsupportedOperationError } from "@errors";
 import type { Schema } from "@schema/hydration";
 import type { AnyModel } from "@schema/model";
+import { getModelKeyCatalog } from "@schema/model/keys";
+import { AUTO_VIEW_NAME_BYTES } from "@schema/view/auto-names";
 import type { Scalar } from "@schema/scalars/base";
 import { type ViewAggregate, viewFacts } from "@schema/view/facts";
 import type { Sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
+import { type KeptViewReasons, refuseUnkept } from "./kept-view";
 import { aggregatedIdentifier, isCompact } from "./shared/identifier";
 import {
   type OrderTerm,
@@ -71,6 +74,15 @@ export interface ViewBodyContext {
   readonly adapter: DatabaseAdapter;
   /** How the same driver makes an expression a column of the view. */
   readonly columns: ViewColumnSql;
+}
+
+/**
+ * The key a body is written for: each field of it tested equal to the SQL
+ * `value` gives it (a trigger's `NEW."shopId"`).
+ */
+export interface ViewBodyKey {
+  readonly fields: readonly string[];
+  readonly value: (field: string) => Sql;
 }
 
 export interface ViewBody {
@@ -296,14 +308,93 @@ class ViewBodyQueries extends SqlQueries {
     return this.unordered ? [] : super.groupOrderTerms(...order);
   }
 
+  /**
+   * Set where the body is written for one key (`keyed`): its filter then
+   * holds the key's tests, each an SQL operand naming the trigger's row.
+   */
+  keyed = false;
+
   /** Every caller's SQL operand is settled here before it is lowered. */
-  override settleRows(): Sql {
+  override settleRows(fragment: Sql): Sql {
+    if (this.keyed) return super.settleRows(fragment);
     return refuse(
       this.#view,
       "filters with an SQL fragment",
       "a view's query holds plain values, which its migration writes as literals"
     );
   }
+}
+
+/** Why a view its triggers keep current cannot hold what a kept view cannot. */
+const AUTO: KeptViewReasons = {
+  stale:
+    "its triggers keep it current for the writes to its source table only, so what it reads of another table would go stale",
+  unordered:
+    "its triggers compute again the row or the group a write touched, and a view holds every row its filter keeps, in no order",
+  distinct:
+    "its triggers compute again the row a write touched, and a view holds one row per row of its source",
+  unfiltered:
+    "its triggers compute again the group a write touched, and keep no filter of the groups; filter them where the view is read",
+  noStep:
+    "its triggers find a group by the values of its fields, and a time step's period is computed from one",
+};
+
+/**
+ * Refuses what a view declared `.materialized({ refresh: "auto" })` cannot
+ * hold (`kept-view.ts`), and what its triggers need beside: a table as its
+ * source, and a key to find what a write touched by, the source's primary
+ * key in a view of rows, grouped fields that hold no NULL in a view of
+ * groups.
+ */
+function refuseAuto(
+  view: AnyModel,
+  source: AnyModel,
+  admitted: Arguments,
+  queries: SqlQueries
+): void {
+  const name = nameOf(view);
+  const at = (clause: string, reason: string): never =>
+    refuse(name, clause, reason);
+  const table = tableOf(view);
+  if (table.length > AUTO_VIEW_NAME_BYTES)
+    at(
+      `is named '${table}', longer than ${AUTO_VIEW_NAME_BYTES} characters`,
+      "the view that holds its body takes its name and '_viborm_body', within the 63 bytes of a name"
+    );
+  if (viewFacts(source) !== undefined)
+    at(
+      `reads the view '${nameOf(source)}'`,
+      "triggers keep a view current from the writes to a table, and a view takes none"
+    );
+  refuseUnkept(
+    view,
+    admitted,
+    admitted.where === undefined
+      ? undefined
+      : queries.prepareSelector(source, admitted.where).predicate,
+    AUTO,
+    at
+  );
+  const { columns, aggregated } = viewFacts(view)!;
+  if (aggregated === undefined) {
+    const primary = getModelKeyCatalog(source).addressableKeys.find(
+      (key) => key.kind === "primary"
+    );
+    if (!primary?.fields.every((field) => columns.includes(field)))
+      at(
+        `does not select the key of '${nameOf(source)}'`,
+        "its triggers find the row a write touched by that key"
+      );
+    return;
+  }
+  const nullable = aggregated.by.find(
+    (field) => aggregated.scalars[field]?.["~"].state.nullable
+  );
+  if (nullable !== undefined)
+    at(
+      `groups by the nullable '${nullable}'`,
+      "a group of NULL has no key its triggers can find it by"
+    );
 }
 
 /**
@@ -322,8 +413,25 @@ function asData(this: unknown, key: string, value: unknown): unknown {
  * compiler without extension, row domain or call, refused where a view cannot
  * hold what it says (plan §2.2).
  */
-export function viewBody(context: ViewBodyContext, view: AnyModel): ViewBody {
-  const { source, query, aggregated } = viewFacts(view)!;
+export function viewBody(
+  context: ViewBodyContext,
+  view: AnyModel,
+  keyed?: ViewBodyKey
+): ViewBody {
+  const { source, aggregated } = viewFacts(view)!;
+  let { query } = viewFacts(view)!;
+  // The body of one row or group: the view's filter and, for each field of
+  // its key, the test that it holds the trigger row's value.
+  if (keyed)
+    query = {
+      ...query,
+      where: {
+        AND: [
+          ...(query.where === undefined ? [] : [query.where]),
+          ...keyed.fields.map((field) => ({ [field]: keyed.value(field) })),
+        ],
+      },
+    };
   const schema = new EngineSchema(context.schema, context.resolved);
   const { adapter, columns } = context;
   // Every persistent table a lowering names goes through this one renderer.
@@ -344,6 +452,7 @@ export function viewBody(context: ViewBodyContext, view: AnyModel): ViewBody {
     });
   const name = nameOf(view);
   const queries = new ViewBodyQueries(schema, adapter, view, columns);
+  queries.keyed = keyed !== undefined;
   const operation = aggregated ? "groupBy" : "findMany";
   // The refusal of a query its source does not take names the view, not
   // only the read of the source that would have taken it.
@@ -358,6 +467,8 @@ export function viewBody(context: ViewBodyContext, view: AnyModel): ViewBody {
     );
   }
   refuseRoot(name, admitted);
+  if (viewFacts(view)!.refresh === "auto" && keyed === undefined)
+    refuseAuto(view, source, admitted, queries);
   queries.unordered = aggregated !== undefined && admitted.take === undefined;
   let statement: Sql;
   try {

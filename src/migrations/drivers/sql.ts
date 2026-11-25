@@ -17,8 +17,22 @@ import {
 import { stringifyJson } from "../../adapters/shared/standard-sql";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type { ViewColumnSql } from "../../query-engine/raptor3/view-body";
-import type { ColumnDef, ReferentialAction } from "../types";
-import { wrappedViewBody } from "../view";
+import { autoViewBodyName } from "../../schema/view/auto-names";
+import type {
+  AutoViewDef,
+  AutoViewObject,
+  AutoViewStorage,
+  ColumnDef,
+  ReferentialAction,
+  TableDef,
+  ViewDef,
+} from "../types";
+import {
+  autoViewObjects,
+  declaredAutoViewStorage,
+  viewMarker,
+  wrappedViewBody,
+} from "../view";
 import {
   type AlterEnumOperation,
   type CreateViewOperation,
@@ -462,6 +476,7 @@ export abstract class SqlMigrationDriver
     context: DDLContext
   ): string | string[] {
     const { view } = op;
+    if (view.auto) return this.generateCreateAutoView(view, context);
     const name = this.tableRef(view.name, context.destination);
     const body = wrappedViewBody(view, (marker) =>
       this.escapeIdentifier(marker)
@@ -478,8 +493,188 @@ export abstract class SqlMigrationDriver
     ];
   }
 
-  generateDropView(op: DropViewOperation, context: DDLContext): string {
+  generateDropView(
+    op: DropViewOperation,
+    context: DDLContext
+  ): string | string[] {
+    if (op.auto) return this.generateDropAutoView(op, op.auto, context);
     return `DROP ${op.materialized ? "MATERIALIZED " : ""}VIEW ${this.tableRef(op.viewName, context.destination)}`;
+  }
+
+  // ===========================================================================
+  // VIEWS KEPT BY TRIGGERS (`.materialized({ refresh: "auto" })`)
+  // ===========================================================================
+
+  override keepsViewsByTriggers(): boolean {
+    return true;
+  }
+
+  override autoViewObjects(
+    view: string,
+    storage: AutoViewStorage
+  ): AutoViewObject[] {
+    return autoViewObjects(view, storage);
+  }
+
+  /**
+   * A view kept by triggers, in one operation: what a hand left of it, the
+   * table that holds its rows
+   * (its marker beside it, its key its primary key, then its indexes), the
+   * ordinary view that holds its body, the triggers that keep it, and its
+   * rows. Where DDL is transactional the rows are computed in the
+   * transaction that created the triggers, which blocks the source's writers
+   * until it ends; where it is not (MySQL), after the triggers, so that no
+   * write is missed between the two.
+   */
+  protected generateCreateAutoView(
+    view: ViewDef,
+    context: DDLContext
+  ): string[] {
+    const storage = declaredAutoViewStorage(view);
+    const body = autoViewBodyName(view.name);
+    return [
+      // What a hand left of it (its table dropped, its triggers kept) goes
+      // first: those would refuse the new ones their names.
+      ...this.dropAutoViewObjects(view.auto?.objects ?? [], context),
+      ...this.autoViewTable(
+        {
+          name: view.name,
+          columns: storage.columns,
+          primaryKey: { columns: storage.key },
+          indexes: view.indexes ?? [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+        viewMarker(view.hash),
+        context
+      ),
+      // Its columns listed in the table's order: `$refresh` reads it whole.
+      `CREATE VIEW ${this.tableRef(body, context.destination)} AS ${wrappedViewBody(
+        view,
+        (marker) => this.escapeIdentifier(marker),
+        this.autoViewColumns(storage)
+      )}`,
+      ...this.autoViewKeepers(view, storage, context),
+      this.autoViewFill(view, storage, context),
+    ];
+  }
+
+  /**
+   * The table of a view kept by triggers, with its marker. Here (SQLite) the
+   * marker is a comment inside the parentheses of its `CREATE TABLE`, which
+   * the catalog keeps as written (`sqlite_master.sql`; measured on SQLite
+   * 3.51, which drops one written after them).
+   */
+  protected autoViewTable(
+    table: TableDef,
+    marker: string,
+    context: DDLContext
+  ): string[] {
+    const [create, ...rest] = this.generateCreateTable(
+      { type: "createTable", table },
+      context
+    );
+    const at = create!.indexOf("(");
+    return [
+      `${create!.slice(0, at + 1)}/* ${marker} */${create!.slice(at + 1)}`,
+      ...rest,
+    ];
+  }
+
+  /** The triggers, and what else, that keep a view current from its source's writes. */
+  protected abstract autoViewKeepers(
+    view: ViewDef,
+    storage: AutoViewStorage,
+    context: DDLContext
+  ): string[];
+
+  /** The rows of a view kept by triggers, computed whole. */
+  protected autoViewFill(
+    view: ViewDef,
+    storage: AutoViewStorage,
+    context: DDLContext
+  ): string {
+    const columns = this.autoViewColumns(storage);
+    return `INSERT INTO ${this.tableRef(view.name, context.destination)} (${columns}) SELECT ${columns} FROM ${this.tableRef(autoViewBodyName(view.name), context.destination)}`;
+  }
+
+  /** A view kept by triggers' columns, as an `INSERT` lists them. */
+  protected autoViewColumns(storage: AutoViewStorage): string {
+    return storage.columns
+      .map((column) => this.escapeIdentifier(column.name))
+      .join(", ");
+  }
+
+  /**
+   * The statements that compute again the row or the group of the source row
+   * `ref` (`OLD` or `NEW`) in a view kept by triggers: its row is deleted,
+   * then its body's row of that key inserted, so a row its filter no longer
+   * keeps, or a group that emptied, is not there again. `guard` ends each
+   * statement's filter (SQLite's test that the key changed). Each body reads
+   * its key's rows alone: every database measured (PostgreSQL 18, MySQL 8.4,
+   * SQLite 3.51) moves the key's test into the body's own filter, through its
+   * grouping, so the source is read by the index of its key.
+   */
+  protected autoViewRecompute(
+    view: ViewDef,
+    storage: AutoViewStorage,
+    ref: "OLD" | "NEW",
+    context: DDLContext,
+    guard = ""
+  ): string[] {
+    const table = this.tableRef(view.name, context.destination);
+    const body = this.tableRef(
+      autoViewBodyName(view.name),
+      context.destination
+    );
+    const columns = this.autoViewColumns(storage);
+    const match = storage.key
+      .map(
+        (column) =>
+          `${this.escapeIdentifier(column)} = ${ref}.${this.escapeIdentifier(column)}`
+      )
+      .join(" AND ");
+    return [
+      `DELETE FROM ${table} WHERE ${match}${guard}`,
+      `INSERT INTO ${table} (${columns}) SELECT ${columns} FROM ${body} WHERE ${match}${guard}`,
+    ];
+  }
+
+  /**
+   * A view kept by triggers, dropped whole: the objects its snapshot records
+   * (its triggers first, which call the rest), then its table. An object a
+   * hand already dropped is skipped.
+   */
+  protected generateDropAutoView(
+    op: DropViewOperation,
+    auto: AutoViewDef,
+    context: DDLContext
+  ): string[] {
+    return [
+      ...this.dropAutoViewObjects(auto.objects, context),
+      `DROP TABLE ${this.tableRef(op.viewName, context.destination)}`,
+    ];
+  }
+
+  /** `objects` dropped where they are, the triggers first: they call the rest. */
+  private dropAutoViewObjects(
+    objects: readonly AutoViewObject[],
+    context: DDLContext
+  ): string[] {
+    const order = { trigger: 0, function: 1, view: 2 } as const;
+    return [...objects]
+      .sort((a, b) => order[a.kind] - order[b.kind])
+      .map((object) => this.dropAutoViewObject(object, context));
+  }
+
+  /** One object a view kept by triggers needs, dropped if it is there. */
+  protected dropAutoViewObject(
+    object: AutoViewObject,
+    context: DDLContext
+  ): string {
+    return object.kind === "view"
+      ? `DROP VIEW IF EXISTS ${this.tableRef(object.name, context.destination)}`
+      : `DROP TRIGGER IF EXISTS ${this.escapeIdentifier(object.name)}`;
   }
 
   override generateDropTableSQL(tableName: string): string {
