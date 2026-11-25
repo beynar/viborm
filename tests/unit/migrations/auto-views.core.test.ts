@@ -264,9 +264,13 @@ describe("review of the first round (Devin, 2026-11-25)", () => {
     expect(ddl).toContain(
       'WHEN (ROW(CAST(OLD."amount" AS text), CAST(OLD."shopId" AS text), CAST(OLD."status" AS text)) IS DISTINCT FROM'
     );
+    expect(ddl).toContain("LANGUAGE plpgsql SECURITY DEFINER AS");
+    // Run as its owner on the caller's search path: nothing it names at
+    // run time resolves outside pg_catalog.
     expect(ddl).toContain(
-      "SECURITY DEFINER SET search_path = pg_catalog, pg_temp"
+      'DELETE FROM "by_shop" WHERE "shopId" OPERATOR(pg_catalog.=) OLD."shopId"'
     );
+    expect(ddl).toContain("PERFORM pg_catalog.pg_advisory_xact_lock(");
   });
 
   it("creates nothing over a helper's name it did not mark: the body's view is a declared relation", () => {

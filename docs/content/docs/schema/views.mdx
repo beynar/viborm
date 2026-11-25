@@ -453,9 +453,10 @@ is the view's key: its source's id, or its `by` fields):
 - on PostgreSQL, the function they call, `<view>_viborm()`. Two writes to
   one group wait for each other on a lock of that group for the transaction
   (`pg_advisory_xact_lock`): without it, the second write would be refused.
-  It runs as its owner, the role that ran the migration (`SECURITY DEFINER`,
-  its search path closed), as a MySQL trigger runs as its definer: a role
-  that writes the source needs no right on the view's table;
+  It runs as its owner, the role that ran the migration (`SECURITY
+  DEFINER`, every function, operator and type it names qualified by
+  `pg_catalog`), as a MySQL trigger runs as its definer: a role that writes
+  the source needs no right on the view's table;
 - on MySQL, a trigger before each delete of a parent whose `onDelete`
   cascade (or `setNull` of a column the view reads) reaches the source,
   `<view>_viborm_on_<parent>`: MySQL runs no trigger for the rows a cascade

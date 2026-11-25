@@ -629,7 +629,7 @@ export abstract class SqlMigrationDriver
     const match = storage.key
       .map(
         (column, at) =>
-          `${this.escapeIdentifier(column)} = ${ref}.${this.escapeIdentifier(storage.sourceKey[at]!)}`
+          `${this.escapeIdentifier(column)} ${this.autoViewEquals} ${ref}.${this.escapeIdentifier(storage.sourceKey[at]!)}`
       )
       .join(" AND ");
     return [
@@ -666,6 +666,9 @@ export abstract class SqlMigrationDriver
       .sort((a, b) => order[a.kind] - order[b.kind])
       .map((object) => this.dropAutoViewObject(object, context));
   }
+
+  /** How a trigger of a view kept by triggers spells equality. */
+  protected readonly autoViewEquals: string = "=";
 
   /** One object a view kept by triggers needs, dropped if it is there. */
   protected dropAutoViewObject(

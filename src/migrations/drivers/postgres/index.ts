@@ -434,6 +434,8 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     return true;
   }
 
+  protected override readonly autoViewEquals = "OPERATOR(pg_catalog.=)";
+
   /** Its triggers call one function, which carries the marker. */
   override autoViewObjects(
     view: string,
@@ -483,6 +485,13 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     const source = this.qualify(storage.source);
     const row = (ref: string, columns: readonly string[]) =>
       `ROW(${columns.map((column) => `${ref}.${quote(column)}`).join(", ")})`;
+    // The function runs as its owner with the caller's search path: every
+    // operator, function and type it names at run time is pg_catalog's,
+    // which no schema a caller puts first can shadow.
+    const eq = this.autoViewEquals;
+    const keyMoved = `NOT (${storage.sourceKey
+      .map((column) => `NEW.${quote(column)} ${eq} OLD.${quote(column)}`)
+      .join(" AND ")})`;
     // What the view reads of a row, compared as text: a type without
     // equality (`json`) refuses a row comparison, and two texts that differ
     // where the values are equal only compute a row again.
@@ -495,7 +504,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
       [
         ...(storage.grouped
           ? [
-              `PERFORM pg_advisory_xact_lock(${space}, hashtext(CAST(${row(ref, storage.sourceKey)} AS text)))`,
+              `PERFORM pg_catalog.pg_advisory_xact_lock(${space}, pg_catalog.hashtext(CAST(${row(ref, storage.sourceKey)} AS pg_catalog.text)))`,
             ]
           : []),
         ...this.autoViewRecompute(view, storage, ref, context),
@@ -512,17 +521,16 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     return [
       [
         // As its owner, the migration's role: a writer of the source needs no
-        // right on the view's table or on its body. Every name in it is
-        // qualified, and its search path holds nothing a caller can shadow.
-        `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $viborm$`,
+        // right on the view's table or on its body.
+        `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $viborm$`,
         `BEGIN -- ${marker}`,
-        "  IF TG_OP <> 'INSERT' THEN",
+        `  IF TG_OP OPERATOR(pg_catalog.<>) 'INSERT' THEN`,
         recompute("OLD"),
         "  END IF;",
-        "  IF TG_OP = 'INSERT' THEN",
+        `  IF TG_OP ${eq} 'INSERT' THEN`,
         recompute("NEW"),
-        "  ELSIF TG_OP = 'UPDATE' THEN",
-        `    IF ${row("NEW", storage.sourceKey)} IS DISTINCT FROM ${row("OLD", storage.sourceKey)} THEN`,
+        `  ELSIF TG_OP ${eq} 'UPDATE' THEN`,
+        `    IF ${keyMoved} THEN`,
         recompute("NEW").replaceAll(/^ {6}/gm, "        "),
         "    END IF;",
         "  END IF;",
