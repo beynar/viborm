@@ -29,6 +29,10 @@ import {
   type SortOrderSchema,
   sortOrderSchema,
 } from "../core/orderby";
+import {
+  type ModelOmittedKeys,
+  projectableScalarNames,
+} from "../core/projection";
 import type { ScalarSchemas } from "../index";
 import {
   type PaginationSkipSchema,
@@ -83,9 +87,18 @@ const isSummableScalar = (state: ScalarState): boolean =>
  */
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
 
-type AggregateScalarKeys<M extends AnyModel> = Exclude<
-  NonPointScalarKeys<ModelStateOf<M>["scalars"]>,
-  ListScalarKeys<M>
+/**
+ * A field the model's `.omit()` hides never leaves the database, so no value
+ * aggregate (`_avg`, `_sum`, `_min`, `_max`) and no `by` names it: each would
+ * return the value, or a value computed from it, that `select` refuses.
+ * `_count`, `where`, `having` and `orderBy` keep it, as `where` and `orderBy`
+ * of a find do: none returns the value.
+ */
+type ProjectableKeys<M extends AnyModel, K> = Exclude<K, ModelOmittedKeys<M>>;
+
+type AggregateScalarKeys<M extends AnyModel> = ProjectableKeys<
+  M,
+  Exclude<NonPointScalarKeys<ModelStateOf<M>["scalars"]>, ListScalarKeys<M>>
 >;
 
 export type CountScalarKeys<M extends AnyModel> =
@@ -93,12 +106,12 @@ export type CountScalarKeys<M extends AnyModel> =
   | ScalarKeys<ModelStateOf<M>["scalars"]>;
 
 type ListAggregateEntries<M extends AnyModel> = V.FromKeys<
-  ListScalarKeys<M>[],
+  ProjectableKeys<M, ListScalarKeys<M>>[],
   AggregateValueRefusalSchema
 >["entries"];
 
 type PointAggregateEntries<M extends AnyModel> = V.FromKeys<
-  PointScalarKeys<ModelStateOf<M>["scalars"]>[],
+  ProjectableKeys<M, PointScalarKeys<ModelStateOf<M>["scalars"]>>[],
   AggregateValueRefusalSchema
 >["entries"];
 
@@ -115,9 +128,15 @@ export type AggregateScalarSchemas<M extends AnyModel> = {
   /** Count can include _all and any scalar */
   count: V.FromKeys<CountScalarKeys<M>[], OptionalBoolean>;
   /** Avg only works on numeric scalars */
-  avg: AggregateValueSchema<M, NumericScalarKeys<ModelStateOf<M>["scalars"]>>;
+  avg: AggregateValueSchema<
+    M,
+    ProjectableKeys<M, NumericScalarKeys<ModelStateOf<M>["scalars"]>>
+  >;
   /** Sum only works on numeric scalars */
-  sum: AggregateValueSchema<M, NumericScalarKeys<ModelStateOf<M>["scalars"]>>;
+  sum: AggregateValueSchema<
+    M,
+    ProjectableKeys<M, NumericScalarKeys<ModelStateOf<M>["scalars"]>>
+  >;
   /** Min works on scalar columns, not list containers */
   min: AggregateValueSchema<M, AggregateScalarKeys<M>>;
   /** Max works on scalar columns, not list containers */
@@ -134,11 +153,10 @@ export const getAggregateScalarSchemas = <M extends AnyModel>(
   const listKeys: string[] = [];
   const pointKeys: string[] = [];
 
-  for (const name of Object.keys(state.scalars)) {
+  // Count can include all scalars, the omitted ones too: it returns no value.
+  countKeys.push(...Object.keys(state.scalars));
+  for (const name of projectableScalarNames(model)) {
     const scalar = state.scalars[name]!;
-
-    // Count can include all scalars
-    countKeys.push(name);
 
     // Avg/Sum only for numeric types
     if (isSummableScalar(scalar["~"].state)) {
@@ -909,14 +927,19 @@ export const getGroupByOrderBySchema = <M extends AnyModel>(
 /**
  * GroupBy args: { by, where?, having?, orderBy?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? }
  */
-type GroupByScalarKeys<M extends AnyModel> = NonPointScalarKeys<
-  ModelStateOf<M>["scalars"]
+type GroupByScalarKeys<M extends AnyModel> = ProjectableKeys<
+  M,
+  NonPointScalarKeys<ModelStateOf<M>["scalars"]>
 >;
 
 type EnumOfScalarMap<M extends AnyModel> = V.Enum<GroupByScalarKeys<M>[]>;
 
 /** The single `date` and `dateTime` columns a time step can group. */
-type TemporalScalarKeys<M extends AnyModel> = {
+type TemporalScalarKeys<M extends AnyModel> = ProjectableKeys<
+  M,
+  TemporalKeysOf<M>
+>;
+type TemporalKeysOf<M extends AnyModel> = {
   [K in keyof ModelStateOf<M>["scalars"]]: ModelStateOf<M>["scalars"][K]["~"]["state"] extends {
     array: true;
   }
@@ -1131,8 +1154,9 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   core: CoreSchemas<M, F>
 ): GroupByArgs<M, F> => {
   const state = model["~"].state;
-  // Build "by" schema - array of scalar names or single scalar
-  const scalarKeys = Object.keys(state.scalars).filter(
+  // Build "by" schema - array of scalar names or single scalar. A field the
+  // model omits is not a member: the grouped row would carry its value.
+  const scalarKeys = projectableScalarNames(model).filter(
     (field) => state.scalars[field]!["~"].state.type !== "point"
   ) as GroupByScalarKeys<M>[];
 
