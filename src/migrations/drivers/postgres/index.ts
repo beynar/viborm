@@ -492,10 +492,13 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
    * which refuses the user's write (measured on PostgreSQL 18). A row of a
    * view of rows is held by the source row's own lock.
    *
-   * Every update fires it: a `BEFORE UPDATE` trigger of the source may change
-   * a column the statement did not set (`UPDATE OF` follows the statement's),
-   * and a comparison of the values would need an equality `json` lacks or a
-   * text that rounds a double.
+   * An update fires it where the row's final image of the columns the view
+   * reads changed (`*=`, the record image comparison, operator bound when the
+   * trigger is created): a `BEFORE UPDATE` trigger of the source may change
+   * one the statement did not set, which `UPDATE OF` would miss; a value
+   * comparison would need an equality `json` lacks, and a text rounds a
+   * double. An update that changes none takes no lock, which two writers of
+   * columns the view does not read would otherwise deadlock on.
    */
   protected override autoViewKeepers(
     view: ViewDef,
@@ -537,8 +540,12 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     // key a migration command locks by.
     const space = Number.parseInt(view.hash.slice(0, 7), 16);
     const marker = viewMarker(view.hash);
-    const trigger = (suffix: string, event: string) =>
-      `CREATE TRIGGER ${quote(autoViewObjectName(view.name, suffix))} AFTER ${event} ON ${source} FOR EACH ROW EXECUTE FUNCTION ${fn}()`;
+    // A record, not a row constructor: two constructors compare field by
+    // field, with each field's own operator.
+    const image = (ref: string) =>
+      `CAST(ROW(${storage.reads.map((column) => `${ref}.${quote(column)}`).join(", ")}) AS record)`;
+    const trigger = (suffix: string, event: string, when = "") =>
+      `CREATE TRIGGER ${quote(autoViewObjectName(view.name, suffix))} AFTER ${event} ON ${source} FOR EACH ROW${when} EXECUTE FUNCTION ${fn}()`;
     return [
       [
         `CREATE FUNCTION ${recompute}(${signature}) RETURNS void LANGUAGE sql`,
@@ -571,7 +578,11 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
       ].join("\n"),
       `REVOKE ALL ON FUNCTION ${fn}() FROM PUBLIC`,
       trigger("_i", "INSERT"),
-      trigger("_u", "UPDATE"),
+      trigger(
+        "_u",
+        "UPDATE",
+        ` WHEN (NOT (${image("OLD")} *= ${image("NEW")}))`
+      ),
       trigger("_d", "DELETE"),
     ];
   }

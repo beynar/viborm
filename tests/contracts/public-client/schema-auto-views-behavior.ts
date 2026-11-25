@@ -538,6 +538,39 @@ export function runAutoViewsBehavior(provider: AutoViewsProvider): void {
     );
 
     test.runIf(provider.concurrent)(
+      "two writers of a column no view reads never wait on a group's lock",
+      async () => {
+        const driver = await seeded();
+        const client = viewsClient(driver);
+        await syncLiveSchema(client as never);
+        const pause = (ms: number) =>
+          new Promise((done) => setTimeout(done, ms));
+        // Sales 2 and 3 are one group. The first writer edits 2 then 3; the
+        // second edits 3 meanwhile. With a group lock taken for an edit the
+        // view does not read, the two wait on each other and one is refused.
+        const outcomes = await Promise.allSettled([
+          client.$transaction(async (tx) => {
+            await tx.sale.update({ where: { id: "2" }, data: { memo: "a" } });
+            await pause(300);
+            await tx.sale.update({ where: { id: "3" }, data: { memo: "a" } });
+          }),
+          (async () => {
+            await pause(100);
+            await client.$transaction(async (tx) => {
+              await tx.sale.update({ where: { id: "3" }, data: { memo: "b" } });
+              await pause(400);
+            });
+          })(),
+        ]);
+        expect(outcomes.map(({ status }) => status)).toEqual([
+          "fulfilled",
+          "fulfilled",
+        ]);
+        await expectCurrent(client);
+      }
+    );
+
+    test.runIf(provider.concurrent)(
       "two writers to one group at once both land, at each isolation level",
       async () => {
         const driver = await seeded();

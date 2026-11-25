@@ -279,7 +279,7 @@ describe("review of the first round (Devin, 2026-11-25)", () => {
     );
     // A BEFORE UPDATE trigger may change a column the statement did not set.
     expect(ddl).toContain(
-      'AFTER UPDATE ON "sales" FOR EACH ROW EXECUTE FUNCTION'
+      'AFTER UPDATE ON "sales" FOR EACH ROW WHEN (NOT (CAST(ROW(OLD."amount", OLD."shopId", OLD."status") AS record) *= CAST(ROW(NEW."amount", NEW."shopId", NEW."status") AS record))) EXECUTE FUNCTION'
     );
   });
 
