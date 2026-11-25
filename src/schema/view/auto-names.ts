@@ -33,5 +33,4 @@ export const AUTO_VIEW_NAME_BYTES = OBJECT_NAME_BYTES - "_viborm_body".length;
  * {@link AUTO_VIEW_NAME_BYTES} long (`W005`), so the client spells it
  * without the hash.
  */
-export const autoViewBodyName = (view: string): string =>
-  `${view}_viborm_body`;
+export const autoViewBodyName = (view: string): string => `${view}_viborm_body`;
