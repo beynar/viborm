@@ -148,25 +148,23 @@ export const getAggregateScalarSchemas = <M extends AnyModel>(
   const listKeys: string[] = [];
   const pointKeys: string[] = [];
 
-  // Count can include all scalars, the omitted ones too: it returns no value.
-  countKeys.push(...Object.keys(state.scalars));
-  for (const name of projectableScalarNames(model)) {
+  // A field the model omits is counted and refused by name like any other;
+  // only the value projections (`_avg`, `_sum`, `_min`, `_max`) leave it out.
+  const projectable = new Set(projectableScalarNames(model));
+  for (const name of Object.keys(state.scalars)) {
     const scalar = state.scalars[name]!;
 
-    // Avg/Sum only for numeric types
-    if (isSummableScalar(scalar["~"].state)) {
-      numericKeys.push(name);
-    }
+    // Count can include all scalars
+    countKeys.push(name);
 
     // Value aggregates never compare list containers.
-    if (
-      scalar["~"].state.array !== true &&
-      scalar["~"].state.type !== "point"
-    ) {
-      minMaxKeys.push(name);
-    }
     if (scalar["~"].state.array === true) listKeys.push(name);
-    if (scalar["~"].state.type === "point") pointKeys.push(name);
+    else if (scalar["~"].state.type === "point") pointKeys.push(name);
+    else if (projectable.has(name)) {
+      minMaxKeys.push(name);
+      // Avg/Sum only for numeric types
+      if (isSummableScalar(scalar["~"].state)) numericKeys.push(name);
+    }
   }
 
   const booleanOptional = v.boolean({ optional: true });

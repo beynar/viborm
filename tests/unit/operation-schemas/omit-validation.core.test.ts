@@ -43,6 +43,7 @@ const secretive = s
     label: s.string(),
     vaultKey: s.string(),
     vaultPin: s.int(),
+    vaultTags: s.string().array(),
     ownerId: s.string(),
     owner: s
       .toOne(() => keeper)
@@ -50,7 +51,7 @@ const secretive = s
       .references("id")
       .name("vault"),
   })
-  .omit({ vaultKey: true, vaultPin: true });
+  .omit({ vaultKey: true, vaultPin: true, vaultTags: true });
 
 const keeper = s.model({
   id: s.string().id(),
@@ -340,6 +341,12 @@ describe("model-level .omit() outranks an aggregate", () => {
     expect(
       refused({ by: ["label"], _max: { vaultPin: true } }, "groupBy")
     ).toContain("vaultPin");
+  });
+
+  test("a hidden list keeps the list refusal its type promises", () => {
+    expect(refused({ _max: { vaultTags: true } }, "aggregate")).toContain(
+      "A list cannot be projected by '_max'"
+    );
   });
 
   test("groupBy cannot group by a hidden field", () => {
