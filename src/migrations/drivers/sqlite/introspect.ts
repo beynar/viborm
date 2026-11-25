@@ -571,7 +571,7 @@ export async function introspect(
         });
     }
     views.push(...readAutoViews(autoTables, keepers, views));
-    views.sort((a, b) => (a.name < b.name ? -1 : Number(a.name > b.name)));
+    views.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
 
   // SQLite doesn't have native enum types

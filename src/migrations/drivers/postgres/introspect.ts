@@ -1084,7 +1084,7 @@ export async function introspectPostgresSchema(
       views
     )
   );
-  views.sort((a, b) => (a.name < b.name ? -1 : Number(a.name > b.name)));
+  views.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
   return {
     tables,
