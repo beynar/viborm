@@ -256,21 +256,23 @@ describe("review of the first round (Devin, 2026-11-25)", () => {
     expect(fill).toMatch(LOCKED_FILL);
   });
 
-  it("reads PostgreSQL's update guard as text, and runs its function as its owner", () => {
+  it("computes a PostgreSQL group in a function parsed at its creation, run as its owner, and compares no value on update", () => {
     const [def] = snapshotOf(BY_SHOP, postgresMigrationDriver).views!;
     const ddl = postgresMigrationDriver
       .compileStatements({ type: "createView", view: def! }, ddlContext("live"))
       .join("\n");
+    // Its operators resolved as the migration's search path resolves them
+    // (an extension's `citext` included), none at a caller's.
     expect(ddl).toContain(
-      'WHEN (ROW(CAST(OLD."amount" AS text), CAST(OLD."shopId" AS text), CAST(OLD."status" AS text)) IS DISTINCT FROM'
+      'CREATE FUNCTION "by_shop_viborm_k"(k0 text) RETURNS void LANGUAGE sql SECURITY DEFINER\nBEGIN ATOMIC'
     );
-    expect(ddl).toContain("LANGUAGE plpgsql SECURITY DEFINER AS");
-    // Run as its owner on the caller's search path: nothing it names at
-    // run time resolves outside pg_catalog.
+    expect(ddl).toContain('  DELETE FROM "by_shop" WHERE "shopId" = k0;');
+    expect(ddl).toContain('PERFORM "by_shop_viborm_k"(OLD."shopId");');
+    // No guard of the values: `json` has no equality, and a text rounds.
     expect(ddl).toContain(
-      'DELETE FROM "by_shop" WHERE "shopId" OPERATOR(pg_catalog.=) OLD."shopId"'
+      'AFTER UPDATE OF "amount", "shopId", "status" ON "sales" FOR EACH ROW EXECUTE'
     );
-    expect(ddl).toContain("PERFORM pg_catalog.pg_advisory_xact_lock(");
+    expect(ddl).not.toContain("SECURITY DEFINER AS $viborm$");
   });
 
   it("creates nothing over a helper's name it did not mark: the body's view is a declared relation", () => {
@@ -287,6 +289,32 @@ describe("review of the first round (Devin, 2026-11-25)", () => {
       ddlContext("live")
     );
     expect(statements.filter((sql) => sql.startsWith("DROP "))).toEqual([]);
+  });
+
+  it("reads an ordinary view whose name ends as a body's as the view it is, without a trigger of its marker", () => {
+    const views = [
+      { name: "sales_viborm_body", hash: H, dependsOn: ["sales"] },
+    ];
+    expect(readAutoViews([], [], views)).toEqual([]);
+    expect(views.map(({ name }) => name)).toEqual(["sales_viborm_body"]);
+  });
+
+  it("refuses no SQLite key of a mapped enum, whose CHECK names its own column", () => {
+    const sale = model({
+      id: s.string().id(),
+      state: s.enum(["open", "paid"]).map("sale_state"),
+    }).map("sales");
+    expect(() =>
+      serializeModels(
+        {
+          sale,
+          byState: view(() => sale, { by: ["state"], _count: true })
+            .materialized({ refresh: "auto" })
+            .map("by_state"),
+        },
+        { migrationDriver: sqlite3MigrationDriver }
+      )
+    ).not.toThrow();
   });
 
   it("reads what a hand left of one (its body's view and triggers, no table) as a view to drop, never its name's table", () => {
@@ -384,6 +412,7 @@ describe("the snapshot", () => {
       auto: {
         objects: [
           { kind: "function", name: "by_shop_viborm" },
+          { kind: "function", name: "by_shop_viborm_k" },
           { kind: "trigger", name: "by_shop_viborm_d", table: "sales" },
           { kind: "trigger", name: "by_shop_viborm_i", table: "sales" },
           { kind: "trigger", name: "by_shop_viborm_u", table: "sales" },
@@ -573,7 +602,8 @@ describe("DDL and probes", () => {
       'DROP TRIGGER IF EXISTS "by_shop_viborm_d" ON "sales"',
       'DROP TRIGGER IF EXISTS "by_shop_viborm_i" ON "sales"',
       'DROP TRIGGER IF EXISTS "by_shop_viborm_u" ON "sales"',
-      'DROP FUNCTION IF EXISTS "by_shop_viborm"()',
+      'DROP FUNCTION IF EXISTS "by_shop_viborm"',
+      'DROP FUNCTION IF EXISTS "by_shop_viborm_k"',
       'DROP VIEW IF EXISTS "by_shop_viborm_body"',
       'DROP TABLE "by_shop"',
     ]);

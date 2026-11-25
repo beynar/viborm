@@ -1457,7 +1457,9 @@ triggers where the bound driver `keepsViewsByTriggers()` (every
 ordinary view of the same hash). Its identity adds `auto` (the triggers'
 revision, `AUTO_REVISION`) and its keys. `ViewDef.auto` holds `objects`
 (every keeper, sorted by kind then name: the three source triggers
-`<view>_viborm_i/_u/_d`, PostgreSQL's function `<view>_viborm`, MySQL's
+`<view>_viborm_i/_u/_d`, PostgreSQL's trigger function `<view>_viborm` and its
+`BEGIN ATOMIC` recompute function `<view>_viborm_k` (`SECURITY DEFINER`,
+marked by its comment), MySQL's
 `<view>_viborm_on_<parent>` triggers, the body view `<view>_viborm_body`;
 names from `schema/view/auto-names.ts`, which the client's `$refresh` reads
 too) and, from the declaration only, `storage` (source, columns, key, the
@@ -1475,7 +1477,11 @@ after the triggers, since its DDL commits). Its drop drops the keepers
 (`IF EXISTS`), then the table; a reset does the same (`keepers` of a
 `PlannedTableDrop`, probed as a table). The probes read the table, the body
 view and each trigger by its statement (`autoViewProbes`). The PostgreSQL
-catalog digest abstains on a namespace holding a marked table. MySQL's
+catalog digest abstains on a namespace holding a marked table. A marked
+body view beside triggers of its marker but no table is what a hand left:
+introspected as a `tableless` view of no declaration's hash, dropped
+without a table. The statement classifier reads a `BEGIN ATOMIC` body as
+part of its `CREATE FUNCTION`. MySQL's
 triggers read each key's rows with the key's tests in the body's own filter
 and `FOR SHARE` (`keyedAutoViewBodies`): a trigger reads with its firing
 statement's snapshot, which READ COMMITTED leaves stale (measured).

@@ -155,18 +155,29 @@ export function readAutoViews(
   views: ViewDef[]
 ): ViewDef[] {
   const kept = new Set(tables.map(({ name }) => name));
+  // A view of that name is what is left only beside a trigger of its marker
+  // and of its view's name: an ordinary view may end so too.
   const left: LiveAutoTable[] = views.flatMap((view) => {
     const name = view.name.slice(0, -BODY_SUFFIX.length);
+    const trigger = (keeper: LiveAutoKeeper) =>
+      keeper.kind === "trigger" &&
+      keeper.hash === view.hash &&
+      ["_i", "_u", "_d"].some(
+        (suffix) => keeper.name === autoViewObjectName(name, suffix)
+      );
     return view.name.endsWith(BODY_SUFFIX) &&
       !kept.has(name) &&
-      autoViewBodyName(name) === view.name
+      autoViewBodyName(name) === view.name &&
+      keepers.some(trigger)
       ? [{ name, hash: view.hash, indexes: [] }]
       : [];
   });
   return [...tables, ...left].map(({ name, hash, indexes }) => {
     const objects: AutoViewObject[] = [];
     const names = new Set(
-      ["", "_i", "_u", "_d"].map((suffix) => autoViewObjectName(name, suffix))
+      ["", "_i", "_u", "_d", "_k"].map((suffix) =>
+        autoViewObjectName(name, suffix)
+      )
     );
     for (const keeper of keepers)
       if (

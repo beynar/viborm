@@ -1073,7 +1073,10 @@ export function serializeResolvedModels(
 
   const finalized = tables.map((table) => migrationDriver.finalizeTable(table));
   for (const [view, storage] of autoViews) {
-    refuseNarrowedKey(view.name, storage, finalized);
+    // MySQL keys a string column in a narrower type than it stores one in;
+    // elsewhere a key column is its source's (SQLite's enum names its own).
+    if (migrationDriver.dialect === "mysql")
+      refuseNarrowedKey(view.name, storage, finalized);
     const cascades = migrationDriver.autoViewCascades(
       view.name,
       storage,

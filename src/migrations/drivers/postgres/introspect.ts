@@ -434,12 +434,12 @@ ORDER BY 1;
  * The namespace's functions whose body carries a view's marker, each with
  * every trigger that calls it: what keeps a view kept by triggers current.
  */
-const AUTO_KEEPERS_QUERY = `SELECT p.proname::text AS function_name, p.prosrc AS source, t.tgname::text AS trigger_name, c.relname::text AS table_name
+const AUTO_KEEPERS_QUERY = `SELECT p.proname::text AS function_name, p.prosrc || coalesce(' ' || pg_catalog.obj_description(p.oid, 'pg_proc'), '') AS source, t.tgname::text AS trigger_name, c.relname::text AS table_name
 FROM pg_catalog.pg_proc p
 JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
 LEFT JOIN pg_catalog.pg_trigger t ON t.tgfoid = p.oid AND NOT t.tgisinternal
 LEFT JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
-WHERE n.nspname = $1 AND p.prosrc LIKE '%viborm_view_%'
+WHERE n.nspname = $1 AND (p.prosrc LIKE '%viborm_view_%' OR pg_catalog.obj_description(p.oid, 'pg_proc') LIKE 'viborm_view_%')
 ORDER BY p.proname, t.tgname;
 `;
 

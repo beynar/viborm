@@ -21,7 +21,10 @@ import { hasIdPrefix } from "@validation/primitives/id-formats";
 import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { errorCause } from "../../../errors/diagnostic-safety";
-import { autoViewObjectName } from "../../../schema/view/auto-names";
+import {
+  autoViewBodyName,
+  autoViewObjectName,
+} from "../../../schema/view/auto-names";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
 import { type LowLockContext, tableRewrites } from "../../compile";
 import {
@@ -434,15 +437,17 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     return true;
   }
 
-  protected override readonly autoViewEquals = "OPERATOR(pg_catalog.=)";
-
-  /** Its triggers call one function, which carries the marker. */
+  /**
+   * Its triggers call one function, which carries the marker, and that one
+   * calls the function that computes a row or a group again (`_k`).
+   */
   override autoViewObjects(
     view: string,
     storage: AutoViewStorage
   ): AutoViewObject[] {
     return autoViewObjects(view, storage, [
       { kind: "function", name: autoViewObjectName(view, "") },
+      { kind: "function", name: autoViewObjectName(view, "_k") },
     ]);
   }
 
@@ -462,18 +467,26 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
   }
 
   /**
-   * One plpgsql function, `<view>_viborm()`, its body carrying the marker,
-   * and three row triggers on the source that call it after each insert,
-   * update and delete. It computes again the row or group of `OLD`, then of
-   * `NEW` where the key moved or the row is new. An update fires it only where
-   * a column the view reads changed. A group is computed under a lock of its
-   * key for the transaction (`pg_advisory_xact_lock` of the view and the
-   * key's hash): without it, two writes to one group cross, the second
-   * inserting the row the first already inserted, which refuses the user's
-   * write (measured on PostgreSQL 18). A row of a view of rows is held by the
-   * source row's own lock. The function runs as its owner (`SECURITY
-   * DEFINER`), as MySQL's triggers run as their definer: a role that writes
-   * the source needs no right on the view's table.
+   * Two functions and three row triggers on the source. `<view>_viborm_k`,
+   * a SQL function whose body is parsed when it is created (`BEGIN ATOMIC`,
+   * PostgreSQL 14), computes the row or the group of one key again: it
+   * deletes the view's row of that key and inserts its body's. Its operators
+   * are resolved then, on the migration's search path, so a key of an
+   * extension's type compares as the view's body groups it (`citext`), and
+   * nothing a caller's search path holds can stand in for them. It runs as
+   * its owner (`SECURITY DEFINER`), as a MySQL trigger runs as its definer:
+   * a role that writes the source needs no right on the view's table. A group
+   * is computed under a lock of its key for the transaction
+   * (`pg_advisory_xact_lock` of the view and the key's hash): without it,
+   * two writes to one group cross, the second inserting the row the first
+   * already inserted, which refuses the user's write (measured on PostgreSQL
+   * 18). A row of a view of rows is held by the source row's own lock.
+   * `<view>_viborm()`, the plpgsql function the triggers call after each
+   * insert, update and delete, carries the marker and calls it for `OLD`,
+   * then for `NEW` where the key moved or the row is new; it runs as the
+   * writer. An update fires them only where it sets a column the view reads
+   * (`UPDATE OF`): a comparison of the values would need an equality that
+   * `json` lacks, or a text that rounds a double.
    */
   protected override autoViewKeepers(
     view: ViewDef,
@@ -482,56 +495,59 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
   ): string[] {
     const quote = (name: string) => this.escapeIdentifier(name);
     const fn = this.qualify(autoViewObjectName(view.name, ""));
+    const recompute = this.qualify(autoViewObjectName(view.name, "_k"));
     const source = this.qualify(storage.source);
-    const row = (ref: string, columns: readonly string[]) =>
-      `ROW(${columns.map((column) => `${ref}.${quote(column)}`).join(", ")})`;
-    // The function runs as its owner with the caller's search path: every
-    // operator, function and type it names at run time is pg_catalog's,
-    // which no schema a caller puts first can shadow.
-    const eq = this.autoViewEquals;
-    const keyMoved = `NOT (${storage.sourceKey
-      .map((column) => `NEW.${quote(column)} ${eq} OLD.${quote(column)}`)
-      .join(" AND ")})`;
-    // What the view reads of a row, compared as text: a type without
-    // equality (`json`) refuses a row comparison, and two texts that differ
-    // where the values are equal only compute a row again.
-    const text = (ref: string) =>
-      `ROW(${storage.reads.map((column) => `CAST(${ref}.${quote(column)} AS text)`).join(", ")})`;
+    const table = this.qualify(view.name);
+    const body = this.qualify(autoViewBodyName(view.name));
+    const columns = this.autoViewColumns(storage);
+    const parameters = storage.key.map((_, at) => `k${at}`);
+    const types = storage.key.map((column) =>
+      this.formatColumnType(
+        storage.columns.find(({ name }) => name === column)!,
+        context
+      )
+    );
+    const match = storage.key
+      .map((column, at) => `${quote(column)} = ${parameters[at]}`)
+      .join(" AND ");
     // The view's own lock space: two int4 keys, apart from the one bigint
     // key a migration command locks by.
     const space = Number.parseInt(view.hash.slice(0, 7), 16);
-    const recompute = (ref: "OLD" | "NEW") =>
-      [
-        ...(storage.grouped
-          ? [
-              `PERFORM pg_catalog.pg_advisory_xact_lock(${space}, pg_catalog.hashtext(CAST(${row(ref, storage.sourceKey)} AS pg_catalog.text)))`,
-            ]
-          : []),
-        ...this.autoViewRecompute(view, storage, ref, context),
-      ]
-        .map((statement) => `      ${statement};`)
-        .join("\n");
+    // The group's lock is taken by the trigger function, which needs no
+    // right for it; every function and type it names there is pg_catalog's.
+    const call = (ref: "OLD" | "NEW") =>
+      `${
+        storage.grouped
+          ? `PERFORM pg_catalog.pg_advisory_xact_lock(${space}, pg_catalog.hashtext(CAST(${row(ref)} AS pg_catalog.text))); `
+          : ""
+      }PERFORM ${recompute}(${storage.sourceKey
+        .map((column) => `${ref}.${quote(column)}`)
+        .join(", ")});`;
+    const row = (ref: string) =>
+      `ROW(${storage.sourceKey.map((column) => `${ref}.${quote(column)}`).join(", ")})`;
     const marker = viewMarker(view.hash);
     const trigger = (suffix: string, event: string) =>
-      `CREATE TRIGGER ${quote(autoViewObjectName(view.name, suffix))} AFTER ${event} ON ${source} FOR EACH ROW${
-        suffix === "_u"
-          ? ` WHEN (${text("OLD")} IS DISTINCT FROM ${text("NEW")})`
-          : ""
-      } EXECUTE FUNCTION ${fn}()`;
+      `CREATE TRIGGER ${quote(autoViewObjectName(view.name, suffix))} AFTER ${event} ON ${source} FOR EACH ROW EXECUTE FUNCTION ${fn}()`;
     return [
       [
-        // As its owner, the migration's role: a writer of the source needs no
-        // right on the view's table or on its body.
-        `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $viborm$`,
+        `CREATE FUNCTION ${recompute}(${parameters.map((name, at) => `${name} ${types[at]}`).join(", ")}) RETURNS void LANGUAGE sql SECURITY DEFINER`,
+        "BEGIN ATOMIC",
+        `  DELETE FROM ${table} WHERE ${match};`,
+        `  INSERT INTO ${table} (${columns}) SELECT ${columns} FROM ${body} WHERE ${match};`,
+        "END",
+      ].join("\n"),
+      `COMMENT ON FUNCTION ${recompute} IS ${this.escapeValue(marker)}`,
+      [
+        `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $viborm$`,
         `BEGIN -- ${marker}`,
-        `  IF TG_OP OPERATOR(pg_catalog.<>) 'INSERT' THEN`,
-        recompute("OLD"),
+        "  IF TG_OP <> 'INSERT' THEN",
+        `    ${call("OLD")}`,
         "  END IF;",
-        `  IF TG_OP ${eq} 'INSERT' THEN`,
-        recompute("NEW"),
-        `  ELSIF TG_OP ${eq} 'UPDATE' THEN`,
-        `    IF ${keyMoved} THEN`,
-        recompute("NEW").replaceAll(/^ {6}/gm, "        "),
+        "  IF TG_OP = 'INSERT' THEN",
+        `    ${call("NEW")}`,
+        "  ELSIF TG_OP = 'UPDATE' THEN",
+        `    IF ${row("NEW")} IS DISTINCT FROM ${row("OLD")} THEN`,
+        `      ${call("NEW")}`,
         "    END IF;",
         "  END IF;",
         "  RETURN NULL;",
@@ -543,7 +559,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     ];
   }
 
-  /** A trigger is named on its table; the function takes its empty argument list. */
+  /** A trigger is named on its table; a function by its name alone, which is its view's. */
   protected override dropAutoViewObject(
     object: AutoViewObject,
     context: DDLContext
@@ -551,7 +567,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     if (object.kind === "trigger")
       return `DROP TRIGGER IF EXISTS ${this.escapeIdentifier(object.name)} ON ${this.qualify(object.table!)}`;
     if (object.kind === "function")
-      return `DROP FUNCTION IF EXISTS ${this.qualify(object.name)}()`;
+      return `DROP FUNCTION IF EXISTS ${this.qualify(object.name)}`;
     return super.dropAutoViewObject(object, context);
   }
   readonly driverName = "postgresql";

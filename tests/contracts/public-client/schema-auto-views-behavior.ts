@@ -382,7 +382,7 @@ export function runAutoViewsBehavior(provider: AutoViewsProvider): void {
     });
 
     test.runIf(dialect === "postgresql")(
-      "a native json column is kept: an update compares what the view reads as text",
+      "a native json column and a double a writer prints rounded are kept: an update that sets a column the view reads computes it again",
       async () => {
         const driver = await database();
         await cleared(driver);
@@ -391,25 +391,64 @@ export function runAutoViewsBehavior(provider: AutoViewsProvider): void {
             id: s.string().id(),
             kind: s.string(),
             payload: s.json(PG.JSON.JSON),
+            ratio: s.number(),
           })
           .map("av_events");
         const kept = s
-          .view(() => event, { select: { id: true, payload: true } })
+          .view(() => event, {
+            select: { id: true, payload: true, ratio: true },
+          })
           .materialized({ refresh: "auto" })
           .map("av_kept_events");
         const client = createClient({ driver, schema: { event, kept } });
         await syncLiveSchema(client as never);
         await client.event.create({
-          data: { id: "e1", kind: "a", payload: { n: 1 } },
+          data: { id: "e1", kind: "a", payload: { n: 1 }, ratio: 1 },
         });
         await client.event.update({
           where: { id: "e1" },
           data: { payload: { n: 2 } },
         });
         await client.event.update({ where: { id: "e1" }, data: { kind: "b" } });
+        // A double that prints as the one before at a writer's precision.
+        await client.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe("SET LOCAL extra_float_digits = 0");
+          await tx.$executeRawUnsafe(
+            `UPDATE "av_events" SET "ratio" = 1.000000000000001 WHERE "id" = 'e1'`
+          );
+        });
         expect(await client.kept.findMany()).toEqual([
-          { id: "e1", payload: { n: 2 } },
+          { id: "e1", payload: { n: 2 }, ratio: 1.000_000_000_000_001 },
         ]);
+        await cleared(driver);
+      }
+    );
+
+    test.runIf(provider.roles)(
+      "a group of an extension's type is found as the view's body groups it (citext)",
+      async () => {
+        const driver = await database();
+        await cleared(driver);
+        const raw = createClient({ driver, schema: {} });
+        await raw.$executeRawUnsafe("CREATE EXTENSION IF NOT EXISTS citext");
+        const tag = s
+          .model({ id: s.string().id(), label: s.string(PG.STRING.CITEXT) })
+          .map("av_tags");
+        const byLabel = s
+          .view(() => tag, { by: ["label"], _count: true })
+          .materialized({ refresh: "auto" })
+          .map("av_by_label");
+        const client = createClient({ driver, schema: { tag, byLabel } });
+        await syncLiveSchema(client as never);
+        await client.tag.create({ data: { id: "1", label: "Acme" } });
+        await client.tag.create({ data: { id: "2", label: "acme" } });
+        expect(await client.byLabel.findMany()).toEqual([
+          { label: "Acme", count: 2 },
+        ]);
+        await client.tag.delete({ where: { id: "1" } });
+        expect(
+          (await client.byLabel.findMany()).map(({ count }) => count)
+        ).toEqual([1]);
         await cleared(driver);
       }
     );
@@ -578,8 +617,13 @@ export function runAutoViewsBehavior(provider: AutoViewsProvider): void {
       expect((await syncLiveSchema(client as never)).operations).toEqual([]);
       // Its table dropped by hand: its triggers are left, and the next push
       // creates it again over them.
+      // PostgreSQL holds its recompute function to it: CASCADE drops that.
       await client.$executeRawUnsafe(
-        dialect === "mysql" ? "DROP TABLE `av_paid`" : 'DROP TABLE "av_paid"'
+        dialect === "mysql"
+          ? "DROP TABLE `av_paid`"
+          : dialect === "postgresql"
+            ? 'DROP TABLE "av_paid" CASCADE'
+            : 'DROP TABLE "av_paid"'
       );
       // Its body's view, left too, reads as an ordinary view it drops.
       const created = await syncLiveSchema(client as never);

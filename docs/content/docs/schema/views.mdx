@@ -450,13 +450,17 @@ is the view's key: its source's id, or its `by` fields):
 - three triggers on the source, `<view>_viborm_i`, `_u` and `_d`, after each
   insert, update and delete; an update fires them only where a column the
   view reads changed;
-- on PostgreSQL, the function they call, `<view>_viborm()`. Two writes to
-  one group wait for each other on a lock of that group for the transaction
-  (`pg_advisory_xact_lock`): without it, the second write would be refused.
-  It runs as its owner, the role that ran the migration (`SECURITY
-  DEFINER`, every function, operator and type it names qualified by
-  `pg_catalog`), as a MySQL trigger runs as its definer: a role that writes
-  the source needs no right on the view's table;
+- on PostgreSQL (14 or later), the function they call, `<view>_viborm()`,
+  and the one that computes a row or a group again, `<view>_viborm_k`, a
+  SQL function parsed when it is created (`BEGIN ATOMIC`): its comparisons
+  are resolved as the migration resolves them, so a key of an extension's
+  type (`citext`) compares as the view groups it. It runs as its owner, the
+  role that ran the migration (`SECURITY DEFINER`), as a MySQL trigger runs
+  as its definer: a role that writes the source needs no right on the
+  view's table. Two writes to one group wait for each other on a lock of
+  that group for the transaction (`pg_advisory_xact_lock`): without it, the
+  second write would be refused. Dropping the view's table by hand takes
+  `CASCADE` there, which that function depends on;
 - on MySQL, a trigger before each delete of a parent whose `onDelete`
   cascade (or `setNull` of a column the view reads) reaches the source,
   `<view>_viborm_on_<parent>`: MySQL runs no trigger for the rows a cascade
